@@ -5,122 +5,59 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const onLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError(null)
     setLoading(true)
-    setMessage('')
-  
-    console.log('🔑 מנסה להתחבר עם:', email)
-  
-    const { data, error } = await supabase.auth.signInWithPassword({
+
+    const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
-  
-    console.log('📊 תוצאה:', { data, error })
-  
-    if (error) {
-      console.error('❌ שגיאה:', error)
-      setMessage('שגיאה: ' + error.message)
-    } else {
-      console.log('✅ הצלחה! Session:', data.session)
-      setMessage('התחברת בהצלחה!')
-    }
-  
+
     setLoading(false)
+    if (error) setError(error.message)
   }
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: '#1a1a1a'
-    }}>
-      <div style={{
-        background: '#2a2a2a',
-        padding: '40px',
-        borderRadius: '10px',
-        width: '100%',
-        maxWidth: '400px',
-        direction: 'rtl'
-      }}>
-        <h1 style={{ color: 'white', marginBottom: '30px', textAlign: 'center' }}>
-          התחברות למערכת
-        </h1>
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: 'white' }}>
+      <form onSubmit={onLogin} style={{ width: 360, background: '#1b1b1b', padding: 24, borderRadius: 12 }}>
+        <div style={{ fontSize: 18, marginBottom: 16 }}>ברוך הבא</div>
 
-        <form onSubmit={handleLogin}>
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ color: 'white', display: 'block', marginBottom: '5px' }}>
-              אימייל
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              style={{
-                width: '100%',
-                padding: '10px',
-                borderRadius: '5px',
-                border: '1px solid #444',
-                background: '#1a1a1a',
-                color: 'white'
-              }}
-            />
-          </div>
+        <label style={{ display: 'block', marginBottom: 6 }}>אימייל</label>
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          type="email"
+          autoComplete="email"
+          style={{ width: '100%', padding: 10, marginBottom: 12 }}
+        />
 
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ color: 'white', display: 'block', marginBottom: '5px' }}>
-              סיסמה
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              style={{
-                width: '100%',
-                padding: '10px',
-                borderRadius: '5px',
-                border: '1px solid #444',
-                background: '#1a1a1a',
-                color: 'white'
-              }}
-            />
-          </div>
+        <label style={{ display: 'block', marginBottom: 6 }}>סיסמה</label>
+        <input
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          type="password"
+          autoComplete="current-password"
+          style={{ width: '100%', padding: 10, marginBottom: 12 }}
+        />
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: '100%',
-              padding: '12px',
-              background: loading ? '#555' : '#10b981',
-              color: 'white',
-              border: 'none',
-              borderRadius: '5px',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: '16px'
-            }}
-          >
-            {loading ? 'מתחבר...' : 'התחבר'}
-          </button>
+        {error && <div style={{ color: 'salmon', marginBottom: 12 }}>{error}</div>}
 
-          {message && (
-            <p style={{
-              marginTop: '20px',
-              color: message.includes('שגיאה') ? '#ef4444' : '#10b981',
-              textAlign: 'center'
-            }}>
-              {message}
-            </p>
-          )}
-        </form>
-      </div>
+        <button
+          type="submit"
+          disabled={loading}
+          style={{ width: '100%', padding: 12, background: '#e53935', color: 'white', border: 0, borderRadius: 8 }}
+        >
+          {loading ? 'מתחבר' : 'התחבר'}
+        </button>
+
+        <div style={{ fontSize: 12, opacity: 0.8, marginTop: 12 }}>
+          אם שכחת סיסמה: השתמש ב Send password recovery בסופאבייס
+        </div>
+      </form>
     </div>
   )
 }
