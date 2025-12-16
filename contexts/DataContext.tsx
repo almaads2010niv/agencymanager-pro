@@ -5,6 +5,7 @@ import {
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS, STORAGE_KEY } from '../constants';
 import { getMonthKey, generateId } from '../utils';
+import { supabase } from '../lib/supabaseClient';
 
 interface DataContextType extends AppData {
   addClient: (client: Omit<Client, 'clientId' | 'addedAt'>) => void;
@@ -30,6 +31,140 @@ interface DataContextType extends AppData {
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
+// Transformation functions: DB (snake_case) <-> TypeScript (camelCase)
+const transformClientToDB = (client: Client) => ({
+  client_id: client.clientId,
+  client_name: client.clientName,
+  business_name: client.businessName,
+  phone: client.phone,
+  email: client.email,
+  industry: client.industry,
+  rating: client.rating,
+  status: client.status,
+  join_date: client.joinDate,
+  monthly_retainer: client.monthlyRetainer,
+  billing_day: client.billingDay,
+  services: JSON.stringify(client.services),
+  effort_level: client.effortLevel,
+  supplier_cost_monthly: client.supplierCostMonthly,
+  notes: client.notes,
+  next_review_date: client.nextReviewDate,
+  added_at: client.addedAt,
+});
+
+const transformClientFromDB = (row: any): Client => ({
+  clientId: row.client_id,
+  clientName: row.client_name,
+  businessName: row.business_name,
+  phone: row.phone,
+  email: row.email,
+  industry: row.industry,
+  rating: row.rating,
+  status: row.status,
+  joinDate: row.join_date,
+  monthlyRetainer: row.monthly_retainer,
+  billingDay: row.billing_day,
+  services: typeof row.services === 'string' ? JSON.parse(row.services) : (row.services || []),
+  effortLevel: row.effort_level,
+  supplierCostMonthly: row.supplier_cost_monthly,
+  notes: row.notes || '',
+  nextReviewDate: row.next_review_date || '',
+  addedAt: row.added_at,
+});
+
+const transformLeadToDB = (lead: Lead) => ({
+  lead_id: lead.leadId,
+  created_at: lead.createdAt,
+  lead_name: lead.leadName,
+  business_name: lead.businessName,
+  phone: lead.phone,
+  email: lead.email,
+  source_channel: lead.sourceChannel,
+  interested_services: JSON.stringify(lead.interestedServices),
+  notes: lead.notes,
+  next_contact_date: lead.nextContactDate,
+  status: lead.status,
+  quoted_monthly_value: lead.quotedMonthlyValue,
+  related_client_id: lead.relatedClientId,
+});
+
+const transformLeadFromDB = (row: any): Lead => ({
+  leadId: row.lead_id,
+  createdAt: row.created_at,
+  leadName: row.lead_name,
+  businessName: row.business_name,
+  phone: row.phone,
+  email: row.email,
+  sourceChannel: row.source_channel,
+  interestedServices: typeof row.interested_services === 'string' ? JSON.parse(row.interested_services) : (row.interested_services || []),
+  notes: row.notes || '',
+  nextContactDate: row.next_contact_date,
+  status: row.status,
+  quotedMonthlyValue: row.quoted_monthly_value,
+  relatedClientId: row.related_client_id,
+});
+
+const transformDealToDB = (deal: OneTimeDeal) => ({
+  deal_id: deal.dealId,
+  client_id: deal.clientId,
+  deal_name: deal.dealName,
+  deal_type: deal.dealType,
+  deal_amount: deal.dealAmount,
+  deal_date: deal.dealDate,
+  deal_status: deal.dealStatus,
+  supplier_cost: deal.supplierCost,
+  notes: deal.notes,
+});
+
+const transformDealFromDB = (row: any): OneTimeDeal => ({
+  dealId: row.deal_id,
+  clientId: row.client_id,
+  dealName: row.deal_name,
+  dealType: row.deal_type,
+  dealAmount: row.deal_amount,
+  dealDate: row.deal_date,
+  dealStatus: row.deal_status,
+  supplierCost: row.supplier_cost,
+  notes: row.notes || '',
+});
+
+const transformExpenseToDB = (expense: SupplierExpense) => ({
+  expense_id: expense.expenseId,
+  client_id: expense.clientId || null,
+  expense_date: expense.expenseDate,
+  month_key: expense.monthKey,
+  supplier_name: expense.supplierName,
+  expense_type: expense.expenseType,
+  amount: expense.amount,
+  notes: expense.notes,
+});
+
+const transformExpenseFromDB = (row: any): SupplierExpense => ({
+  expenseId: row.expense_id,
+  clientId: row.client_id,
+  expenseDate: row.expense_date,
+  monthKey: row.month_key,
+  supplierName: row.supplier_name,
+  expenseType: row.expense_type,
+  amount: row.amount,
+  notes: row.notes || '',
+});
+
+const transformSettingsToDB = (settings: AgencySettings) => ({
+  id: 1, // Single row for settings
+  agency_name: settings.agencyName,
+  owner_name: settings.ownerName,
+  target_monthly_revenue: settings.targetMonthlyRevenue,
+  target_monthly_gross_profit: settings.targetMonthlyGrossProfit,
+});
+
+const transformSettingsFromDB = (row: any): AgencySettings => ({
+  agencyName: row.agency_name,
+  ownerName: row.owner_name,
+  targetMonthlyRevenue: row.target_monthly_revenue,
+  targetMonthlyGrossProfit: row.target_monthly_gross_profit,
+});
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [data, setData] = useState<AppData>({
     clients: [],
@@ -43,63 +178,147 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // Load data from Supabase on mount
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
+    const loadData = async () => {
       try {
-        const parsed = JSON.parse(stored);
+        // Check auth first
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          console.warn('No session found, skipping data load');
+          setIsLoaded(true);
+          return;
+        }
+
+        // Load all data in parallel
+        const [clientsRes, leadsRes, dealsRes, expensesRes, settingsRes] = await Promise.all([
+          supabase.from('clients').select('*').order('added_at', { ascending: false }),
+          supabase.from('leads').select('*').order('created_at', { ascending: false }),
+          supabase.from('deals').select('*').order('deal_date', { ascending: false }),
+          supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
+          supabase.from('settings').select('*').single()
+        ]);
+
+        // Handle errors
+        if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
+        if (leadsRes.error) console.error('Error loading leads:', leadsRes.error);
+        if (dealsRes.error) console.error('Error loading deals:', dealsRes.error);
+        if (expensesRes.error) console.error('Error loading expenses:', expensesRes.error);
+
+        // Transform Supabase data to TypeScript types
+        const clients = (clientsRes.data || []).map(transformClientFromDB);
+        const leads = (leadsRes.data || []).map(transformLeadFromDB);
+        const deals = (dealsRes.data || []).map(transformDealFromDB);
+        const expenses = (expensesRes.data || []).map(transformExpenseFromDB);
+
+        // Load settings or use defaults
+        let settings = DEFAULT_SETTINGS;
+        if (settingsRes.data && !settingsRes.error) {
+          settings = transformSettingsFromDB(settingsRes.data);
+        } else {
+          // Initialize settings if not exists
+          await supabase.from('settings').upsert(transformSettingsToDB(DEFAULT_SETTINGS));
+        }
+
+        // Payments are calculated from clients, so we'll generate them
+        const payments: Payment[] = [];
+
         setData({
-          ...parsed,
-          services: parsed.services || INITIAL_SERVICES, // Fallback for schema updates
-          settings: parsed.settings || DEFAULT_SETTINGS
+          clients,
+          leads,
+          oneTimeDeals: deals,
+          expenses,
+          payments,
+          services: INITIAL_SERVICES, // Services are static for now
+          settings
         });
-      } catch (e) {
-        console.error("Failed to parse storage", e);
+      } catch (error) {
+        console.error('Error loading data from Supabase:', error);
+      } finally {
+        setIsLoaded(true);
       }
-    }
-    setIsLoaded(true);
+    };
+
+    loadData();
   }, []);
 
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    }
-  }, [data, isLoaded]);
-
-  const addClient = (client: Omit<Client, 'clientId' | 'addedAt'>) => {
+  const addClient = async (client: Omit<Client, 'clientId' | 'addedAt'>) => {
     const newClient: Client = {
       ...client,
       clientId: generateId(),
       addedAt: new Date().toISOString()
     };
-    
-    // Auto-create payment record for current month
-    const newPayment: Payment = {
-      paymentId: generateId(),
-      clientId: newClient.clientId,
-      periodMonth: getMonthKey(new Date()),
-      amountDue: newClient.monthlyRetainer,
-      amountPaid: 0,
-      paymentStatus: PaymentStatus.Unpaid,
-      notes: 'נוצר אוטומטית עם הקמת לקוח'
-    };
 
-    setData(prev => ({
-      ...prev,
-      clients: [...prev.clients, newClient],
-      payments: [...prev.payments, newPayment]
-    }));
+    try {
+      const { error } = await supabase
+        .from('clients')
+        .insert(transformClientToDB(newClient));
+
+      if (error) {
+        console.error('Error adding client:', error);
+        throw error;
+      }
+
+      setData(prev => ({
+        ...prev,
+        clients: [...prev.clients, newClient]
+      }));
+    } catch (error) {
+      console.error('Failed to add client:', error);
+      throw error;
+    }
   };
 
-  const updateClient = (client: Client) => {
-    setData(prev => ({
-      ...prev,
-      clients: prev.clients.map(c => c.clientId === client.clientId ? client : c)
-    }));
+  const updateClient = async (client: Client) => {
+    try {
+      const { error } = await supabase
+        .from('clients')
+        .update(transformClientToDB(client))
+        .eq('client_id', client.clientId);
+
+      if (error) {
+        console.error('Error updating client:', error);
+        throw error;
+      }
+
+      setData(prev => ({
+        ...prev,
+        clients: prev.clients.map(c => c.clientId === client.clientId ? client : c)
+      }));
+    } catch (error) {
+      console.error('Failed to update client:', error);
+      throw error;
+    }
   };
 
-  const deleteClient = (id: string) => {
-    if(confirm('האם אתה בטוח? פעולה זו תמחק את כל הנתונים הקשורים ללקוח זה.')) {
+  const deleteClient = async (id: string) => {
+    if(!confirm('האם אתה בטוח? פעולה זו תמחק את כל הנתונים הקשורים ללקוח זה.')) {
+      return;
+    }
+
+    try {
+      // Delete related deals and expenses first (or let DB handle with CASCADE)
+      await supabase
+        .from('deals')
+        .delete()
+        .eq('client_id', id);
+      
+      await supabase
+        .from('expenses')
+        .delete()
+        .eq('client_id', id);
+
+      // Delete client
+      const { error } = await supabase
+        .from('clients')
+        .delete()
+        .eq('client_id', id);
+
+      if (error) {
+        console.error('Error deleting client:', error);
+        throw error;
+      }
+
       setData(prev => ({
         ...prev,
         clients: prev.clients.filter(c => c.clientId !== id),
@@ -107,86 +326,213 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         expenses: prev.expenses.filter(e => e.clientId !== id),
         payments: prev.payments.filter(p => p.clientId !== id)
       }));
+    } catch (error) {
+      console.error('Failed to delete client:', error);
+      throw error;
     }
   };
 
-  const addLead = (lead: Omit<Lead, 'leadId' | 'createdAt'>) => {
+  const addLead = async (lead: Omit<Lead, 'leadId' | 'createdAt'>) => {
     const newLead: Lead = {
       ...lead,
       leadId: generateId(),
       createdAt: new Date().toISOString()
     };
-    setData(prev => ({ ...prev, leads: [...prev.leads, newLead] }));
+
+    try {
+      const { error } = await supabase
+        .from('leads')
+        .insert(transformLeadToDB(newLead));
+
+      if (error) {
+        console.error('Error adding lead:', error);
+        throw error;
+      }
+
+      setData(prev => ({ ...prev, leads: [...prev.leads, newLead] }));
+    } catch (error) {
+      console.error('Failed to add lead:', error);
+      throw error;
+    }
   };
 
-  const updateLead = (lead: Lead) => {
-    setData(prev => ({
-      ...prev,
-      leads: prev.leads.map(l => l.leadId === lead.leadId ? lead : l)
-    }));
+  const updateLead = async (lead: Lead) => {
+    try {
+      const { error } = await supabase
+        .from('leads')
+        .update(transformLeadToDB(lead))
+        .eq('lead_id', lead.leadId);
+
+      if (error) {
+        console.error('Error updating lead:', error);
+        throw error;
+      }
+
+      setData(prev => ({
+        ...prev,
+        leads: prev.leads.map(l => l.leadId === lead.leadId ? lead : l)
+      }));
+    } catch (error) {
+      console.error('Failed to update lead:', error);
+      throw error;
+    }
   };
 
-  const deleteLead = (id: string) => {
-    setData(prev => ({
-      ...prev,
-      leads: prev.leads.filter(l => l.leadId !== id)
-    }));
+  const deleteLead = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('leads')
+        .delete()
+        .eq('lead_id', id);
+
+      if (error) {
+        console.error('Error deleting lead:', error);
+        throw error;
+      }
+
+      setData(prev => ({
+        ...prev,
+        leads: prev.leads.filter(l => l.leadId !== id)
+      }));
+    } catch (error) {
+      console.error('Failed to delete lead:', error);
+      throw error;
+    }
   };
 
-  const convertLeadToClient = (leadId: string, clientData: Omit<Client, 'clientId' | 'addedAt'>) => {
+  const convertLeadToClient = async (leadId: string, clientData: Omit<Client, 'clientId' | 'addedAt'>) => {
     const newClient: Client = {
       ...clientData,
       clientId: generateId(),
       addedAt: new Date().toISOString()
     };
 
-    const newPayment: Payment = {
-      paymentId: generateId(),
-      clientId: newClient.clientId,
-      periodMonth: getMonthKey(new Date()),
-      amountDue: newClient.monthlyRetainer,
-      amountPaid: 0,
-      paymentStatus: PaymentStatus.Unpaid,
-      notes: 'נוצר אוטומטית המרה מליד'
-    };
+    try {
+      // Add client
+      const { error: clientError } = await supabase
+        .from('clients')
+        .insert(transformClientToDB(newClient));
 
-    setData(prev => ({
-      ...prev,
-      clients: [...prev.clients, newClient],
-      payments: [...prev.payments, newPayment],
-      leads: prev.leads.map(l => l.leadId === leadId ? { ...l, status: 'Won' as any, relatedClientId: newClient.clientId } : l)
-    }));
+      if (clientError) {
+        console.error('Error adding client from lead:', clientError);
+        throw clientError;
+      }
+
+      // Update lead status
+      const lead = data.leads.find(l => l.leadId === leadId);
+      if (lead) {
+        const updatedLead = { ...lead, status: 'Won' as any, relatedClientId: newClient.clientId };
+        const { error: leadError } = await supabase
+          .from('leads')
+          .update(transformLeadToDB(updatedLead))
+          .eq('lead_id', leadId);
+
+        if (leadError) {
+          console.error('Error updating lead:', leadError);
+          throw leadError;
+        }
+
+        setData(prev => ({
+          ...prev,
+          clients: [...prev.clients, newClient],
+          leads: prev.leads.map(l => l.leadId === leadId ? updatedLead : l)
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to convert lead to client:', error);
+      throw error;
+    }
   };
 
-  const addDeal = (deal: Omit<OneTimeDeal, 'dealId'>) => {
+  const addDeal = async (deal: Omit<OneTimeDeal, 'dealId'>) => {
     const newDeal: OneTimeDeal = {
       ...deal,
       dealId: generateId()
     };
-    setData(prev => ({ ...prev, oneTimeDeals: [...prev.oneTimeDeals, newDeal] }));
+
+    try {
+      const { error } = await supabase
+        .from('deals')
+        .insert(transformDealToDB(newDeal));
+
+      if (error) {
+        console.error('Error adding deal:', error);
+        throw error;
+      }
+
+      setData(prev => ({ ...prev, oneTimeDeals: [...prev.oneTimeDeals, newDeal] }));
+    } catch (error) {
+      console.error('Failed to add deal:', error);
+      throw error;
+    }
   };
 
-  const updateDeal = (deal: OneTimeDeal) => {
-    setData(prev => ({
-      ...prev,
-      oneTimeDeals: prev.oneTimeDeals.map(d => d.dealId === deal.dealId ? deal : d)
-    }));
+  const updateDeal = async (deal: OneTimeDeal) => {
+    try {
+      const { error } = await supabase
+        .from('deals')
+        .update(transformDealToDB(deal))
+        .eq('deal_id', deal.dealId);
+
+      if (error) {
+        console.error('Error updating deal:', error);
+        throw error;
+      }
+
+      setData(prev => ({
+        ...prev,
+        oneTimeDeals: prev.oneTimeDeals.map(d => d.dealId === deal.dealId ? deal : d)
+      }));
+    } catch (error) {
+      console.error('Failed to update deal:', error);
+      throw error;
+    }
   };
 
-  const addExpense = (expense: Omit<SupplierExpense, 'expenseId'>) => {
+  const addExpense = async (expense: Omit<SupplierExpense, 'expenseId'>) => {
     const newExpense: SupplierExpense = {
       ...expense,
       expenseId: generateId()
     };
-    setData(prev => ({ ...prev, expenses: [...prev.expenses, newExpense] }));
+
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .insert(transformExpenseToDB(newExpense));
+
+      if (error) {
+        console.error('Error adding expense:', error);
+        throw error;
+      }
+
+      setData(prev => ({ ...prev, expenses: [...prev.expenses, newExpense] }));
+    } catch (error) {
+      console.error('Failed to add expense:', error);
+      throw error;
+    }
   };
 
   const updateServices = (services: Service[]) => {
+    // Services are static for now, but keep in state for UI
     setData(prev => ({ ...prev, services }));
   };
 
-  const updateSettings = (settings: AgencySettings) => {
-    setData(prev => ({ ...prev, settings }));
+  const updateSettings = async (settings: AgencySettings) => {
+    try {
+      const { error } = await supabase
+        .from('settings')
+        .upsert(transformSettingsToDB(settings));
+
+      if (error) {
+        console.error('Error updating settings:', error);
+        throw error;
+      }
+
+      setData(prev => ({ ...prev, settings }));
+    } catch (error) {
+      console.error('Failed to update settings:', error);
+      throw error;
+    }
   };
 
   const importData = (json: string): boolean => {
