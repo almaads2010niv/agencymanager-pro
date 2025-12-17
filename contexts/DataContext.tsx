@@ -21,6 +21,10 @@ interface DataContextType extends AppData {
   updateDeal: (deal: OneTimeDeal) => void;
   
   addExpense: (expense: Omit<SupplierExpense, 'expenseId'>) => void;
+
+  addPayment: (payment: Omit<Payment, 'paymentId'>) => void;
+  updatePayment: (payment: Payment) => void;
+  deletePayment: (id: string) => void;
   
   updateServices: (services: Service[]) => void;
   updateSettings: (settings: AgencySettings) => void;
@@ -180,6 +184,28 @@ const transformExpenseFromDB = (row: any): SupplierExpense => ({
   notes: row.notes || '',
 });
 
+const transformPaymentToDB = (payment: Payment) => ({
+  payment_id: payment.paymentId,
+  client_id: payment.clientId,
+  period_month: payment.periodMonth,
+  amount_due: payment.amountDue,
+  amount_paid: payment.amountPaid,
+  payment_date: payment.paymentDate || null,
+  payment_status: payment.paymentStatus,
+  notes: payment.notes,
+});
+
+const transformPaymentFromDB = (row: any): Payment => ({
+  paymentId: row.payment_id,
+  clientId: row.client_id,
+  periodMonth: row.period_month,
+  amountDue: row.amount_due,
+  amountPaid: row.amount_paid,
+  paymentDate: row.payment_date,
+  paymentStatus: row.payment_status,
+  notes: row.notes || '',
+});
+
 const transformSettingsToDB = (settings: AgencySettings) => ({
   id: 1, // Single row for settings
   agency_name: settings.agencyName,
@@ -221,11 +247,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // Load all data in parallel
-        const [clientsRes, leadsRes, dealsRes, expensesRes, settingsRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
           supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
+          supabase.from('payments').select('*').order('period_month', { ascending: false }),
           supabase.from('settings').select('*').single()
         ]);
 
@@ -234,12 +261,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (leadsRes.error) console.error('Error loading leads:', leadsRes.error);
         if (dealsRes.error) console.error('Error loading deals:', dealsRes.error);
         if (expensesRes.error) console.error('Error loading expenses:', expensesRes.error);
+        if (paymentsRes.error) console.error('Error loading payments:', paymentsRes.error);
 
         // Transform Supabase data to TypeScript types
         const clients = (clientsRes.data || []).map(transformClientFromDB);
         const leads = (leadsRes.data || []).map(transformLeadFromDB);
         const deals = (dealsRes.data || []).map(transformDealFromDB);
         const expenses = (expensesRes.data || []).map(transformExpenseFromDB);
+        const payments = (paymentsRes.data || []).map(transformPaymentFromDB);
 
         // Load settings or use defaults
         let settings = DEFAULT_SETTINGS;
@@ -249,9 +278,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Initialize settings if not exists
           await supabase.from('settings').upsert(transformSettingsToDB(DEFAULT_SETTINGS));
         }
-
-        // Payments are calculated from clients, so we'll generate them
-        const payments: Payment[] = [];
 
         setData({
           clients,
@@ -542,6 +568,77 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const addPayment = async (payment: Omit<Payment, 'paymentId'>) => {
+    const newPayment: Payment = {
+      ...payment,
+      paymentId: generateId()
+    };
+
+    try {
+      const { error } = await supabase
+        .from('payments')
+        .insert(transformPaymentToDB(newPayment));
+
+      if (error) {
+        console.error('Error adding payment:', error);
+        throw error;
+      }
+
+      setData(prev => ({ ...prev, payments: [...prev.payments, newPayment] }));
+    } catch (error) {
+      console.error('Failed to add payment:', error);
+      throw error;
+    }
+  };
+
+  const updatePayment = async (payment: Payment) => {
+    try {
+      const { error } = await supabase
+        .from('payments')
+        .update(transformPaymentToDB(payment))
+        .eq('payment_id', payment.paymentId);
+
+      if (error) {
+        console.error('Error updating payment:', error);
+        throw error;
+      }
+
+      setData(prev => ({
+        ...prev,
+        payments: prev.payments.map(p => p.paymentId === payment.paymentId ? payment : p)
+      }));
+    } catch (error) {
+      console.error('Failed to update payment:', error);
+      throw error;
+    }
+  };
+
+  const deletePayment = async (id: string) => {
+    if(!confirm('האם אתה בטוח שברצונך למחוק חוב זה?')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('payments')
+        .delete()
+        .eq('payment_id', id);
+
+      if (error) {
+        console.error('Error deleting payment:', error);
+        throw error;
+      }
+
+      setData(prev => ({
+        ...prev,
+        payments: prev.payments.filter(p => p.paymentId !== id)
+      }));
+    } catch (error) {
+      console.error('Failed to delete payment:', error);
+      throw error;
+    }
+  };
+
   const updateServices = (services: Service[]) => {
     // Services are static for now, but keep in state for UI
     setData(prev => ({ ...prev, services }));
@@ -591,6 +688,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addLead, updateLead, deleteLead, convertLeadToClient,
       addDeal, updateDeal,
       addExpense,
+      addPayment, updatePayment, deletePayment,
       updateServices, updateSettings,
       importData, exportData
     }}>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Settings, Briefcase } from 'lucide-react';
+import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Settings, Briefcase, CreditCard } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { tokens } from '../design/tokens';
 
@@ -61,6 +61,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <SidebarItem to="/leads" icon={UserPlus} label="לידים" isActive={location.pathname === '/leads'} onClick={closeSidebar} />
             <SidebarItem to="/deals" icon={Briefcase} label="פרויקטים" isActive={location.pathname === '/deals'} onClick={closeSidebar} />
             <SidebarItem to="/expenses" icon={Receipt} label="הוצאות" isActive={location.pathname === '/expenses'} onClick={closeSidebar} />
+            <SidebarItem to="/debts" icon={CreditCard} label="חובות לקוחות" isActive={location.pathname === '/debts'} onClick={closeSidebar} />
             <SidebarItem to="/settings" icon={Settings} label="הגדרות" isActive={location.pathname === '/settings'} onClick={closeSidebar} />
           </nav>
 

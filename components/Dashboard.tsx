@@ -46,7 +46,7 @@ const Dashboard: React.FC = () => {
   const activeClients = clients.filter(c => c.status === ClientStatus.Active);
   const activeClientsCount = activeClients.length;
   const newClientsThisMonth = clients.filter(c => getMonthKey(new Date(c.joinDate)) === currentMonthKey).length;
-  const churnedClientsThisMonth = clients.filter(c => c.status === ClientStatus.Left && getMonthKey(new Date(c.nextReviewDate)) === currentMonthKey).length;
+  const churnedClientsThisMonth = clients.filter(c => c.status === ClientStatus.Left && c.churnDate && getMonthKey(new Date(c.churnDate)) === currentMonthKey).length;
   const monthlyMRR = activeClients.reduce((sum, c) => sum + (c.monthlyRetainer || 0), 0) + 
                      clients.filter(c => c.status === ClientStatus.Paused).reduce((sum, c) => sum + (c.monthlyRetainer || 0), 0);
   const totalSupplierCostCurrentMonth = expenses
@@ -78,7 +78,7 @@ const Dashboard: React.FC = () => {
   const clientFlowData = months.map(mKey => ({
     name: getMonthName(mKey),
     new: clients.filter(c => getMonthKey(new Date(c.joinDate)) === mKey).length,
-    left: clients.filter(c => c.status === ClientStatus.Left && getMonthKey(new Date(c.nextReviewDate)) === mKey).length
+    left: clients.filter(c => c.status === ClientStatus.Left && c.churnDate && getMonthKey(new Date(c.churnDate)) === mKey).length
   }));
 
   return (

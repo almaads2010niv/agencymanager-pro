@@ -11,6 +11,7 @@ import Clients from './components/Clients'
 import Leads from './components/Leads'
 import Deals from './components/Deals'
 import Expenses from './components/Expenses'
+import Debts from './components/Debts'
 import Settings from './components/Settings'
 import Login from './components/Login'
 
@@ -55,6 +56,7 @@ function App() {
             <Route path="/leads" element={<Leads />} />
             <Route path="/deals" element={<Deals />} />
             <Route path="/expenses" element={<Expenses />} />
+            <Route path="/debts" element={<Debts />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </Layout>
