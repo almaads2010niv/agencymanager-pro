@@ -95,7 +95,7 @@ const Leads: React.FC = () => {
         </div>
         <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
           <option value="all">כל הסטטוסים</option>
-          {Object.values(LeadStatus).map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+          {Object.values(LeadStatus).map(s => <option key={s} value={s}>{s}</option>)}
         </Select>
       </Card>
 
@@ -103,7 +103,7 @@ const Leads: React.FC = () => {
         {filteredLeads.map(lead => (
           <Card key={lead.leadId} hoverEffect className="relative flex flex-col h-full border-t-4 border-t-transparent hover:border-t-primary transition-all">
              <div className="flex justify-between items-start mb-4">
-                <Badge variant={getStatusColor(lead.status)}>{lead.status.replace(/_/g, ' ')}</Badge>
+                <Badge variant={getStatusColor(lead.status)}>{lead.status}</Badge>
                 {lead.status !== LeadStatus.Won && lead.status !== LeadStatus.Lost && (
                     <div className="flex gap-1">
                         <Button variant="ghost" onClick={() => handleConvertToClient(lead)} className="p-1.5 text-emerald-400 hover:bg-emerald-500/10"><CheckCircle size={16}/></Button>
@@ -163,7 +163,7 @@ const Leads: React.FC = () => {
                     <Input label="תאריך קשר הבא" type="date" value={editingLead.nextContactDate ? new Date(editingLead.nextContactDate).toISOString().split('T')[0] : ''} onChange={e => setEditingLead({...editingLead, nextContactDate: e.target.value})} />
                 </div>
                 <Select label="סטטוס" value={editingLead.status} onChange={e => setEditingLead({...editingLead, status: e.target.value as LeadStatus})}>
-                    {Object.values(LeadStatus).map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                    {Object.values(LeadStatus).map(s => <option key={s} value={s}>{s}</option>)}
                 </Select>
                 <div>
                      <label className="text-xs font-medium text-gray-400 uppercase tracking-wider block mb-2">שירותים מתעניינים</label>

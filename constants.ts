@@ -12,6 +12,7 @@ export const INITIAL_SERVICES: Service[] = [
   { serviceKey: 'consulting', label: 'ייעוץ אסטרטגי', isActive: true },
   { serviceKey: 'graphics', label: 'עיצוב גרפי', isActive: true },
   { serviceKey: 'video_editing', label: 'עריכת וידאו', isActive: true },
+  { serviceKey: 'mailing_sms', label: 'דיוור, SMS', isActive: true },
 ];
 
 export const DEFAULT_SETTINGS: AgencySettings = {

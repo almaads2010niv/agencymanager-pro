@@ -6,10 +6,10 @@ export enum ClientRating {
 }
 
 export enum ClientStatus {
-  Active = "Active",
-  Paused = "Paused",
-  Leaving = "Leaving",
-  Left = "Left"
+  Active = "פעיל",
+  Paused = "מושהה",
+  Leaving = "בתהליך עזיבה",
+  Left = "עזב"
 }
 
 export enum EffortLevel {
@@ -28,6 +28,7 @@ export interface Client {
   rating: ClientRating;
   status: ClientStatus;
   joinDate: string; // ISO Date string
+  churnDate?: string; // ISO Date string - תאריך נטישה
   monthlyRetainer: number;
   billingDay: number;
   services: string[]; // Service keys
@@ -39,14 +40,14 @@ export interface Client {
 }
 
 export enum LeadStatus {
-  New = "New",
-  Contacted = "Contacted",
-  Proposal_sent = "Proposal_sent",
-  Meeting_scheduled = "Meeting_scheduled",
-  Pending_decision = "Pending_decision",
-  Won = "Won",
-  Lost = "Lost",
-  Not_relevant = "Not_relevant"
+  New = "חדש",
+  Contacted = "נוצר קשר",
+  Proposal_sent = "נשלחה הצעה",
+  Meeting_scheduled = "נקבעה פגישה",
+  Pending_decision = "ממתין להחלטה",
+  Won = "נסגר בהצלחה",
+  Lost = "אבוד",
+  Not_relevant = "לא רלוונטי"
 }
 
 export enum SourceChannel {

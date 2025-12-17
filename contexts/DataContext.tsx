@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { 
   AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service, 
-  AgencySettings, PaymentStatus 
+  AgencySettings, PaymentStatus, LeadStatus 
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS, STORAGE_KEY } from '../constants';
 import { getMonthKey, generateId } from '../utils';
@@ -31,6 +31,34 @@ interface DataContextType extends AppData {
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
+// Migration mappings: Old English values -> New Hebrew values
+const CLIENT_STATUS_MIGRATION: Record<string, string> = {
+  'Active': 'פעיל',
+  'Paused': 'מושהה',
+  'Leaving': 'בתהליך עזיבה',
+  'Left': 'עזב',
+};
+
+const LEAD_STATUS_MIGRATION: Record<string, string> = {
+  'New': 'חדש',
+  'Contacted': 'נוצר קשר',
+  'Proposal_sent': 'נשלחה הצעה',
+  'Meeting_scheduled': 'נקבעה פגישה',
+  'Pending_decision': 'ממתין להחלטה',
+  'Won': 'נסגר בהצלחה',
+  'Lost': 'אבוד',
+  'Not_relevant': 'לא רלוונטי',
+};
+
+// Helper function to migrate status values
+const migrateClientStatus = (status: string): string => {
+  return CLIENT_STATUS_MIGRATION[status] || status;
+};
+
+const migrateLeadStatus = (status: string): string => {
+  return LEAD_STATUS_MIGRATION[status] || status;
+};
+
 // Transformation functions: DB (snake_case) <-> TypeScript (camelCase)
 const transformClientToDB = (client: Client) => ({
   client_id: client.clientId,
@@ -42,6 +70,7 @@ const transformClientToDB = (client: Client) => ({
   rating: client.rating,
   status: client.status,
   join_date: client.joinDate,
+  churn_date: client.churnDate || null,
   monthly_retainer: client.monthlyRetainer,
   billing_day: client.billingDay,
   services: JSON.stringify(client.services),
@@ -60,8 +89,9 @@ const transformClientFromDB = (row: any): Client => ({
   email: row.email,
   industry: row.industry,
   rating: row.rating,
-  status: row.status,
+  status: migrateClientStatus(row.status) as any,
   joinDate: row.join_date,
+  churnDate: row.churn_date || undefined,
   monthlyRetainer: row.monthly_retainer,
   billingDay: row.billing_day,
   services: typeof row.services === 'string' ? JSON.parse(row.services) : (row.services || []),
@@ -99,7 +129,7 @@ const transformLeadFromDB = (row: any): Lead => ({
   interestedServices: typeof row.interested_services === 'string' ? JSON.parse(row.interested_services) : (row.interested_services || []),
   notes: row.notes || '',
   nextContactDate: row.next_contact_date,
-  status: row.status,
+  status: migrateLeadStatus(row.status) as any,
   quotedMonthlyValue: row.quoted_monthly_value,
   relatedClientId: row.related_client_id,
 });
@@ -421,7 +451,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Update lead status
       const lead = data.leads.find(l => l.leadId === leadId);
       if (lead) {
-        const updatedLead = { ...lead, status: 'Won' as any, relatedClientId: newClient.clientId };
+        const updatedLead = { ...lead, status: LeadStatus.Won, relatedClientId: newClient.clientId };
         const { error: leadError } = await supabase
           .from('leads')
           .update(transformLeadToDB(updatedLead))

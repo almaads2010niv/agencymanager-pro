@@ -45,6 +45,7 @@ const Clients: React.FC = () => {
       rating: ClientRating.B,
       status: ClientStatus.Active,
       joinDate: new Date().toISOString().split('T')[0],
+      churnDate: undefined,
       monthlyRetainer: 0,
       billingDay: 1,
       services: [],
@@ -167,15 +168,31 @@ const Clients: React.FC = () => {
                             <Select label="סטטוס" value={editingClient.status} onChange={e => setEditingClient({...editingClient, status: e.target.value as ClientStatus})}>
                                 {Object.values(ClientStatus).map(s => <option key={s} value={s}>{s}</option>)}
                             </Select>
-                            <Select label="דירוג" value={editingClient.rating} onChange={e => setEditingClient({...editingClient, rating: e.target.value as ClientRating})}>
+                            <Select label="דירוג הלקוח" value={editingClient.rating} onChange={e => setEditingClient({...editingClient, rating: e.target.value as ClientRating})}>
                                 {Object.values(ClientRating).map(s => <option key={s} value={s}>{s}</option>)}
                             </Select>
                          </div>
                          <div className="grid grid-cols-2 gap-4">
-                            <Input label="ריטיינר חודשי (₪)" type="number" value={editingClient.monthlyRetainer} onChange={e => setEditingClient({...editingClient, monthlyRetainer: Number(e.target.value)})} />
-                            <Input label="עלות ספקים (₪)" type="number" value={editingClient.supplierCostMonthly} onChange={e => setEditingClient({...editingClient, supplierCostMonthly: Number(e.target.value)})} />
+                            <Input label="ריטיינר חודשי (₪)" type="number" value={editingClient.monthlyRetainer || ''} onFocus={e => { if (e.target.value === '0') e.target.value = ''; }} onChange={e => setEditingClient({...editingClient, monthlyRetainer: Number(e.target.value) || 0})} />
+                            <Input label="עלות ספקים (₪)" type="number" value={editingClient.supplierCostMonthly || ''} onFocus={e => { if (e.target.value === '0') e.target.value = ''; }} onChange={e => setEditingClient({...editingClient, supplierCostMonthly: Number(e.target.value) || 0})} />
                          </div>
                          <Input label="תאריך הצטרפות" type="date" value={editingClient.joinDate ? new Date(editingClient.joinDate).toISOString().split('T')[0] : ''} onChange={e => setEditingClient({...editingClient, joinDate: e.target.value})} />
+                         <Input label="תאריך נטישה" type="date" value={editingClient.churnDate ? new Date(editingClient.churnDate).toISOString().split('T')[0] : ''} onChange={e => setEditingClient({...editingClient, churnDate: e.target.value || undefined})} />
+                         {editingClient.joinDate && editingClient.churnDate && editingClient.monthlyRetainer > 0 && (() => {
+                           const joinDate = new Date(editingClient.joinDate);
+                           const churnDate = new Date(editingClient.churnDate);
+                           const months = Math.max(0, Math.round((churnDate.getTime() - joinDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                           const totalValue = months * editingClient.monthlyRetainer;
+                           return (
+                             <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
+                               <div className="text-xs text-gray-400 mb-1">שווי לקוח כולל</div>
+                               <div className="flex justify-between items-center">
+                                 <span className="text-sm text-gray-300">{months} חודשים</span>
+                                 <span className="text-lg font-bold text-primary">{formatCurrency(totalValue)}</span>
+                               </div>
+                             </div>
+                           );
+                         })()}
                     </div>
                 </div>
               </div>
