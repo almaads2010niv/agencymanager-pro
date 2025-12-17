@@ -67,11 +67,39 @@ const Dashboard: React.FC = () => {
     months.push(getMonthKey(d));
   }
 
+  // Calculate MRR for a specific month based on active clients
+  const calculateMRRForMonth = (monthKey: string) => {
+    const year = parseInt(monthKey.substring(0, 4));
+    const month = parseInt(monthKey.substring(4, 6));
+    const monthEnd = new Date(year, month, 0); // Last day of the month
+    
+    return clients
+      .filter(c => {
+        const joinDate = new Date(c.joinDate);
+        const churnDate = c.churnDate ? new Date(c.churnDate) : null;
+        
+        // Client was active if they joined before/during this month AND didn't churn before this month
+        const joinedBeforeOrDuring = joinDate <= monthEnd;
+        const didNotChurnBefore = !churnDate || churnDate >= new Date(year, month - 1, 1);
+        
+        return joinedBeforeOrDuring && didNotChurnBefore;
+      })
+      .reduce((sum, c) => sum + (c.monthlyRetainer || 0), 0);
+  };
+
+  // Get last year's month key for comparison
+  const getLastYearMonthKey = (monthKey: string) => {
+    const year = parseInt(monthKey.substring(0, 4)) - 1;
+    const month = monthKey.substring(4, 6);
+    return `${year}${month}`;
+  };
+
   const mrrData = months.map(mKey => {
-    const isCurrent = mKey === currentMonthKey;
+    const lastYearMKey = getLastYearMonthKey(mKey);
     return {
       name: getMonthName(mKey),
-      mrr: isCurrent ? monthlyMRR : Math.max(0, monthlyMRR - (Math.random() * 5000)) 
+      mrr: calculateMRRForMonth(mKey),
+      mrrLastYear: calculateMRRForMonth(lastYearMKey)
     };
   });
 
@@ -137,7 +165,9 @@ const Dashboard: React.FC = () => {
                   contentStyle={{ backgroundColor: '#151e32', borderColor: '#ffffff20', color: '#f1f5f9', borderRadius: '8px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' }}
                   formatter={(value: number) => formatCurrency(value)}
                 />
-                <Line type="monotone" dataKey="mrr" stroke="#06b6d4" strokeWidth={3} dot={{r: 0, strokeWidth: 2}} activeDot={{r: 6, fill: "#fff"}} />
+                <Legend iconType="circle" />
+                <Line type="monotone" dataKey="mrr" name="השנה" stroke="#06b6d4" strokeWidth={3} dot={{r: 0, strokeWidth: 2}} activeDot={{r: 6, fill: "#fff"}} />
+                <Line type="monotone" dataKey="mrrLastYear" name="שנה שעברה" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={{r: 0}} activeDot={{r: 4, fill: "#f59e0b"}} />
               </LineChart>
             </ResponsiveContainer>
           </div>
