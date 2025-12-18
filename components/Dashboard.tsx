@@ -71,18 +71,34 @@ const Dashboard: React.FC = () => {
   const calculateMRRForMonth = (monthKey: string) => {
     const year = parseInt(monthKey.substring(0, 4));
     const month = parseInt(monthKey.substring(4, 6));
-    const monthEnd = new Date(year, month, 0); // Last day of the month
+    // First day of the month at 00:00:00
+    const monthStart = new Date(year, month - 1, 1);
+    // Last day of the month at 23:59:59 (day 0 of next month gives last day of current month)
+    const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
     
     return clients
       .filter(c => {
         const joinDate = new Date(c.joinDate);
-        const churnDate = c.churnDate ? new Date(c.churnDate) : null;
+        // Reset time to start of day for accurate comparison
+        joinDate.setHours(0, 0, 0, 0);
         
-        // Client was active if they joined before/during this month AND didn't churn before this month
+        // Client was active in this month if:
+        // 1. They joined on or before the last day of this month
         const joinedBeforeOrDuring = joinDate <= monthEnd;
-        const didNotChurnBefore = !churnDate || churnDate >= new Date(year, month - 1, 1);
         
-        return joinedBeforeOrDuring && didNotChurnBefore;
+        // 2. They either didn't churn yet, OR churned on or after the first day of this month
+        //    (meaning they were active for at least part of this month)
+        if (!c.churnDate) {
+          // No churn date = still active
+          return joinedBeforeOrDuring;
+        }
+        
+        const churnDate = new Date(c.churnDate);
+        churnDate.setHours(0, 0, 0, 0);
+        // If they churned, they must have churned on or after the first day of this month
+        const wasActiveDuringMonth = churnDate >= monthStart;
+        
+        return joinedBeforeOrDuring && wasActiveDuringMonth;
       })
       .reduce((sum, c) => sum + (c.monthlyRetainer || 0), 0);
   };
