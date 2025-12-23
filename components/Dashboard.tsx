@@ -152,10 +152,10 @@ const Dashboard: React.FC = () => {
         <KPICard title="הוצאות ספקים" value={formatCurrency(totalSupplierCostCurrentMonth)} icon={DollarSign} color="danger" />
         <KPICard title="לקוחות חדשים" value={newClientsThisMonth} icon={UserPlus} color="accent" />
         <KPICard title="לקוחות שעזבו" value={churnedClientsThisMonth} icon={UserMinus} color="danger" />
-        <KPICard title="לידים פתוחים" value={leadsOpenCount} icon={FileText} />
-        <KPICard title="לידים חמים" value={hotLeadsCount} icon={AlertCircle} color="secondary" />
+        <KPICard title="לידים פתוחים" value={leadsOpenCount} icon={FileText} onClick={() => navigate('/leads')} />
+        <KPICard title="לידים חמים" value={hotLeadsCount} icon={AlertCircle} color="secondary" onClick={() => navigate('/leads')} />
         <KPICard title="חוב פתוח" value={formatCurrency(unpaidInvoicesTotal)} icon={AlertCircle} color="danger" onClick={() => navigate('/debts')} />
-        <KPICard title="לקוחות פעילים" value={activeClientsCount} icon={Users} color="primary" />
+        <KPICard title="לקוחות פעילים" value={activeClientsCount} icon={Users} color="primary" onClick={() => navigate('/clients')} />
         <KPICard 
           title="צמיחה (YOY)" 
           value={`${mrrChangePercent > 0 ? '+' : ''}${mrrChangePercent}%`} 
