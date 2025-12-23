@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { ClientStatus, LeadStatus, PaymentStatus } from '../types';
 import { formatCurrency, getMonthKey, getMonthName } from '../utils';
@@ -11,11 +12,11 @@ import { Card, CardHeader } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from './ui/Table';
 
-const KPICard = ({ title, value, subtitle, icon: Icon, highlight = false, color = "primary" }: any) => {
+const KPICard = ({ title, value, subtitle, icon: Icon, highlight = false, color = "primary", onClick }: any) => {
   const isPrimary = color === 'primary' || highlight;
   
   return (
-    <Card className="relative overflow-hidden group" noPadding>
+    <Card className={`relative overflow-hidden group ${onClick ? 'cursor-pointer' : ''}`} noPadding onClick={onClick}>
       {/* Background Gradient for specific cards */}
       {isPrimary && <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 blur-[50px] -mr-10 -mt-10 transition-all group-hover:bg-primary/20" />}
       
@@ -39,6 +40,7 @@ const KPICard = ({ title, value, subtitle, icon: Icon, highlight = false, color 
 
 const Dashboard: React.FC = () => {
   const { clients, leads, expenses, payments, settings } = useData();
+  const navigate = useNavigate();
   const currentDate = new Date();
   const currentMonthKey = getMonthKey(currentDate);
 
@@ -152,7 +154,7 @@ const Dashboard: React.FC = () => {
         <KPICard title="לקוחות שעזבו" value={churnedClientsThisMonth} icon={UserMinus} color="danger" />
         <KPICard title="לידים פתוחים" value={leadsOpenCount} icon={FileText} />
         <KPICard title="לידים חמים" value={hotLeadsCount} icon={AlertCircle} color="secondary" />
-        <KPICard title="חוב פתוח" value={formatCurrency(unpaidInvoicesTotal)} icon={AlertCircle} color="danger" />
+        <KPICard title="חוב פתוח" value={formatCurrency(unpaidInvoicesTotal)} icon={AlertCircle} color="danger" onClick={() => navigate('/debts')} />
         <KPICard title="לקוחות פעילים" value={activeClientsCount} icon={Users} color="primary" />
         <KPICard 
           title="צמיחה (YOY)" 
