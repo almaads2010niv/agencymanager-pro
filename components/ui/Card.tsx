@@ -6,17 +6,21 @@ interface CardProps {
   className?: string;
   noPadding?: boolean;
   hoverEffect?: boolean;
+  onClick?: () => void;
 }
 
-export const Card: React.FC<CardProps> = ({ children, className = '', noPadding = false, hoverEffect = false }) => {
+export const Card: React.FC<CardProps> = ({ children, className = '', noPadding = false, hoverEffect = false, onClick }) => {
   return (
-    <div className={`
-      rounded-2xl 
-      ${tokens.effects.glass} 
-      ${hoverEffect ? 'hover:scale-[1.01] hover:shadow-lg transition-transform duration-300' : ''}
-      ${noPadding ? '' : tokens.layout.cardPadding}
-      ${className}
-    `}>
+    <div 
+      onClick={onClick}
+      className={`
+        rounded-2xl 
+        ${tokens.effects.glass} 
+        ${hoverEffect ? 'hover:scale-[1.01] hover:shadow-lg transition-transform duration-300' : ''}
+        ${noPadding ? '' : tokens.layout.cardPadding}
+        ${className}
+      `}
+    >
       {children}
     </div>
   );
