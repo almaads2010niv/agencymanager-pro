@@ -81,7 +81,7 @@ CREATE OR REPLACE FUNCTION is_admin()
 RETURNS boolean AS $$
   SELECT EXISTS (
     SELECT 1 FROM user_roles
-    WHERE user_id = auth.uid()::text
+    WHERE user_id = auth.uid()
     AND role = 'admin'
   );
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
@@ -250,7 +250,7 @@ CREATE POLICY "user_roles_insert" ON user_roles FOR INSERT
   WITH CHECK (
     -- Admin can add users, OR user can self-insert (first login)
     is_admin()
-    OR user_id = auth.uid()::text
+    OR user_id = auth.uid()
     OR NOT EXISTS (SELECT 1 FROM user_roles)
   );
 
@@ -259,7 +259,7 @@ CREATE POLICY "user_roles_update" ON user_roles FOR UPDATE
   TO authenticated
   USING (
     is_admin()
-    OR user_id = auth.uid()::text
+    OR user_id = auth.uid()
   );
 
 DROP POLICY IF EXISTS "user_roles_delete" ON user_roles;
