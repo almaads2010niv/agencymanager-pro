@@ -119,11 +119,7 @@ ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "leads_select" ON leads;
 CREATE POLICY "leads_select" ON leads FOR SELECT
   TO authenticated
-  USING (
-    is_admin()
-    OR created_by = auth.uid()
-    OR created_by IS NULL
-  );
+  USING (true); -- All authenticated users can view all leads
 
 DROP POLICY IF EXISTS "leads_insert" ON leads;
 CREATE POLICY "leads_insert" ON leads FOR INSERT

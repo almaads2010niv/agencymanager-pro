@@ -76,7 +76,8 @@ const Leads: React.FC = () => {
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
-  const visibleLeads = isViewer && user ? leads.filter(l => l.createdBy === user.id) : leads;
+  // All authenticated users (admin + viewer) see all leads
+  const visibleLeads = leads;
 
   const filteredLeads = useMemo(() => {
     let result = visibleLeads.filter(l => {
