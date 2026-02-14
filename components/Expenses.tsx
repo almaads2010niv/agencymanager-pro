@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useData } from '../contexts/DataContext';
 import { SupplierExpense, ExpenseType } from '../types';
-import { formatCurrency, formatDate, getMonthKey } from '../utils';
-import { Plus, Edit2, Trash2, Zap, Repeat } from 'lucide-react';
+import { formatCurrency, formatDate, getMonthKey, getMonthName, exportToCSV } from '../utils';
+import { Plus, Edit2, Trash2, Zap, Repeat, Download, Search } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select, Checkbox } from './ui/Form';
@@ -17,6 +17,51 @@ const Expenses: React.FC = () => {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [generateFromMonth, setGenerateFromMonth] = useState('');
+  const [filterMonth, setFilterMonth] = useState<string>(getMonthKey(new Date()));
+  const [filterType, setFilterType] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Get unique month keys for dropdown
+  const monthOptions = useMemo(() => {
+    const keys = new Set(expenses.map(e => e.monthKey));
+    // Add current month if missing
+    keys.add(getMonthKey(new Date()));
+    return Array.from(keys).sort().reverse();
+  }, [expenses]);
+
+  // Filtered expenses
+  const filteredExpenses = useMemo(() => {
+    return expenses
+      .filter(e => {
+        const matchesMonth = filterMonth === 'all' || e.monthKey === filterMonth;
+        const matchesType = filterType === 'all' || e.expenseType === filterType;
+        const matchesSearch = searchTerm === '' || e.supplierName.includes(searchTerm) || (e.clientId && clients.find(c => c.clientId === e.clientId)?.businessName?.includes(searchTerm));
+        return matchesMonth && matchesType && matchesSearch;
+      })
+      .sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime());
+  }, [expenses, filterMonth, filterType, searchTerm, clients]);
+
+  // Summary stats
+  const totalFiltered = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const byType = useMemo(() => {
+    const map: Record<string, number> = {};
+    filteredExpenses.forEach(e => { map[e.expenseType] = (map[e.expenseType] || 0) + e.amount; });
+    return map;
+  }, [filteredExpenses]);
+
+  const handleExportCSV = () => {
+    const headers = ['תאריך', 'ספק', 'סוג', 'לקוח', 'סכום', 'קבועה', 'הערות'];
+    const rows = filteredExpenses.map(e => [
+      formatDate(e.expenseDate),
+      e.supplierName,
+      e.expenseType,
+      getClientName(e.clientId),
+      e.amount.toString(),
+      e.isRecurring ? 'כן' : 'לא',
+      e.notes,
+    ]);
+    exportToCSV(headers, rows, `expenses_${filterMonth}.csv`);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,15 +107,47 @@ const Expenses: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-        <h2 className="text-3xl font-black text-white tracking-tight">הוצאות ספקים</h2>
-        <div className="flex gap-3">
+        <div>
+          <h2 className="text-3xl font-black text-white tracking-tight">הוצאות ספקים</h2>
+          <p className="text-gray-400 mt-1">סה"כ: <span className="text-red-400 font-bold font-mono">{formatCurrency(totalFiltered)}</span> ({filteredExpenses.length} הוצאות)</p>
+        </div>
+        <div className="flex gap-3 flex-wrap">
+          <Button onClick={handleExportCSV} variant="ghost" icon={<Download size={16} />}>CSV</Button>
           <Button onClick={() => {
             setGenerateFromMonth(new Date().toISOString().substring(0, 7));
             setIsGenerateModalOpen(true);
-          }} variant="secondary" icon={<Zap size={18} />}>ייצור הוצאות קבועות</Button>
+          }} variant="secondary" icon={<Zap size={18} />}>ייצור קבועות</Button>
           <Button onClick={openNewExpense} variant="danger" icon={<Plus size={18} />}>הוצאה חדשה</Button>
         </div>
       </div>
+
+      {/* Filters */}
+      <Card className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="relative">
+          <Search className="absolute right-3 top-3.5 text-gray-500" size={18} />
+          <Input placeholder="חיפוש ספק..." className="pr-10" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+        </div>
+        <Select value={filterMonth} onChange={e => setFilterMonth(e.target.value)}>
+          <option value="all">כל החודשים</option>
+          {monthOptions.map(mk => <option key={mk} value={mk}>{getMonthName(mk)}</option>)}
+        </Select>
+        <Select value={filterType} onChange={e => setFilterType(e.target.value)}>
+          <option value="all">כל הסוגים</option>
+          {Object.values(ExpenseType).map(t => <option key={t} value={t}>{t}</option>)}
+        </Select>
+      </Card>
+
+      {/* Summary by type */}
+      {Object.keys(byType).length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {Object.entries(byType).map(([type, amount]) => (
+            <Card key={type} className="text-center">
+              <div className="text-xs text-gray-500 uppercase mb-1">{type}</div>
+              <div className="text-lg font-bold text-red-400 font-mono">{formatCurrency(amount)}</div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Card noPadding>
         <Table>
@@ -84,7 +161,7 @@ const Expenses: React.FC = () => {
               <TableHead>פעולות</TableHead>
             </TableHeader>
             <TableBody>
-              {expenses.sort((a,b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime()).map(exp => (
+              {filteredExpenses.map(exp => (
                 <TableRow key={exp.expenseId}>
                    <TableCell className="text-gray-400">{formatDate(exp.expenseDate)}</TableCell>
                    <TableCell className="font-medium text-white">
@@ -121,7 +198,7 @@ const Expenses: React.FC = () => {
                    </TableCell>
                 </TableRow>
               ))}
-               {expenses.length === 0 && (
+               {filteredExpenses.length === 0 && (
                 <tr>
                   <td colSpan={7} className="p-12 text-center text-gray-500 italic">אין הוצאות רשומות</td>
                 </tr>

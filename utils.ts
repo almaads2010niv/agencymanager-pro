@@ -18,7 +18,31 @@ export const getMonthKey = (date: Date) => {
 };
 
 export const generateId = () => {
-  return Math.random().toString(36).substr(2, 9);
+  return crypto.randomUUID();
+};
+
+// CSV export helper
+export const exportToCSV = (headers: string[], rows: string[][], filename: string) => {
+  const BOM = '\uFEFF'; // UTF-8 BOM for Hebrew support in Excel
+  const csvContent = BOM + [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${(cell || '').replace(/"/g, '""')}"`).join(','))
+  ].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+};
+
+// Format phone for WhatsApp (Israeli format)
+export const formatPhoneForWhatsApp = (phone: string): string => {
+  const cleaned = phone.replace(/[\s\-()]/g, '');
+  if (cleaned.startsWith('+972')) return cleaned;
+  if (cleaned.startsWith('972')) return '+' + cleaned;
+  if (cleaned.startsWith('0')) return '+972' + cleaned.substring(1);
+  return '+972' + cleaned;
 };
 
 export const getMonthName = (monthKey: string) => {

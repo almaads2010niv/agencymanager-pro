@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { Client, ClientRating, ClientStatus, EffortLevel } from '../types';
-import { formatCurrency } from '../utils';
-import { Plus, Search, Edit2, Trash2, X } from 'lucide-react';
+import { formatCurrency, formatPhoneForWhatsApp } from '../utils';
+import { Plus, Search, Edit2, Trash2, X, MessageCircle } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select, Textarea, Checkbox } from './ui/Form';
@@ -120,7 +120,14 @@ const Clients: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <div className="text-white">{client.clientName}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">{client.phone}</div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-gray-500">{client.phone}</span>
+                      {client.phone && (
+                        <a href={`https://wa.me/${formatPhoneForWhatsApp(client.phone).replace('+', '')}`} target="_blank" rel="noopener noreferrer" className="p-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-all" title="WhatsApp">
+                          <MessageCircle size={12} />
+                        </a>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-white font-mono">{formatCurrency(client.monthlyRetainer)}</TableCell>
                   <TableCell className="text-emerald-400 font-mono">

@@ -1,0 +1,326 @@
+-- ============================================================
+-- AgencyManager Pro - Supabase Migrations & RLS Policies
+-- Run this in the Supabase SQL Editor
+-- ============================================================
+
+-- ============================================================
+-- 1. NEW TABLES
+-- ============================================================
+
+-- Retainer change history
+CREATE TABLE IF NOT EXISTS retainer_changes (
+  id text PRIMARY KEY,
+  client_id text REFERENCES clients(client_id) ON DELETE CASCADE,
+  old_retainer numeric NOT NULL DEFAULT 0,
+  new_retainer numeric NOT NULL DEFAULT 0,
+  old_supplier_cost numeric NOT NULL DEFAULT 0,
+  new_supplier_cost numeric NOT NULL DEFAULT 0,
+  changed_at timestamptz NOT NULL DEFAULT now(),
+  notes text DEFAULT ''
+);
+
+-- ============================================================
+-- 2. COLUMN ADDITIONS (safe IF NOT EXISTS)
+-- ============================================================
+
+-- Page-level permissions for user roles
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_roles' AND column_name = 'page_permissions') THEN
+    ALTER TABLE user_roles ADD COLUMN page_permissions text DEFAULT NULL;
+  END IF;
+END $$;
+
+-- Recurring expense flag
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'expenses' AND column_name = 'is_recurring') THEN
+    ALTER TABLE expenses ADD COLUMN is_recurring boolean DEFAULT false;
+  END IF;
+END $$;
+
+-- Email column for pre-created viewer roles
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_roles' AND column_name = 'email') THEN
+    ALTER TABLE user_roles ADD COLUMN email text;
+  END IF;
+END $$;
+
+-- Employee salary in settings
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'settings' AND column_name = 'employee_salary') THEN
+    ALTER TABLE settings ADD COLUMN employee_salary numeric DEFAULT 0;
+  END IF;
+END $$;
+
+-- Lead created_by for viewer filtering
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'leads' AND column_name = 'created_by') THEN
+    ALTER TABLE leads ADD COLUMN created_by uuid;
+  END IF;
+END $$;
+
+-- ============================================================
+-- 3. STORAGE BUCKET
+-- ============================================================
+
+-- Create contracts bucket for client file uploads (if not exists)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('contracts', 'contracts', false, 10485760, ARRAY['application/pdf','image/jpeg','image/png','image/webp','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================
+-- 4. ROW LEVEL SECURITY (RLS) POLICIES
+-- ============================================================
+
+-- Helper: Check if current user is admin
+CREATE OR REPLACE FUNCTION is_admin()
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM user_roles
+    WHERE user_id = auth.uid()::text
+    AND role = 'admin'
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- --------------------------------------------------------
+-- CLIENTS TABLE
+-- --------------------------------------------------------
+ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "clients_select" ON clients;
+CREATE POLICY "clients_select" ON clients FOR SELECT
+  TO authenticated
+  USING (true); -- All authenticated users can read clients
+
+DROP POLICY IF EXISTS "clients_insert" ON clients;
+CREATE POLICY "clients_insert" ON clients FOR INSERT
+  TO authenticated
+  WITH CHECK (is_admin());
+
+DROP POLICY IF EXISTS "clients_update" ON clients;
+CREATE POLICY "clients_update" ON clients FOR UPDATE
+  TO authenticated
+  USING (is_admin());
+
+DROP POLICY IF EXISTS "clients_delete" ON clients;
+CREATE POLICY "clients_delete" ON clients FOR DELETE
+  TO authenticated
+  USING (is_admin());
+
+-- --------------------------------------------------------
+-- LEADS TABLE
+-- --------------------------------------------------------
+ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "leads_select" ON leads;
+CREATE POLICY "leads_select" ON leads FOR SELECT
+  TO authenticated
+  USING (
+    is_admin()
+    OR created_by = auth.uid()
+    OR created_by IS NULL
+  );
+
+DROP POLICY IF EXISTS "leads_insert" ON leads;
+CREATE POLICY "leads_insert" ON leads FOR INSERT
+  TO authenticated
+  WITH CHECK (true); -- All authenticated users can create leads
+
+DROP POLICY IF EXISTS "leads_update" ON leads;
+CREATE POLICY "leads_update" ON leads FOR UPDATE
+  TO authenticated
+  USING (
+    is_admin()
+    OR created_by = auth.uid()
+  );
+
+DROP POLICY IF EXISTS "leads_delete" ON leads;
+CREATE POLICY "leads_delete" ON leads FOR DELETE
+  TO authenticated
+  USING (is_admin());
+
+-- --------------------------------------------------------
+-- DEALS TABLE
+-- --------------------------------------------------------
+ALTER TABLE deals ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "deals_select" ON deals;
+CREATE POLICY "deals_select" ON deals FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "deals_insert" ON deals;
+CREATE POLICY "deals_insert" ON deals FOR INSERT
+  TO authenticated
+  WITH CHECK (is_admin());
+
+DROP POLICY IF EXISTS "deals_update" ON deals;
+CREATE POLICY "deals_update" ON deals FOR UPDATE
+  TO authenticated
+  USING (is_admin());
+
+DROP POLICY IF EXISTS "deals_delete" ON deals;
+CREATE POLICY "deals_delete" ON deals FOR DELETE
+  TO authenticated
+  USING (is_admin());
+
+-- --------------------------------------------------------
+-- EXPENSES TABLE
+-- --------------------------------------------------------
+ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "expenses_select" ON expenses;
+CREATE POLICY "expenses_select" ON expenses FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "expenses_insert" ON expenses;
+CREATE POLICY "expenses_insert" ON expenses FOR INSERT
+  TO authenticated
+  WITH CHECK (is_admin());
+
+DROP POLICY IF EXISTS "expenses_update" ON expenses;
+CREATE POLICY "expenses_update" ON expenses FOR UPDATE
+  TO authenticated
+  USING (is_admin());
+
+DROP POLICY IF EXISTS "expenses_delete" ON expenses;
+CREATE POLICY "expenses_delete" ON expenses FOR DELETE
+  TO authenticated
+  USING (is_admin());
+
+-- --------------------------------------------------------
+-- PAYMENTS TABLE
+-- --------------------------------------------------------
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "payments_select" ON payments;
+CREATE POLICY "payments_select" ON payments FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "payments_insert" ON payments;
+CREATE POLICY "payments_insert" ON payments FOR INSERT
+  TO authenticated
+  WITH CHECK (is_admin());
+
+DROP POLICY IF EXISTS "payments_update" ON payments;
+CREATE POLICY "payments_update" ON payments FOR UPDATE
+  TO authenticated
+  USING (is_admin());
+
+DROP POLICY IF EXISTS "payments_delete" ON payments;
+CREATE POLICY "payments_delete" ON payments FOR DELETE
+  TO authenticated
+  USING (is_admin());
+
+-- --------------------------------------------------------
+-- SETTINGS TABLE
+-- --------------------------------------------------------
+ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "settings_select" ON settings;
+CREATE POLICY "settings_select" ON settings FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "settings_upsert" ON settings;
+CREATE POLICY "settings_upsert" ON settings FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- --------------------------------------------------------
+-- USER_ROLES TABLE
+-- --------------------------------------------------------
+ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "user_roles_select" ON user_roles;
+CREATE POLICY "user_roles_select" ON user_roles FOR SELECT
+  TO authenticated
+  USING (true); -- All can read roles (needed for auth)
+
+DROP POLICY IF EXISTS "user_roles_insert" ON user_roles;
+CREATE POLICY "user_roles_insert" ON user_roles FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    -- Admin can add users, OR user can self-insert (first login)
+    is_admin()
+    OR user_id = auth.uid()::text
+    OR NOT EXISTS (SELECT 1 FROM user_roles)
+  );
+
+DROP POLICY IF EXISTS "user_roles_update" ON user_roles;
+CREATE POLICY "user_roles_update" ON user_roles FOR UPDATE
+  TO authenticated
+  USING (
+    is_admin()
+    OR user_id = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "user_roles_delete" ON user_roles;
+CREATE POLICY "user_roles_delete" ON user_roles FOR DELETE
+  TO authenticated
+  USING (is_admin());
+
+-- --------------------------------------------------------
+-- ACTIVITY_LOG TABLE
+-- --------------------------------------------------------
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'activity_log') THEN
+    ALTER TABLE activity_log ENABLE ROW LEVEL SECURITY;
+  END IF;
+END $$;
+
+DROP POLICY IF EXISTS "activity_log_select" ON activity_log;
+CREATE POLICY "activity_log_select" ON activity_log FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "activity_log_insert" ON activity_log;
+CREATE POLICY "activity_log_insert" ON activity_log FOR INSERT
+  TO authenticated
+  WITH CHECK (true); -- All authenticated users can log activity
+
+-- --------------------------------------------------------
+-- RETAINER_CHANGES TABLE
+-- --------------------------------------------------------
+ALTER TABLE retainer_changes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "retainer_changes_select" ON retainer_changes;
+CREATE POLICY "retainer_changes_select" ON retainer_changes FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "retainer_changes_insert" ON retainer_changes;
+CREATE POLICY "retainer_changes_insert" ON retainer_changes FOR INSERT
+  TO authenticated
+  WITH CHECK (is_admin());
+
+-- --------------------------------------------------------
+-- STORAGE POLICIES (contracts bucket)
+-- --------------------------------------------------------
+
+DROP POLICY IF EXISTS "contracts_select" ON storage.objects;
+CREATE POLICY "contracts_select" ON storage.objects FOR SELECT
+  TO authenticated
+  USING (bucket_id = 'contracts');
+
+DROP POLICY IF EXISTS "contracts_insert" ON storage.objects;
+CREATE POLICY "contracts_insert" ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (bucket_id = 'contracts' AND (SELECT is_admin()));
+
+DROP POLICY IF EXISTS "contracts_delete" ON storage.objects;
+CREATE POLICY "contracts_delete" ON storage.objects FOR DELETE
+  TO authenticated
+  USING (bucket_id = 'contracts' AND (SELECT is_admin()));
+
+-- ============================================================
+-- DONE! All migrations and RLS policies applied.
+-- ============================================================

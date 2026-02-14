@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Settings, Briefcase, CreditCard, Calculator, Search, LogOut, Shield, Eye, Sun, Moon } from 'lucide-react';
+import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Settings, Briefcase, CreditCard, Calculator, Search, LogOut, Shield, Eye, Sun, Moon, BarChart3 } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -43,7 +43,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const location = useLocation();
   const { settings, leads, payments } = useData();
-  const { isAdmin, isViewer, displayName, role, logout } = useAuth();
+  const { isAdmin, isViewer, displayName, role, logout, hasPageAccess } = useAuth();
   const { isDark, toggleTheme } = useTheme();
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
@@ -101,13 +101,14 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
           <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
             <SidebarItem to="/" icon={LayoutDashboard} label="דשבורד" isActive={location.pathname === '/'} onClick={closeSidebar} />
-            {isAdmin && <SidebarItem to="/clients" icon={Users} label="לקוחות" isActive={location.pathname === '/clients'} onClick={closeSidebar} />}
-            <SidebarItem to="/leads" icon={UserPlus} label="לידים" isActive={location.pathname === '/leads'} onClick={closeSidebar} badge={overdueLeads} />
-            {isAdmin && <SidebarItem to="/deals" icon={Briefcase} label="פרויקטים" isActive={location.pathname === '/deals'} onClick={closeSidebar} />}
-            {isAdmin && <SidebarItem to="/expenses" icon={Receipt} label="הוצאות" isActive={location.pathname === '/expenses'} onClick={closeSidebar} />}
-            {isAdmin && <SidebarItem to="/debts" icon={CreditCard} label="חובות לקוחות" isActive={location.pathname === '/debts'} onClick={closeSidebar} badge={unpaidDebts} />}
-            {isAdmin && <SidebarItem to="/tax-calculator" icon={Calculator} label="מחשבון מס" isActive={location.pathname === '/tax-calculator'} onClick={closeSidebar} />}
-            {isAdmin && <SidebarItem to="/settings" icon={Settings} label="הגדרות" isActive={location.pathname === '/settings'} onClick={closeSidebar} />}
+            {hasPageAccess('clients') && <SidebarItem to="/clients" icon={Users} label="לקוחות" isActive={location.pathname === '/clients'} onClick={closeSidebar} />}
+            {hasPageAccess('leads') && <SidebarItem to="/leads" icon={UserPlus} label="לידים" isActive={location.pathname === '/leads'} onClick={closeSidebar} badge={overdueLeads} />}
+            {hasPageAccess('deals') && <SidebarItem to="/deals" icon={Briefcase} label="פרויקטים" isActive={location.pathname === '/deals'} onClick={closeSidebar} />}
+            {hasPageAccess('expenses') && <SidebarItem to="/expenses" icon={Receipt} label="הוצאות" isActive={location.pathname === '/expenses'} onClick={closeSidebar} />}
+            {hasPageAccess('debts') && <SidebarItem to="/debts" icon={CreditCard} label="חובות לקוחות" isActive={location.pathname === '/debts'} onClick={closeSidebar} badge={unpaidDebts} />}
+            {hasPageAccess('profit_loss') && <SidebarItem to="/profit-loss" icon={BarChart3} label="דוח רווח והפסד" isActive={location.pathname === '/profit-loss'} onClick={closeSidebar} />}
+            {hasPageAccess('tax_calculator') && <SidebarItem to="/tax-calculator" icon={Calculator} label="מחשבון מס" isActive={location.pathname === '/tax-calculator'} onClick={closeSidebar} />}
+            {hasPageAccess('settings') && <SidebarItem to="/settings" icon={Settings} label="הגדרות" isActive={location.pathname === '/settings'} onClick={closeSidebar} />}
 
             {/* Search shortcut - admin only */}
             {isAdmin && (

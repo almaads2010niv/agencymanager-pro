@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useData } from '../contexts/DataContext';
 import { Payment, PaymentStatus } from '../types';
-import { formatCurrency, getMonthName, getMonthKey } from '../utils';
-import { Plus, Search, Edit2, Trash2, Check, Zap } from 'lucide-react';
+import { formatCurrency, getMonthName, getMonthKey, exportToCSV } from '../utils';
+import { Plus, Search, Edit2, Trash2, Check, Zap, Download, CheckCheck } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select, Textarea } from './ui/Form';
@@ -17,6 +17,30 @@ const Debts: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('unpaid');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const bulkMarkAsPaid = async () => {
+    for (const id of selectedIds) {
+      const payment = payments.find(p => p.paymentId === id);
+      if (payment && payment.paymentStatus !== PaymentStatus.Paid) {
+        await updatePayment({
+          ...payment,
+          amountPaid: payment.amountDue,
+          paymentStatus: PaymentStatus.Paid,
+          paymentDate: new Date().toISOString().split('T')[0]
+        });
+      }
+    }
+    setSelectedIds(new Set());
+  };
 
   // Filter only active clients for selection
   const activeClients = clients.filter(c => c.status !== 'עזב');
@@ -116,6 +140,28 @@ const Debts: React.FC = () => {
     return options;
   };
 
+  const handleExportCSV = () => {
+    const headers = ['לקוח', 'חודש', 'סכום חוב', 'שולם', 'יתרה', 'סטטוס'];
+    const rows = filteredPayments.map(p => [
+      getClientName(p.clientId),
+      getMonthName(p.periodMonth),
+      p.amountDue.toString(),
+      p.amountPaid.toString(),
+      (p.amountDue - p.amountPaid).toString(),
+      getStatusLabel(p.paymentStatus),
+    ]);
+    exportToCSV(headers, rows, `debts_${getMonthKey(new Date())}.csv`);
+  };
+
+  const unpaidInFiltered = filteredPayments.filter(p => p.paymentStatus !== PaymentStatus.Paid);
+  const toggleSelectAll = () => {
+    if (selectedIds.size === unpaidInFiltered.length && unpaidInFiltered.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(unpaidInFiltered.map(p => p.paymentId)));
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
@@ -123,13 +169,19 @@ const Debts: React.FC = () => {
           <h2 className="text-3xl font-black text-white tracking-tight">חובות לקוחות</h2>
           <p className="text-gray-400 mt-1">סה"כ חוב פתוח: <span className="text-red-400 font-bold">{formatCurrency(totalDebt)}</span></p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
+          <Button onClick={handleExportCSV} variant="ghost" icon={<Download size={16} />}>CSV</Button>
+          {selectedIds.size > 0 && (
+            <Button onClick={bulkMarkAsPaid} variant="secondary" icon={<CheckCheck size={16} />}>
+              סמן {selectedIds.size} כשולם
+            </Button>
+          )}
           <Button onClick={async () => {
             const monthKey = getMonthKey(new Date());
             const count = await generateMonthlyPayments(monthKey);
             if (count > 0) alert(`נוצרו ${count} חובות חדשים לחודש הנוכחי`);
             else alert('כל הלקוחות כבר מופיעים בחובות החודש');
-          }} variant="secondary" icon={<Zap size={18} />}>ייצור חובות חודשיים</Button>
+          }} variant="secondary" icon={<Zap size={18} />}>ייצור חובות</Button>
           <Button onClick={openNewPayment} icon={<Plus size={18} />}>הוסף חוב</Button>
         </div>
       </div>
@@ -156,6 +208,9 @@ const Debts: React.FC = () => {
       <Card noPadding>
         <Table>
           <TableHeader>
+            <TableHead>
+              <input type="checkbox" checked={selectedIds.size > 0 && selectedIds.size === unpaidInFiltered.length} onChange={toggleSelectAll} className="rounded bg-white/5 border-white/20 text-primary focus:ring-primary cursor-pointer" />
+            </TableHead>
             <TableHead>לקוח</TableHead>
             <TableHead>חודש שירות</TableHead>
             <TableHead>סכום חוב</TableHead>
@@ -167,6 +222,11 @@ const Debts: React.FC = () => {
           <TableBody>
             {filteredPayments.map(payment => (
               <TableRow key={payment.paymentId}>
+                <TableCell>
+                  {payment.paymentStatus !== PaymentStatus.Paid && (
+                    <input type="checkbox" checked={selectedIds.has(payment.paymentId)} onChange={() => toggleSelect(payment.paymentId)} className="rounded bg-white/5 border-white/20 text-primary focus:ring-primary cursor-pointer" />
+                  )}
+                </TableCell>
                 <TableCell className="font-bold text-white text-base">
                   {getClientName(payment.clientId)}
                 </TableCell>
@@ -218,7 +278,7 @@ const Debts: React.FC = () => {
             ))}
             {filteredPayments.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-12 text-center text-gray-500 italic">
+                <td colSpan={8} className="p-12 text-center text-gray-500 italic">
                   אין חובות רשומים
                 </td>
               </tr>

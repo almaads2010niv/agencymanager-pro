@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import {
   AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service,
   AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel,
-  ActivityEntry
+  ActivityEntry, RetainerChange
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -91,6 +91,17 @@ interface SettingsRow {
   employee_salary: number;
 }
 
+interface RetainerChangeRow {
+  id: string;
+  client_id: string;
+  old_retainer: number;
+  new_retainer: number;
+  old_supplier_cost: number;
+  new_supplier_cost: number;
+  changed_at: string;
+  notes: string;
+}
+
 export interface ClientFile {
   name: string;
   url: string;
@@ -101,6 +112,7 @@ export interface DataContextType extends AppData {
   isLoaded: boolean;
   error: string | null;
   clearError: () => void;
+  retainerHistory: RetainerChange[];
   addClient: (client: Omit<Client, 'clientId' | 'addedAt'>) => Promise<void>;
   updateClient: (client: Client) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
@@ -338,6 +350,28 @@ const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
   employeeSalary: row.employee_salary || 0,
 });
 
+const transformRetainerChangeToDB = (rc: RetainerChange) => ({
+  id: rc.id,
+  client_id: rc.clientId,
+  old_retainer: rc.oldRetainer,
+  new_retainer: rc.newRetainer,
+  old_supplier_cost: rc.oldSupplierCost,
+  new_supplier_cost: rc.newSupplierCost,
+  changed_at: rc.changedAt,
+  notes: rc.notes,
+});
+
+const transformRetainerChangeFromDB = (row: RetainerChangeRow): RetainerChange => ({
+  id: row.id,
+  clientId: row.client_id,
+  oldRetainer: row.old_retainer,
+  newRetainer: row.new_retainer,
+  oldSupplierCost: row.old_supplier_cost,
+  newSupplierCost: row.new_supplier_cost,
+  changedAt: row.changed_at,
+  notes: row.notes || '',
+});
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [data, setData] = useState<AppData>({
     clients: [],
@@ -348,6 +382,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     services: INITIAL_SERVICES,
     settings: DEFAULT_SETTINGS,
     activities: [],
+    retainerHistory: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -397,7 +432,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
@@ -405,6 +440,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('payments').select('*').order('period_month', { ascending: false }),
           supabase.from('settings').select('*').single(),
           supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(50),
+          supabase.from('retainer_changes').select('*').order('changed_at', { ascending: false }),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -426,6 +462,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           description: row.description,
           createdAt: row.created_at,
         }));
+        const retainerHistory: RetainerChange[] = (retainerChangesRes.data || []).map((row: RetainerChangeRow) => transformRetainerChangeFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
         if (settingsRes.data && !settingsRes.error) {
@@ -444,6 +481,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           services: INITIAL_SERVICES,
           settings,
           activities,
+          retainerHistory,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -482,6 +520,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateClient = async (client: Client) => {
     try {
+      // Detect retainer changes
+      const oldClient = data.clients.find(c => c.clientId === client.clientId);
+      const retainerChanged = oldClient && (
+        oldClient.monthlyRetainer !== client.monthlyRetainer ||
+        oldClient.supplierCostMonthly !== client.supplierCostMonthly
+      );
+
       const { error } = await supabase
         .from('clients')
         .update(transformClientToDB(client))
@@ -489,10 +534,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) throw error;
 
-      setData(prev => ({
-        ...prev,
-        clients: prev.clients.map(c => c.clientId === client.clientId ? client : c)
-      }));
+      // Log retainer change if applicable
+      if (retainerChanged && oldClient) {
+        const change: RetainerChange = {
+          id: generateId(),
+          clientId: client.clientId,
+          oldRetainer: oldClient.monthlyRetainer,
+          newRetainer: client.monthlyRetainer,
+          oldSupplierCost: oldClient.supplierCostMonthly,
+          newSupplierCost: client.supplierCostMonthly,
+          changedAt: new Date().toISOString(),
+          notes: '',
+        };
+        // Try to persist - don't fail if table doesn't exist
+        supabase.from('retainer_changes').insert(transformRetainerChangeToDB(change)).then(({ error: rcError }) => {
+          if (rcError) console.warn('Retainer change not persisted:', rcError.message);
+        });
+        setData(prev => ({
+          ...prev,
+          clients: prev.clients.map(c => c.clientId === client.clientId ? client : c),
+          retainerHistory: [change, ...prev.retainerHistory],
+        }));
+        logActivity('retainer_changed', 'client', `שינוי ריטיינר: ${oldClient.businessName} ₪${oldClient.monthlyRetainer} → ₪${client.monthlyRetainer}`, client.clientId);
+      } else {
+        setData(prev => ({
+          ...prev,
+          clients: prev.clients.map(c => c.clientId === client.clientId ? client : c)
+        }));
+      }
+
       logActivity('client_updated', 'client', `עודכן לקוח: ${client.businessName}`, client.clientId);
     } catch (err) {
       showError('שגיאה בעדכון לקוח');
@@ -907,19 +977,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error || !files) return [];
 
-      return files
-        .filter(f => f.name !== '.emptyFolderPlaceholder')
-        .map(f => {
-          const { data: urlData } = supabase.storage
-            .from('contracts')
-            .getPublicUrl(`${clientId}/${f.name}`);
+      const results: ClientFile[] = [];
+      for (const f of files.filter(f => f.name !== '.emptyFolderPlaceholder')) {
+        const { data: urlData } = await supabase.storage
+          .from('contracts')
+          .createSignedUrl(`${clientId}/${f.name}`, 3600); // 1 hour expiry
 
-          return {
-            name: f.name.replace(/^\d+_/, ''), // Remove timestamp prefix for display
-            url: urlData.publicUrl,
-            createdAt: f.created_at || '',
-          };
+        results.push({
+          name: f.name.replace(/^\d+_/, ''), // Remove timestamp prefix for display
+          url: urlData?.signedUrl || '',
+          createdAt: f.created_at || '',
         });
+      }
+      return results;
     } catch {
       return [];
     }
@@ -985,6 +1055,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         services: parsed.services || INITIAL_SERVICES,
         settings: parsed.settings || DEFAULT_SETTINGS,
         activities: parsed.activities || [],
+        retainerHistory: parsed.retainerHistory || [],
       });
       return true;
     } catch (e) {

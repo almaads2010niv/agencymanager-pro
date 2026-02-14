@@ -1,15 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
-import { useAuth } from '../contexts/AuthContext';
-import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye } from 'lucide-react';
+import { useAuth, ALL_PAGES, PagePermission } from '../contexts/AuthContext';
+import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
-import { Input, Checkbox } from './ui/Form';
+import { Input, Select } from './ui/Form';
+import { Badge } from './ui/Badge';
 import { Modal } from './ui/Modal';
 
 const Settings: React.FC = () => {
   const { settings, services, updateSettings, updateServices, exportData, importData } = useData();
-  const { isAdmin, allUsers, refreshUsers, addViewer, removeUser } = useAuth();
+  const { isAdmin, user, allUsers, refreshUsers, addViewer, removeUser, updateUserRole, updateUserPermissions, updateUserDisplayName } = useAuth();
   const [localSettings, setLocalSettings] = useState(settings);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newViewerName, setNewViewerName] = useState('');
@@ -17,6 +18,9 @@ const Settings: React.FC = () => {
   const [showAddUser, setShowAddUser] = useState(false);
   const [userError, setUserError] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editNameValue, setEditNameValue] = useState('');
 
   useEffect(() => {
     if (isAdmin) refreshUsers();
@@ -40,7 +44,7 @@ const Settings: React.FC = () => {
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result as string;
@@ -54,6 +58,20 @@ const Settings: React.FC = () => {
       alert('שגיאה בקריאת הקובץ. נסה שוב.');
     };
     reader.readAsText(file);
+  };
+
+  // Safe parse for user's page_permissions from allUsers records
+  const parseUserPermissions = (u: typeof allUsers[0]): PagePermission[] => {
+    if (!u.page_permissions) {
+      return u.role === 'admin' ? ALL_PAGES.map(p => p.key) : ['dashboard', 'leads'] as PagePermission[];
+    }
+    try {
+      const parsed = typeof u.page_permissions === 'string' ? JSON.parse(u.page_permissions) : u.page_permissions;
+      if (Array.isArray(parsed)) return parsed as PagePermission[];
+      return u.role === 'admin' ? ALL_PAGES.map(p => p.key) : ['dashboard', 'leads'] as PagePermission[];
+    } catch {
+      return u.role === 'admin' ? ALL_PAGES.map(p => p.key) : ['dashboard', 'leads'] as PagePermission[];
+    }
   };
 
   return (
@@ -105,34 +123,153 @@ const Settings: React.FC = () => {
       {/* User Management - Admin only */}
       {isAdmin && (
         <Card>
-          <CardHeader title="ניהול משתמשים" />
-          <div className="space-y-4">
-            {/* Existing users */}
-            <div className="space-y-2">
-              {allUsers.map(u => (
-                <div key={u.id} className="flex items-center justify-between bg-[#0B1121] p-4 rounded-xl border border-white/5">
-                  <div className="flex items-center gap-3">
-                    <div className={`p-1.5 rounded-lg ${u.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-violet-500/10 text-violet-400'}`}>
-                      {u.role === 'admin' ? <Shield size={16} /> : <Eye size={16} />}
+          <CardHeader title="ניהול משתמשים והרשאות" />
+          <div className="space-y-3">
+            {allUsers.map(u => {
+              const isExpanded = expandedUserId === u.user_id;
+              const isCurrentUser = user?.id === u.user_id;
+              const userPerms = parseUserPermissions(u);
+
+              return (
+                <div key={u.id} className="bg-[#0B1121] rounded-xl border border-white/5 overflow-hidden">
+                  {/* User Header Row */}
+                  <div
+                    className="flex items-center justify-between p-4 cursor-pointer hover:bg-white/[0.02] transition-colors"
+                    onClick={() => setExpandedUserId(isExpanded ? null : u.user_id)}
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className={`p-2 rounded-lg ${u.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-violet-500/10 text-violet-400'}`}>
+                        {u.role === 'admin' ? <Shield size={18} /> : <Eye size={18} />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        {editingNameId === u.user_id ? (
+                          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                            <Input
+                              value={editNameValue}
+                              onChange={e => setEditNameValue(e.target.value)}
+                              className="h-8 text-sm"
+                              autoFocus
+                              onKeyDown={async e => {
+                                if (e.key === 'Enter') {
+                                  await updateUserDisplayName(u.user_id, editNameValue);
+                                  setEditingNameId(null);
+                                }
+                                if (e.key === 'Escape') setEditingNameId(null);
+                              }}
+                            />
+                            <Button
+                              variant="ghost"
+                              className="p-1 text-emerald-400 hover:text-emerald-300"
+                              onClick={async () => {
+                                await updateUserDisplayName(u.user_id, editNameValue);
+                                setEditingNameId(null);
+                              }}
+                            >
+                              <Save size={14} />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="text-white font-medium text-sm truncate">{u.display_name}</span>
+                            <button
+                              onClick={e => { e.stopPropagation(); setEditingNameId(u.user_id); setEditNameValue(u.display_name); }}
+                              className="p-0.5 rounded text-gray-600 hover:text-gray-300 transition-colors"
+                              title="ערוך שם"
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                          </div>
+                        )}
+                        <div className="text-[10px] text-gray-500 truncate">{u.email || 'אין אימייל'}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-white text-sm font-medium">{u.display_name}</div>
-                      <div className="text-[10px] text-gray-500">{u.role === 'admin' ? 'מנהל' : 'צופה (פרילנסר)'}</div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <Badge variant={u.role === 'admin' ? 'primary' : 'info'}>{u.role === 'admin' ? 'מנהל' : 'צופה'}</Badge>
+                      <ChevronDown size={16} className={`transition-transform duration-200 text-gray-500 ${isExpanded ? 'rotate-180' : ''}`} />
                     </div>
                   </div>
-                  {u.role !== 'admin' && (
-                    <Button variant="ghost" onClick={() => setConfirmRemoveId(u.user_id)} className="p-1.5 text-red-400 hover:text-red-300" icon={<Trash2 size={14} />} aria-label="הסר משתמש" />
+
+                  {/* Expanded Details */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4 space-y-4 border-t border-white/5 pt-4">
+                      {/* Role Switch */}
+                      <div className="flex items-center gap-4">
+                        <span className="text-sm text-gray-400 w-24">הרשאה:</span>
+                        <div className="flex-1" onClick={e => e.stopPropagation()}>
+                          <Select
+                            value={u.role}
+                            onChange={async e => {
+                              const newRole = e.target.value as 'admin' | 'viewer';
+                              if (isCurrentUser && u.role === 'admin' && newRole === 'viewer') {
+                                if (!window.confirm('בטוח? הורדת הרשאת מנהל מעצמך תמנע ממך גישה להגדרות.')) return;
+                              }
+                              await updateUserRole(u.user_id, newRole);
+                            }}
+                            className="h-9 text-sm"
+                          >
+                            <option value="admin">מנהל (גישה מלאה)</option>
+                            <option value="viewer">צופה (הרשאות מותאמות)</option>
+                          </Select>
+                        </div>
+                      </div>
+
+                      {/* Page Permissions - only show for viewers */}
+                      {u.role === 'viewer' && (
+                        <div>
+                          <div className="text-sm text-gray-400 mb-3">עמודים מורשים:</div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {ALL_PAGES.map(page => (
+                              <label
+                                key={page.key}
+                                className="flex items-center gap-2 p-2 rounded-lg bg-white/[0.02] border border-white/5 hover:border-white/10 cursor-pointer transition-all text-sm"
+                                onClick={e => e.stopPropagation()}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={userPerms.includes(page.key)}
+                                  onChange={async e => {
+                                    e.stopPropagation();
+                                    const newPerms = e.target.checked
+                                      ? [...userPerms, page.key]
+                                      : userPerms.filter(p => p !== page.key);
+                                    await updateUserPermissions(u.user_id, newPerms);
+                                  }}
+                                  className="rounded bg-white/5 border-white/20 text-primary focus:ring-primary cursor-pointer"
+                                />
+                                <span className="text-gray-300">{page.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {u.role === 'admin' && (
+                        <div className="text-xs text-gray-500 italic p-2 bg-white/[0.02] rounded-lg">
+                          מנהלים מקבלים גישה מלאה לכל העמודים באופן אוטומטי.
+                        </div>
+                      )}
+
+                      {/* Delete button - can't delete yourself */}
+                      {!isCurrentUser && (
+                        <div className="flex justify-end pt-2 border-t border-white/5">
+                          <Button variant="ghost" onClick={() => setConfirmRemoveId(u.user_id)} className="text-red-400 hover:text-red-300 text-xs" icon={<Trash2 size={14} />}>
+                            הסר משתמש
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-              ))}
-              {allUsers.length === 0 && (
-                <div className="text-center text-gray-600 py-6 text-sm">
-                  לא נמצאו משתמשים (טבלת user_roles לא קיימת בסופאבייס)
-                </div>
-              )}
-            </div>
+              );
+            })}
 
-            {/* Add viewer */}
+            {allUsers.length === 0 && (
+              <div className="text-center text-gray-600 py-6 text-sm">
+                לא נמצאו משתמשים (טבלת user_roles לא קיימת בסופאבייס)
+              </div>
+            )}
+
+            {/* Add viewer section */}
             {showAddUser ? (
               <div className="p-4 bg-[#0B1121] rounded-xl border border-white/10 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -141,7 +278,7 @@ const Settings: React.FC = () => {
                 </div>
                 {userError && <div className="text-red-400 text-sm">{userError}</div>}
                 <div className="text-xs text-gray-500">
-                  * הפרילנסר צריך להירשם ב-Supabase Auth עם אותו אימייל. לאחר ההרשמה הוא יקבל הרשאת צפייה אוטומטית.
+                  * הפרילנסר צריך להירשם ב-Supabase Auth עם אותו אימייל. לאחר ההרשמה יקבל הרשאות ברירת מחדל (דשבורד + לידים).
                 </div>
                 <div className="flex gap-3 justify-end">
                   <Button variant="ghost" onClick={() => { setShowAddUser(false); setUserError(null); }}>ביטול</Button>
@@ -188,7 +325,7 @@ const Settings: React.FC = () => {
                 <div className="text-sm text-gray-500 mt-1">הורד קובץ JSON של כל המידע</div>
             </div>
           </button>
-          
+
           <button onClick={() => fileInputRef.current?.click()} className="flex-1 group bg-[#0B1121] border border-white/10 hover:border-secondary/50 hover:shadow-glow-secondary p-8 rounded-2xl flex flex-col items-center justify-center gap-4 transition-all duration-300">
             <div className="p-4 rounded-full bg-secondary/10 text-secondary group-hover:scale-110 transition-transform">
                 <Upload size={32} />
@@ -198,12 +335,12 @@ const Settings: React.FC = () => {
                 <div className="text-sm text-gray-500 mt-1">שחזר מגיבוי (דורס קיים)</div>
             </div>
           </button>
-          <input 
-            type="file" 
-            accept=".json" 
-            ref={fileInputRef} 
-            className="hidden" 
-            onChange={handleImport} 
+          <input
+            type="file"
+            accept=".json"
+            ref={fileInputRef}
+            className="hidden"
+            onChange={handleImport}
           />
         </div>
       </Card>

@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import type { ClientFile } from '../contexts/DataContext';
-import { formatCurrency, formatDate, getMonthName } from '../utils';
-import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink } from 'lucide-react';
+import { formatCurrency, formatDate, getMonthName, formatPhoneForWhatsApp } from '../utils';
+import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -13,7 +13,7 @@ import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '.
 const ClientProfile: React.FC = () => {
   const { clientId } = useParams<{ clientId: string }>();
   const navigate = useNavigate();
-  const { clients, oneTimeDeals, expenses, payments, services, uploadClientFile, listClientFiles, deleteClientFile } = useData();
+  const { clients, oneTimeDeals, expenses, payments, services, retainerHistory, uploadClientFile, listClientFiles, deleteClientFile } = useData();
   const [clientFiles, setClientFiles] = useState<ClientFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [confirmDeleteFile, setConfirmDeleteFile] = useState<string | null>(null);
@@ -66,6 +66,7 @@ const ClientProfile: React.FC = () => {
   const clientDeals = oneTimeDeals.filter(d => d.clientId === clientId);
   const clientExpenses = expenses.filter(e => e.clientId === clientId);
   const clientPayments = payments.filter(p => p.clientId === clientId);
+  const clientRetainerHistory = retainerHistory.filter(rc => rc.clientId === clientId);
 
   const monthlyProfit = client.monthlyRetainer - client.supplierCostMonthly;
   const totalDealValue = clientDeals.reduce((sum, d) => sum + d.dealAmount, 0);
@@ -108,6 +109,9 @@ const ClientProfile: React.FC = () => {
               <div className="flex items-center gap-3">
                 <Phone size={16} className="text-primary" />
                 <a href={`tel:${client.phone}`} className="text-primary hover:underline">{client.phone}</a>
+                <a href={`https://wa.me/${formatPhoneForWhatsApp(client.phone).replace('+', '')}`} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-all" title="WhatsApp">
+                  <MessageCircle size={14} />
+                </a>
               </div>
             )}
             {client.email && (
@@ -253,6 +257,35 @@ const ClientProfile: React.FC = () => {
                       {pay.paymentStatus === 'Paid' ? 'שולם' : pay.paymentStatus === 'Partial' ? 'חלקי' : 'לא שולם'}
                     </Badge>
                   </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+
+      {/* Retainer Change History */}
+      {clientRetainerHistory.length > 0 && (
+        <Card noPadding>
+          <div className="p-6 pb-2">
+            <CardHeader title="היסטוריית שינויי ריטיינר" subtitle={`${clientRetainerHistory.length} שינויים`} />
+          </div>
+          <Table>
+            <TableHeader>
+              <TableHead>תאריך</TableHead>
+              <TableHead>ריטיינר ישן</TableHead>
+              <TableHead>ריטיינר חדש</TableHead>
+              <TableHead>עלות ספקים ישנה</TableHead>
+              <TableHead>עלות ספקים חדשה</TableHead>
+            </TableHeader>
+            <TableBody>
+              {clientRetainerHistory.map(rc => (
+                <TableRow key={rc.id}>
+                  <TableCell className="text-gray-400">{formatDate(rc.changedAt)}</TableCell>
+                  <TableCell className="text-gray-400 font-mono">{formatCurrency(rc.oldRetainer)}</TableCell>
+                  <TableCell className="text-white font-mono font-bold">{formatCurrency(rc.newRetainer)}</TableCell>
+                  <TableCell className="text-gray-400 font-mono">{formatCurrency(rc.oldSupplierCost)}</TableCell>
+                  <TableCell className="text-white font-mono font-bold">{formatCurrency(rc.newSupplierCost)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

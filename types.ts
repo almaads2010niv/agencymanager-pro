@@ -154,6 +154,17 @@ export interface ActivityEntry {
   createdAt: string;
 }
 
+export interface RetainerChange {
+  id: string;
+  clientId: string;
+  oldRetainer: number;
+  newRetainer: number;
+  oldSupplierCost: number;
+  newSupplierCost: number;
+  changedAt: string;
+  notes: string;
+}
+
 export interface AppData {
   clients: Client[];
   leads: Lead[];
@@ -163,4 +174,5 @@ export interface AppData {
   services: Service[];
   settings: AgencySettings;
   activities: ActivityEntry[];
+  retainerHistory: RetainerChange[];
 }
