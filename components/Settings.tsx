@@ -21,6 +21,13 @@ const Settings: React.FC = () => {
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editNameValue, setEditNameValue] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const showActionError = (msg: string | null) => {
+    if (!msg) return;
+    setActionError(msg);
+    setTimeout(() => setActionError(null), 5000);
+  };
 
   useEffect(() => {
     if (isAdmin) refreshUsers();
@@ -124,6 +131,12 @@ const Settings: React.FC = () => {
       {isAdmin && (
         <Card>
           <CardHeader title="ניהול משתמשים והרשאות" />
+          {actionError && (
+            <div className="mb-3 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-center justify-between">
+              <span>{actionError}</span>
+              <button onClick={() => setActionError(null)} className="text-red-400/60 hover:text-red-300 ms-3">✕</button>
+            </div>
+          )}
           <div className="space-y-3">
             {allUsers.map(u => {
               const isExpanded = expandedUserId === u.user_id;
@@ -151,7 +164,8 @@ const Settings: React.FC = () => {
                               autoFocus
                               onKeyDown={async e => {
                                 if (e.key === 'Enter') {
-                                  await updateUserDisplayName(u.user_id, editNameValue);
+                                  const err = await updateUserDisplayName(u.user_id, editNameValue);
+                                  showActionError(err);
                                   setEditingNameId(null);
                                 }
                                 if (e.key === 'Escape') setEditingNameId(null);
@@ -161,7 +175,8 @@ const Settings: React.FC = () => {
                               variant="ghost"
                               className="p-1 text-emerald-400 hover:text-emerald-300"
                               onClick={async () => {
-                                await updateUserDisplayName(u.user_id, editNameValue);
+                                const err = await updateUserDisplayName(u.user_id, editNameValue);
+                                showActionError(err);
                                 setEditingNameId(null);
                               }}
                             >
@@ -203,7 +218,8 @@ const Settings: React.FC = () => {
                               if (isCurrentUser && u.role === 'admin' && newRole === 'viewer') {
                                 if (!window.confirm('בטוח? הורדת הרשאת מנהל מעצמך תמנע ממך גישה להגדרות.')) return;
                               }
-                              await updateUserRole(u.user_id, newRole);
+                              const err = await updateUserRole(u.user_id, newRole);
+                              showActionError(err);
                             }}
                             className="h-9 text-sm"
                           >
@@ -232,7 +248,8 @@ const Settings: React.FC = () => {
                                     const newPerms = e.target.checked
                                       ? [...userPerms, page.key]
                                       : userPerms.filter(p => p !== page.key);
-                                    await updateUserPermissions(u.user_id, newPerms);
+                                    const permErr = await updateUserPermissions(u.user_id, newPerms);
+                                    showActionError(permErr);
                                   }}
                                   className="rounded bg-white/5 border-white/20 text-primary focus:ring-primary cursor-pointer"
                                 />
@@ -308,7 +325,7 @@ const Settings: React.FC = () => {
           <p className="text-gray-300">האם אתה בטוח שברצונך להסיר את המשתמש? הוא לא יוכל להיכנס למערכת יותר.</p>
           <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
             <Button variant="ghost" onClick={() => setConfirmRemoveId(null)}>ביטול</Button>
-            <Button variant="danger" onClick={() => { if (confirmRemoveId) { removeUser(confirmRemoveId); setConfirmRemoveId(null); } }}>הסר משתמש</Button>
+            <Button variant="danger" onClick={async () => { if (confirmRemoveId) { const err = await removeUser(confirmRemoveId); showActionError(err); setConfirmRemoveId(null); } }}>הסר משתמש</Button>
           </div>
         </div>
       </Modal>

@@ -54,10 +54,10 @@ export interface AuthContextType {
   logout: () => Promise<void>;
   refreshUsers: () => Promise<void>;
   addViewer: (email: string, displayName: string) => Promise<string | null>;
-  removeUser: (userId: string) => Promise<void>;
-  updateUserRole: (userId: string, newRole: UserRole) => Promise<void>;
-  updateUserPermissions: (userId: string, permissions: PagePermission[]) => Promise<void>;
-  updateUserDisplayName: (userId: string, newName: string) => Promise<void>;
+  removeUser: (userId: string) => Promise<string | null>;
+  updateUserRole: (userId: string, newRole: UserRole) => Promise<string | null>;
+  updateUserPermissions: (userId: string, permissions: PagePermission[]) => Promise<string | null>;
+  updateUserDisplayName: (userId: string, newName: string) => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -236,6 +236,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addViewer = async (email: string, viewerDisplayName: string): Promise<string | null> => {
     try {
+      // Check for duplicate email first
+      const trimmedEmail = email.toLowerCase().trim();
+      const existingUser = allUsers.find(u => u.email === trimmedEmail);
+      if (existingUser) return 'משתמש עם אימייל זה כבר קיים במערכת';
+
       // Pre-create a role entry with the email.
       // When the actual user logs in, loadRole will match by email and link the real user_id.
       const placeholderId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
@@ -243,40 +248,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('user_roles')
         .insert({
           user_id: placeholderId,
-          email: email.toLowerCase().trim(),
+          email: trimmedEmail,
           role: 'viewer',
           display_name: viewerDisplayName,
           page_permissions: JSON.stringify(DEFAULT_VIEWER_PERMISSIONS),
         });
 
-      if (error) return error.message;
+      if (error) {
+        if (error.code === '42501') return 'אין הרשאה להוסיף משתמשים. בדוק את ה-RLS policies ב-Supabase.';
+        if (error.code === '23505') return 'משתמש עם אימייל זה כבר קיים';
+        return 'שגיאה מ-Supabase: ' + error.message;
+      }
 
       await refreshUsers();
       return null;
     } catch (err) {
-      return '\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05D4\u05D5\u05E1\u05E4\u05EA \u05DE\u05E9\u05EA\u05DE\u05E9';
+      return 'שגיאה בהוספת משתמש';
     }
   };
 
-  const removeUser = async (userId: string) => {
+  const removeUser = async (userId: string): Promise<string | null> => {
     try {
-      await supabase
+      const { error } = await supabase
         .from('user_roles')
         .delete()
         .eq('user_id', userId);
+
+      if (error) {
+        if (error.code === '42501') return 'אין הרשאה למחוק משתמשים. בדוק את ה-RLS policies ב-Supabase.';
+        return 'שגיאה במחיקה: ' + error.message;
+      }
+
+      // Optimistic local update + refresh from DB
+      setAllUsers(prev => prev.filter(u => u.user_id !== userId));
       await refreshUsers();
+      return null;
     } catch {
-      // Silently fail
+      return 'שגיאה במחיקת משתמש';
     }
   };
 
-  const updateUserRole = async (userId: string, newRole: UserRole) => {
+  const updateUserRole = async (userId: string, newRole: UserRole): Promise<string | null> => {
     try {
       const perms = newRole === 'admin' ? ALL_PAGES.map(p => p.key) : DEFAULT_VIEWER_PERMISSIONS;
-      await supabase
+      const { error } = await supabase
         .from('user_roles')
         .update({ role: newRole, page_permissions: JSON.stringify(perms) })
         .eq('user_id', userId);
+
+      if (error) {
+        if (error.code === '42501') return 'אין הרשאה לשנות תפקידים. בדוק את ה-RLS policies ב-Supabase.';
+        return 'שגיאה בעדכון תפקיד: ' + error.message;
+      }
 
       // If updating own user, update local state
       if (user && userId === user.id) {
@@ -284,41 +307,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPagePermissions(perms);
       }
       await refreshUsers();
+      return null;
     } catch {
-      // Silently fail
+      return 'שגיאה בעדכון תפקיד';
     }
   };
 
-  const updateUserPermissions = async (userId: string, permissions: PagePermission[]) => {
+  const updateUserPermissions = async (userId: string, permissions: PagePermission[]): Promise<string | null> => {
     try {
-      await supabase
+      const { error } = await supabase
         .from('user_roles')
         .update({ page_permissions: JSON.stringify(permissions) })
         .eq('user_id', userId);
+
+      if (error) {
+        if (error.code === '42501') return 'אין הרשאה לשנות הרשאות. בדוק את ה-RLS policies ב-Supabase.';
+        return 'שגיאה בעדכון הרשאות: ' + error.message;
+      }
 
       // If updating own user, update local state
       if (user && userId === user.id) {
         setPagePermissions(permissions);
       }
       await refreshUsers();
+      return null;
     } catch {
-      // Silently fail
+      return 'שגיאה בעדכון הרשאות';
     }
   };
 
-  const updateUserDisplayName = async (userId: string, newName: string) => {
+  const updateUserDisplayName = async (userId: string, newName: string): Promise<string | null> => {
     try {
-      await supabase
+      const { error } = await supabase
         .from('user_roles')
         .update({ display_name: newName })
         .eq('user_id', userId);
+
+      if (error) {
+        if (error.code === '42501') return 'אין הרשאה לשנות שם. בדוק את ה-RLS policies ב-Supabase.';
+        return 'שגיאה בעדכון שם: ' + error.message;
+      }
 
       if (user && userId === user.id) {
         setDisplayName(newName);
       }
       await refreshUsers();
+      return null;
     } catch {
-      // Silently fail
+      return 'שגיאה בעדכון שם';
     }
   };
 
