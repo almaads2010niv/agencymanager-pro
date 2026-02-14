@@ -1,0 +1,201 @@
+===============================================================================
+                    AgencyManager Pro - Project Story
+                    Last Updated: 2026-02-14
+===============================================================================
+
+OVERVIEW
+--------
+AgencyManager Pro is a CRM/Dashboard system for managing a digital marketing
+agency. Built for a user who runs an agency as a self-employed business while
+also being salaried. The app tracks clients, leads, deals, expenses, debts,
+and provides financial dashboards.
+
+Tech: React 19 + Vite + TypeScript + Supabase + React Router (HashRouter)
+UI: Tailwind CSS via CDN, Heebo font, dark theme, RTL Hebrew layout
+Hosting: GitHub -> Vercel (auto-deploy)
+
+===============================================================================
+SESSION 1 (2026-02-14) - Audit & Bug Fixes
+===============================================================================
+
+WHAT HAPPENED:
+User asked to investigate the codebase for broken/problematic things.
+Full audit was performed, identifying 19 issues across 4 severity levels.
+
+ISSUES FOUND & FIXED:
+1. [CRITICAL] `any` types everywhere -> Created proper DB row interfaces
+   (ClientRow, LeadRow, DealRow, ExpenseRow, PaymentRow, SettingsRow)
+2. [CRITICAL] JSON.parse without try-catch -> Created `safeJsonParse` helper
+3. [CRITICAL] Non-atomic convertLeadToClient -> Added rollback on failure
+4. [HIGH] Debug console.logs in supabaseClient.ts -> Removed
+5. [HIGH] STORAGE_KEY dead code in constants.ts -> Removed
+6. [HIGH] No error feedback to user -> Added error/clearError to DataContext,
+   error toast in Dashboard
+7. [HIGH] `isLoaded` not exposed from context -> Added to DataContextType
+8. [MEDIUM] Native confirm() dialogs -> Styled Modal confirmations in
+   Clients.tsx, Leads.tsx, Debts.tsx
+9. [MEDIUM] Missing custom-scrollbar CSS class -> Added to index.html <style>
+10. [MEDIUM] RTL margin issues (ml/mr) -> Fixed to logical ms/me in Button.tsx
+11. [MEDIUM] Modal z-index conflict with sidebar -> z-50 -> z-[60]
+12. [MEDIUM] Accessibility: Added role, aria-modal, aria-label to Modal.tsx
+13. [MEDIUM] Accessibility: Added aria-labels to Layout.tsx sidebar buttons
+14. [MEDIUM] Login.tsx responsive issues -> Fixed width/padding
+15. [MEDIUM] Login.tsx mixed Hebrew/English text -> Unified
+16. [MEDIUM] Settings.tsx RTL toggle animation -> Fixed translate direction
+17. [MEDIUM] Settings.tsx missing FileReader.onerror -> Added
+18. [MEDIUM] Settings.tsx typo "דרוס" -> "דורס"
+19. [LOW] Typed all component props (KPICardProps, SidebarItemProps)
+
+FILES MODIFIED:
+- lib/supabaseClient.ts (removed debug logs)
+- constants.ts (removed STORAGE_KEY)
+- contexts/DataContext.tsx (major rewrite: types, error handling, async)
+- components/ui/Modal.tsx (z-index, accessibility)
+- components/ui/Button.tsx (RTL fix)
+- components/Login.tsx (responsive, accessibility, text)
+- components/Settings.tsx (RTL toggle, error handling, typo)
+- components/Layout.tsx (typed props, aria-labels)
+- components/Dashboard.tsx (typed props, error toast, LucideIcon)
+- components/Clients.tsx (confirm delete modal)
+- components/Leads.tsx (confirm convert modal)
+- components/Debts.tsx (confirm delete modal, aria-labels)
+- index.html (custom-scrollbar CSS)
+
+DELETED:
+- agencymanager-pro/agencymanager-pro/ (duplicate nested directory)
+
+Build verified: `npm run build` succeeded.
+Committed: 443c937 - "Fix 19 audit issues..."
+Pushed to GitHub -> Vercel auto-deployed.
+
+===============================================================================
+SESSION 2 (2026-02-14) - Feature Upgrades (IN PROGRESS)
+===============================================================================
+
+USER REQUESTED 9 NEW FEATURES (everything except PDF reports):
+
+FEATURE 1: Israel Tax Calculator
+- User is salaried (20K/month) + self-employed (agency income)
+- Calculate net income after Israeli tax brackets + Bituach Leumi
+- Display: KPI card in Dashboard + collapsible breakdown + dedicated page
+- Tax brackets 2025-2026 (frozen): 10%/14%/20%/31%/35%/47%/50%
+- Credit points: 2.25 x 242 = 544.50 NIS/month
+- BL self-employed: 9.07% (up to 7,522) / 22.83% (7,523-49,030)
+- Store employeeSalary in AgencySettings
+- New files: utils/taxCalculator.ts, components/TaxCalculator.tsx
+
+FEATURE 2: Multi-User Role System
+- Admin (owner) sees everything
+- Viewer (freelancers) sees: their own leads + mini dashboard
+- Supabase table: user_roles (user_id, role, display_name)
+- Add created_by to leads table
+- New file: contexts/AuthContext.tsx
+- Conditional sidebar, route gating, user management in Settings
+
+FEATURE 3: Fix YoY Growth
+- Dashboard.tsx line 73 has hardcoded `mrrChangePercent = 10`
+- Replace with actual calculation using calculateMRRForMonth()
+
+FEATURE 4: Notification Badges
+- Red dot/counter on sidebar items
+- "לידים" shows overdue leads count
+- "חובות לקוחות" shows unpaid debts count
+
+FEATURE 5: Edit/Delete Expenses
+- Currently only addExpense exists
+- Add updateExpense/deleteExpense to DataContext
+- Add edit/delete UI in Expenses.tsx (follow Debts.tsx pattern)
+
+FEATURE 6: Auto-Generate Monthly Debts
+- Button to auto-create payment records for all active clients
+- Based on monthlyRetainer, prevents duplicates
+
+FEATURE 7: Client Profile Page
+- /clients/:clientId route
+- Shows contact info, financials, deals, expenses, payments history
+
+FEATURE 8: Global Search (Ctrl+K)
+- Command palette searching across clients, leads, deals
+- Keyboard navigation, grouped results
+
+FEATURE 9: Activity Log
+- Track CRUD operations in Supabase activity_log table
+- Show recent activity in Dashboard
+
+IMPLEMENTATION ORDER:
+Phase 1: Feature 3 (YoY fix), Feature 5 (Edit/Delete Expenses)
+Phase 2: Feature 1 (Tax Calculator)
+Phase 3: Feature 6 (Auto-generate debts), Feature 4 (Notification badges)
+Phase 4: Feature 7 (Client Profile), Feature 8 (Global Search)
+Phase 5: Feature 9 (Activity Log), Feature 2 (Role System)
+
+SUPABASE MIGRATIONS NEEDED:
+1. ALTER TABLE agency_settings ADD COLUMN employee_salary numeric DEFAULT 0;
+2. CREATE TABLE activity_log (...);
+3. CREATE TABLE user_roles (...);
+4. ALTER TABLE leads ADD COLUMN created_by uuid;
+
+NEW FILES TO CREATE:
+1. utils/taxCalculator.ts
+2. components/TaxCalculator.tsx
+3. components/ClientProfile.tsx
+4. components/CommandPalette.tsx
+5. contexts/AuthContext.tsx
+
+STATUS: ALL 9 FEATURES COMPLETED ✅
+
+COMPLETED FEATURES LOG:
+- Feature 3 ✅: Fixed YoY Growth - replaced hardcoded 10% with actual calculation
+- Feature 5 ✅: Edit/Delete Expenses - full CRUD in Expenses.tsx + DataContext
+- Feature 1 ✅: Israel Tax Calculator - utils/taxCalculator.ts + TaxCalculator.tsx
+  + Dashboard KPI + collapsible panel + Settings employee salary input
+- Feature 6 ✅: Auto-Generate Monthly Debts - generateMonthlyPayments in DataContext
+- Feature 4 ✅: Notification Badges - overdue leads + unpaid debts in sidebar
+- Feature 7 ✅: Client Profile Page - /clients/:clientId with full history
+- Feature 8 ✅: Global Search (Ctrl+K) - CommandPalette.tsx searching all entities
+- Feature 9 ✅: Activity Log - logActivity in DataContext + ActivityLog.tsx in Dashboard
+- Feature 2 ✅: Multi-User Role System - AuthContext.tsx, role-gated sidebar,
+  viewer mini dashboard, filtered leads, user management in Settings
+
+===============================================================================
+ARCHITECTURE NOTES
+===============================================================================
+
+Data Flow:
+  Supabase (PostgreSQL) <-> DataContext.tsx <-> Components
+  DB uses snake_case, TypeScript uses camelCase
+  Transform functions handle conversion both ways
+
+Component Structure:
+  App.tsx (router + auth)
+    -> Layout.tsx (sidebar + main area)
+      -> [Page Components] (Dashboard, Clients, Leads, etc.)
+        -> ui/ (Button, Card, Form, Modal, Badge, Table)
+
+State Management:
+  Single React Context (DataContext) holds all app state
+  All CRUD operations are async with try/catch + error toast
+  No external state libraries (Redux, Zustand, etc.)
+
+Auth:
+  Supabase Auth (email/password)
+  Session check on App mount
+  Role system: AuthContext.tsx with admin/viewer roles
+  First user auto-becomes admin, subsequent users get viewer role
+  Role table: user_roles (user_id, role, display_name)
+
+Styling:
+  Tailwind CSS via CDN (not PostCSS build)
+  Custom config in index.html <script> tag
+  Dark theme: background #0B1121, surface #151e32
+  Glass morphism effects throughout
+  RTL: use logical properties (ms-/me- not ml-/mr-)
+
+Key Patterns:
+  - Modal z-index: z-[60] (above sidebar z-50)
+  - custom-scrollbar CSS class in index.html
+  - Hebrew localized dates, currency, text
+  - DB row interfaces for type safety
+  - safeJsonParse helper for crash-safe JSON
+  - Atomic operations with rollback support
+  - Confirm modals for destructive actions

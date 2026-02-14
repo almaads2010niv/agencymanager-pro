@@ -1,14 +1,26 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
-import { Download, Upload, Save } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Checkbox } from './ui/Form';
+import { Modal } from './ui/Modal';
 
 const Settings: React.FC = () => {
   const { settings, services, updateSettings, updateServices, exportData, importData } = useData();
+  const { isAdmin, allUsers, refreshUsers, addViewer, removeUser } = useAuth();
   const [localSettings, setLocalSettings] = useState(settings);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [newViewerName, setNewViewerName] = useState('');
+  const [newViewerEmail, setNewViewerEmail] = useState('');
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [userError, setUserError] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isAdmin) refreshUsers();
+  }, [isAdmin, refreshUsers]);
 
   const handleSaveSettings = () => {
     updateSettings(localSettings);
@@ -57,6 +69,7 @@ const Settings: React.FC = () => {
                 <Input label="יעד הכנסות חודשי (₪)" type="number" value={localSettings.targetMonthlyRevenue} onChange={e => setLocalSettings({...localSettings, targetMonthlyRevenue: Number(e.target.value)})} />
                 <Input label="יעד רווח חודשי (₪)" type="number" value={localSettings.targetMonthlyGrossProfit} onChange={e => setLocalSettings({...localSettings, targetMonthlyGrossProfit: Number(e.target.value)})} />
             </div>
+            <Input label="משכורת שכיר חודשית (₪)" type="number" value={localSettings.employeeSalary || ''} onFocus={e => { if (e.target.value === '0') e.target.value = ''; }} onChange={e => setLocalSettings({...localSettings, employeeSalary: Number(e.target.value) || 0})} />
             <div className="flex justify-end pt-4 border-t border-white/5">
                 <Button onClick={handleSaveSettings} icon={<Save size={18} />}>שמור שינויים</Button>
             </div>
@@ -88,6 +101,80 @@ const Settings: React.FC = () => {
            ))}
         </div>
       </Card>
+
+      {/* User Management - Admin only */}
+      {isAdmin && (
+        <Card>
+          <CardHeader title="ניהול משתמשים" />
+          <div className="space-y-4">
+            {/* Existing users */}
+            <div className="space-y-2">
+              {allUsers.map(u => (
+                <div key={u.id} className="flex items-center justify-between bg-[#0B1121] p-4 rounded-xl border border-white/5">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-1.5 rounded-lg ${u.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-violet-500/10 text-violet-400'}`}>
+                      {u.role === 'admin' ? <Shield size={16} /> : <Eye size={16} />}
+                    </div>
+                    <div>
+                      <div className="text-white text-sm font-medium">{u.display_name}</div>
+                      <div className="text-[10px] text-gray-500">{u.role === 'admin' ? 'מנהל' : 'צופה (פרילנסר)'}</div>
+                    </div>
+                  </div>
+                  {u.role !== 'admin' && (
+                    <Button variant="ghost" onClick={() => setConfirmRemoveId(u.user_id)} className="p-1.5 text-red-400 hover:text-red-300" icon={<Trash2 size={14} />} aria-label="הסר משתמש" />
+                  )}
+                </div>
+              ))}
+              {allUsers.length === 0 && (
+                <div className="text-center text-gray-600 py-6 text-sm">
+                  לא נמצאו משתמשים (טבלת user_roles לא קיימת בסופאבייס)
+                </div>
+              )}
+            </div>
+
+            {/* Add viewer */}
+            {showAddUser ? (
+              <div className="p-4 bg-[#0B1121] rounded-xl border border-white/10 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="שם תצוגה" value={newViewerName} onChange={e => setNewViewerName(e.target.value)} placeholder="שם הפרילנסר" />
+                  <Input label="אימייל" type="email" value={newViewerEmail} onChange={e => setNewViewerEmail(e.target.value)} placeholder="email@example.com" />
+                </div>
+                {userError && <div className="text-red-400 text-sm">{userError}</div>}
+                <div className="text-xs text-gray-500">
+                  * הפרילנסר צריך להירשם ב-Supabase Auth עם אותו אימייל. לאחר ההרשמה הוא יקבל הרשאת צפייה אוטומטית.
+                </div>
+                <div className="flex gap-3 justify-end">
+                  <Button variant="ghost" onClick={() => { setShowAddUser(false); setUserError(null); }}>ביטול</Button>
+                  <Button onClick={async () => {
+                    if (!newViewerName.trim()) { setUserError('שם תצוגה נדרש'); return; }
+                    const err = await addViewer(newViewerEmail, newViewerName);
+                    if (err) setUserError(err);
+                    else {
+                      setNewViewerName('');
+                      setNewViewerEmail('');
+                      setShowAddUser(false);
+                      setUserError(null);
+                    }
+                  }}>הוסף צופה</Button>
+                </div>
+              </div>
+            ) : (
+              <Button variant="secondary" onClick={() => setShowAddUser(true)} icon={<Plus size={16} />}>הוסף פרילנסר</Button>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Confirm Remove Modal */}
+      <Modal isOpen={!!confirmRemoveId} onClose={() => setConfirmRemoveId(null)} title="הסרת משתמש" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך להסיר את המשתמש? הוא לא יוכל להיכנס למערכת יותר.</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button variant="ghost" onClick={() => setConfirmRemoveId(null)}>ביטול</Button>
+            <Button variant="danger" onClick={() => { if (confirmRemoveId) { removeUser(confirmRemoveId); setConfirmRemoveId(null); } }}>הסר משתמש</Button>
+          </div>
+        </div>
+      </Modal>
 
       <Card>
         <CardHeader title="גיבוי ושחזור" />

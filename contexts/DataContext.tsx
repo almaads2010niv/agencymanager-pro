@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import {
   AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service,
-  AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel
+  AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel,
+  ActivityEntry
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -43,6 +44,7 @@ interface LeadRow {
   status: string;
   quoted_monthly_value: number;
   related_client_id: string;
+  created_by?: string;
 }
 
 interface DealRow {
@@ -85,6 +87,7 @@ interface SettingsRow {
   owner_name: string;
   target_monthly_revenue: number;
   target_monthly_gross_profit: number;
+  employee_salary: number;
 }
 
 export interface DataContextType extends AppData {
@@ -104,10 +107,13 @@ export interface DataContextType extends AppData {
   updateDeal: (deal: OneTimeDeal) => Promise<void>;
 
   addExpense: (expense: Omit<SupplierExpense, 'expenseId'>) => Promise<void>;
+  updateExpense: (expense: SupplierExpense) => Promise<void>;
+  deleteExpense: (id: string) => Promise<void>;
 
   addPayment: (payment: Omit<Payment, 'paymentId'>) => Promise<void>;
   updatePayment: (payment: Payment) => Promise<void>;
   deletePayment: (id: string) => Promise<void>;
+  generateMonthlyPayments: (monthKey: string) => Promise<number>;
 
   updateServices: (services: Service[]) => void;
   updateSettings: (settings: AgencySettings) => Promise<void>;
@@ -213,6 +219,7 @@ const transformLeadToDB = (lead: Lead) => ({
   status: lead.status,
   quoted_monthly_value: lead.quotedMonthlyValue,
   related_client_id: lead.relatedClientId,
+  created_by: lead.createdBy || null,
 });
 
 const transformLeadFromDB = (row: LeadRow): Lead => ({
@@ -229,6 +236,7 @@ const transformLeadFromDB = (row: LeadRow): Lead => ({
   status: migrateLeadStatus(row.status) as LeadStatus,
   quotedMonthlyValue: row.quoted_monthly_value,
   relatedClientId: row.related_client_id,
+  createdBy: row.created_by || undefined,
 });
 
 const transformDealToDB = (deal: OneTimeDeal) => ({
@@ -305,6 +313,7 @@ const transformSettingsToDB = (settings: AgencySettings) => ({
   owner_name: settings.ownerName,
   target_monthly_revenue: settings.targetMonthlyRevenue,
   target_monthly_gross_profit: settings.targetMonthlyGrossProfit,
+  employee_salary: settings.employeeSalary || 0,
 });
 
 const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
@@ -312,6 +321,7 @@ const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
   ownerName: row.owner_name,
   targetMonthlyRevenue: row.target_monthly_revenue,
   targetMonthlyGrossProfit: row.target_monthly_gross_profit,
+  employeeSalary: row.employee_salary || 0,
 });
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -323,6 +333,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     payments: [],
     services: INITIAL_SERVICES,
     settings: DEFAULT_SETTINGS,
+    activities: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -335,6 +346,33 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setTimeout(() => setError(null), 5000);
   }, []);
 
+  // Activity logging helper - logs locally (Supabase table optional)
+  const logActivity = useCallback((actionType: string, entityType: string, description: string, entityId?: string) => {
+    const entry: ActivityEntry = {
+      id: generateId(),
+      actionType,
+      entityType,
+      entityId,
+      description,
+      createdAt: new Date().toISOString(),
+    };
+    setData(prev => ({
+      ...prev,
+      activities: [entry, ...prev.activities].slice(0, 100), // Keep last 100
+    }));
+    // Optional: persist to Supabase activity_log table if it exists
+    supabase.from('activity_log').insert({
+      id: entry.id,
+      action_type: entry.actionType,
+      entity_type: entry.entityType,
+      entity_id: entry.entityId || null,
+      description: entry.description,
+      created_at: entry.createdAt,
+    }).then(({ error }) => {
+      if (error) console.warn('Activity log not persisted (table may not exist yet):', error.message);
+    });
+  }, []);
+
   // Load data from Supabase on mount
   useEffect(() => {
     const loadData = async () => {
@@ -345,13 +383,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
           supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
           supabase.from('payments').select('*').order('period_month', { ascending: false }),
-          supabase.from('settings').select('*').single()
+          supabase.from('settings').select('*').single(),
+          supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(50),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -365,6 +404,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const deals = (dealsRes.data || []).map(transformDealFromDB);
         const expenses = (expensesRes.data || []).map(transformExpenseFromDB);
         const payments = (paymentsRes.data || []).map(transformPaymentFromDB);
+        const activities: ActivityEntry[] = (activitiesRes.data || []).map((row: { id: string; action_type: string; entity_type: string; entity_id?: string; description: string; created_at: string }) => ({
+          id: row.id,
+          actionType: row.action_type,
+          entityType: row.entity_type,
+          entityId: row.entity_id || undefined,
+          description: row.description,
+          createdAt: row.created_at,
+        }));
 
         let settings = DEFAULT_SETTINGS;
         if (settingsRes.data && !settingsRes.error) {
@@ -381,7 +428,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           expenses,
           payments,
           services: INITIAL_SERVICES,
-          settings
+          settings,
+          activities,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -411,6 +459,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...prev,
         clients: [...prev.clients, newClient]
       }));
+      logActivity('client_added', 'client', `לקוח חדש: ${client.businessName}`, newClient.clientId);
     } catch (err) {
       showError('שגיאה בהוספת לקוח');
       throw err;
@@ -430,6 +479,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...prev,
         clients: prev.clients.map(c => c.clientId === client.clientId ? client : c)
       }));
+      logActivity('client_updated', 'client', `עודכן לקוח: ${client.businessName}`, client.clientId);
     } catch (err) {
       showError('שגיאה בעדכון לקוח');
       throw err;
@@ -437,6 +487,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const deleteClient = async (id: string) => {
+    const clientName = data.clients.find(c => c.clientId === id)?.businessName || id;
     try {
       await supabase.from('deals').delete().eq('client_id', id);
       await supabase.from('expenses').delete().eq('client_id', id);
@@ -455,6 +506,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         expenses: prev.expenses.filter(e => e.clientId !== id),
         payments: prev.payments.filter(p => p.clientId !== id)
       }));
+      logActivity('client_deleted', 'client', `נמחק לקוח: ${clientName}`, id);
     } catch (err) {
       showError('שגיאה במחיקת לקוח');
       throw err;
@@ -476,6 +528,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
 
       setData(prev => ({ ...prev, leads: [...prev.leads, newLead] }));
+      logActivity('lead_added', 'lead', `ליד חדש: ${lead.leadName}`, newLead.leadId);
     } catch (err) {
       showError('שגיאה בהוספת ליד');
       throw err;
@@ -495,6 +548,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...prev,
         leads: prev.leads.map(l => l.leadId === lead.leadId ? lead : l)
       }));
+      logActivity('lead_updated', 'lead', `עודכן ליד: ${lead.leadName}`, lead.leadId);
     } catch (err) {
       showError('שגיאה בעדכון ליד');
       throw err;
@@ -502,6 +556,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const deleteLead = async (id: string) => {
+    const leadName = data.leads.find(l => l.leadId === id)?.leadName || id;
     try {
       const { error } = await supabase
         .from('leads')
@@ -514,6 +569,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...prev,
         leads: prev.leads.filter(l => l.leadId !== id)
       }));
+      logActivity('lead_deleted', 'lead', `נמחק ליד: ${leadName}`, id);
     } catch (err) {
       showError('שגיאה במחיקת ליד');
       throw err;
@@ -553,6 +609,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           clients: [...prev.clients, newClient],
           leads: prev.leads.map(l => l.leadId === leadId ? updatedLead : l)
         }));
+        logActivity('lead_converted', 'lead', `ליד הומר ללקוח: ${lead.leadName} → ${clientData.businessName}`, leadId);
       }
     } catch (err) {
       showError('שגיאה בהמרת ליד ללקוח');
@@ -574,6 +631,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
 
       setData(prev => ({ ...prev, oneTimeDeals: [...prev.oneTimeDeals, newDeal] }));
+      logActivity('deal_added', 'deal', `פרויקט חדש: ${deal.dealName}`, newDeal.dealId);
     } catch (err) {
       showError('שגיאה בהוספת פרויקט');
       throw err;
@@ -593,6 +651,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...prev,
         oneTimeDeals: prev.oneTimeDeals.map(d => d.dealId === deal.dealId ? deal : d)
       }));
+      logActivity('deal_updated', 'deal', `עודכן פרויקט: ${deal.dealName}`, deal.dealId);
     } catch (err) {
       showError('שגיאה בעדכון פרויקט');
       throw err;
@@ -613,8 +672,50 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
 
       setData(prev => ({ ...prev, expenses: [...prev.expenses, newExpense] }));
+      logActivity('expense_added', 'expense', `הוצאה חדשה: ${expense.supplierName} - ₪${expense.amount}`, newExpense.expenseId);
     } catch (err) {
       showError('שגיאה בהוספת הוצאה');
+      throw err;
+    }
+  };
+
+  const updateExpense = async (expense: SupplierExpense) => {
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .update(transformExpenseToDB(expense))
+        .eq('expense_id', expense.expenseId);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        expenses: prev.expenses.map(e => e.expenseId === expense.expenseId ? expense : e)
+      }));
+      logActivity('expense_updated', 'expense', `עודכנה הוצאה: ${expense.supplierName}`, expense.expenseId);
+    } catch (err) {
+      showError('שגיאה בעדכון הוצאה');
+      throw err;
+    }
+  };
+
+  const deleteExpense = async (id: string) => {
+    const expenseName = data.expenses.find(e => e.expenseId === id)?.supplierName || id;
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .delete()
+        .eq('expense_id', id);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        expenses: prev.expenses.filter(e => e.expenseId !== id)
+      }));
+      logActivity('expense_deleted', 'expense', `נמחקה הוצאה: ${expenseName}`, id);
+    } catch (err) {
+      showError('שגיאה במחיקת הוצאה');
       throw err;
     }
   };
@@ -633,6 +734,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
 
       setData(prev => ({ ...prev, payments: [...prev.payments, newPayment] }));
+      logActivity('payment_added', 'payment', `חוב חדש: ₪${payment.amountDue}`, newPayment.paymentId);
     } catch (err) {
       showError('שגיאה בהוספת חוב');
       throw err;
@@ -652,6 +754,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...prev,
         payments: prev.payments.map(p => p.paymentId === payment.paymentId ? payment : p)
       }));
+      logActivity('payment_updated', 'payment', `עודכן חוב: ₪${payment.amountPaid}/${payment.amountDue}`, payment.paymentId);
     } catch (err) {
       showError('שגיאה בעדכון חוב');
       throw err;
@@ -671,8 +774,42 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...prev,
         payments: prev.payments.filter(p => p.paymentId !== id)
       }));
+      logActivity('payment_deleted', 'payment', `נמחק חוב`, id);
     } catch (err) {
       showError('שגיאה במחיקת חוב');
+      throw err;
+    }
+  };
+
+  const generateMonthlyPayments = async (monthKey: string): Promise<number> => {
+    try {
+      const activeClients = data.clients.filter(c => c.status === ClientStatus.Active);
+      const existingPayments = data.payments.filter(p => p.periodMonth === monthKey);
+      const clientsWithPayments = new Set(existingPayments.map(p => p.clientId));
+
+      const newPayments: Payment[] = activeClients
+        .filter(c => !clientsWithPayments.has(c.clientId) && c.monthlyRetainer > 0)
+        .map(c => ({
+          paymentId: generateId(),
+          clientId: c.clientId,
+          periodMonth: monthKey,
+          amountDue: c.monthlyRetainer,
+          amountPaid: 0,
+          paymentStatus: PaymentStatus.Unpaid,
+          notes: '',
+        }));
+
+      if (newPayments.length === 0) return 0;
+
+      const dbRows = newPayments.map(p => transformPaymentToDB(p));
+      const { error } = await supabase.from('payments').insert(dbRows);
+      if (error) throw error;
+
+      setData(prev => ({ ...prev, payments: [...prev.payments, ...newPayments] }));
+      logActivity('payments_generated', 'payment', `יוצרו ${newPayments.length} חובות חודשיים לחודש ${monthKey}`);
+      return newPayments.length;
+    } catch (err) {
+      showError('שגיאה בייצור חובות חודשיים');
       throw err;
     }
   };
@@ -711,6 +848,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         payments: parsed.payments || [],
         services: parsed.services || INITIAL_SERVICES,
         settings: parsed.settings || DEFAULT_SETTINGS,
+        activities: parsed.activities || [],
       });
       return true;
     } catch (e) {
@@ -732,8 +870,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addClient, updateClient, deleteClient,
       addLead, updateLead, deleteLead, convertLeadToClient,
       addDeal, updateDeal,
-      addExpense,
-      addPayment, updatePayment, deletePayment,
+      addExpense, updateExpense, deleteExpense,
+      addPayment, updatePayment, deletePayment, generateMonthlyPayments,
       updateServices, updateSettings,
       importData, exportData
     }}>

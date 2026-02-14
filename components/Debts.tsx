@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useData } from '../contexts/DataContext';
 import { Payment, PaymentStatus } from '../types';
-import { formatCurrency, getMonthName } from '../utils';
-import { Plus, Search, Edit2, Trash2, Check } from 'lucide-react';
+import { formatCurrency, getMonthName, getMonthKey } from '../utils';
+import { Plus, Search, Edit2, Trash2, Check, Zap } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select, Textarea } from './ui/Form';
@@ -11,7 +11,7 @@ import { Badge } from './ui/Badge';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from './ui/Table';
 
 const Debts: React.FC = () => {
-  const { clients, payments, addPayment, updatePayment, deletePayment } = useData();
+  const { clients, payments, addPayment, updatePayment, deletePayment, generateMonthlyPayments } = useData();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Partial<Payment> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -118,7 +118,15 @@ const Debts: React.FC = () => {
           <h2 className="text-3xl font-black text-white tracking-tight">חובות לקוחות</h2>
           <p className="text-gray-400 mt-1">סה"כ חוב פתוח: <span className="text-red-400 font-bold">{formatCurrency(totalDebt)}</span></p>
         </div>
-        <Button onClick={openNewPayment} icon={<Plus size={18} />}>הוסף חוב</Button>
+        <div className="flex gap-3">
+          <Button onClick={async () => {
+            const monthKey = getMonthKey(new Date());
+            const count = await generateMonthlyPayments(monthKey);
+            if (count > 0) alert(`נוצרו ${count} חובות חדשים לחודש הנוכחי`);
+            else alert('כל הלקוחות כבר מופיעים בחובות החודש');
+          }} variant="secondary" icon={<Zap size={18} />}>ייצור חובות חודשיים</Button>
+          <Button onClick={openNewPayment} icon={<Plus size={18} />}>הוסף חוב</Button>
+        </div>
       </div>
 
       <Card className="grid grid-cols-1 md:grid-cols-2 gap-4">

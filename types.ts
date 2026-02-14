@@ -73,6 +73,7 @@ export interface Lead {
   status: LeadStatus;
   quotedMonthlyValue: number;
   relatedClientId?: string;
+  createdBy?: string;
 }
 
 export enum DealStatus {
@@ -140,6 +141,16 @@ export interface AgencySettings {
   ownerName: string;
   targetMonthlyRevenue: number;
   targetMonthlyGrossProfit: number;
+  employeeSalary: number;
+}
+
+export interface ActivityEntry {
+  id: string;
+  actionType: string;
+  entityType: string;
+  entityId?: string;
+  description: string;
+  createdAt: string;
 }
 
 export interface AppData {
@@ -150,4 +161,5 @@ export interface AppData {
   payments: Payment[];
   services: Service[];
   settings: AgencySettings;
+  activities: ActivityEntry[];
 }

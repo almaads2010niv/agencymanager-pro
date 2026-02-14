@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 
 import { DataProvider } from './contexts/DataContext'
+import { AuthProvider } from './contexts/AuthContext'
 import { supabase } from './lib/supabaseClient'
 
 import Layout from './components/Layout'
@@ -13,6 +14,8 @@ import Deals from './components/Deals'
 import Expenses from './components/Expenses'
 import Debts from './components/Debts'
 import Settings from './components/Settings'
+import TaxCalculator from './components/TaxCalculator'
+import ClientProfile from './components/ClientProfile'
 import Login from './components/Login'
 
 function App() {
@@ -47,21 +50,25 @@ function App() {
   }
 
   return (
-    <DataProvider>
-      <Router>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/clients" element={<Clients />} />
-            <Route path="/leads" element={<Leads />} />
-            <Route path="/deals" element={<Deals />} />
-            <Route path="/expenses" element={<Expenses />} />
-            <Route path="/debts" element={<Debts />} />
-            <Route path="/settings" element={<Settings />} />
-          </Routes>
-        </Layout>
-      </Router>
-    </DataProvider>
+    <AuthProvider>
+      <DataProvider>
+        <Router>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/clients" element={<Clients />} />
+              <Route path="/clients/:clientId" element={<ClientProfile />} />
+              <Route path="/leads" element={<Leads />} />
+              <Route path="/deals" element={<Deals />} />
+              <Route path="/expenses" element={<Expenses />} />
+              <Route path="/debts" element={<Debts />} />
+              <Route path="/tax-calculator" element={<TaxCalculator />} />
+              <Route path="/settings" element={<Settings />} />
+            </Routes>
+          </Layout>
+        </Router>
+      </DataProvider>
+    </AuthProvider>
   )
 }
 

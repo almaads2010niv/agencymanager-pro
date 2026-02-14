@@ -20,4 +20,5 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   ownerName: 'מנהל',
   targetMonthlyRevenue: 50000,
   targetMonthlyGrossProfit: 30000,
+  employeeSalary: 20000,
 };

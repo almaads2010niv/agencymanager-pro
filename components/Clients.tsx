@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { Client, ClientRating, ClientStatus, EffortLevel } from '../types';
 import { formatCurrency } from '../utils';
@@ -11,6 +12,7 @@ import { Badge } from './ui/Badge';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from './ui/Table';
 
 const Clients: React.FC = () => {
+  const navigate = useNavigate();
   const { clients, services, addClient, updateClient, deleteClient } = useData();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -113,7 +115,9 @@ const Clients: React.FC = () => {
             <TableBody>
               {filteredClients.map(client => (
                 <TableRow key={client.clientId}>
-                  <TableCell className="font-bold text-white text-base">{client.businessName}</TableCell>
+                  <TableCell className="font-bold text-base">
+                    <button onClick={() => navigate(`/clients/${client.clientId}`)} className="text-white hover:text-primary transition-colors text-right">{client.businessName}</button>
+                  </TableCell>
                   <TableCell>
                     <div className="text-white">{client.clientName}</div>
                     <div className="text-xs text-gray-500 mt-0.5">{client.phone}</div>

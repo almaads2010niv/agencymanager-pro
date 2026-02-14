@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useData } from '../contexts/DataContext';
+import { useAuth } from '../contexts/AuthContext';
 import { Lead, LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel } from '../types';
 import { formatCurrency } from '../utils';
 import { Plus, Search, CheckCircle, XCircle } from 'lucide-react';
@@ -11,13 +12,17 @@ import { Badge } from './ui/Badge';
 
 const Leads: React.FC = () => {
   const { leads, services, addLead, updateLead, deleteLead, convertLeadToClient } = useData();
+  const { isAdmin, isViewer, user } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Partial<Lead> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [convertingLead, setConvertingLead] = useState<Lead | null>(null);
 
-  const filteredLeads = leads.filter(l => {
+  // Viewers see only their own leads; admins see all
+  const visibleLeads = isViewer && user ? leads.filter(l => l.createdBy === user.id) : leads;
+
+  const filteredLeads = visibleLeads.filter(l => {
     const matchesSearch = l.leadName.includes(searchTerm) || (l.phone && l.phone.includes(searchTerm));
     const matchesStatus = filterStatus === 'all' || l.status === filterStatus;
     return matchesSearch && matchesStatus;
@@ -44,7 +49,8 @@ const Leads: React.FC = () => {
       status: LeadStatus.New,
       quotedMonthlyValue: 0,
       nextContactDate: new Date().toISOString().split('T')[0],
-      notes: ''
+      notes: '',
+      createdBy: user?.id || undefined,
     });
     setIsModalOpen(true);
   };
@@ -106,7 +112,7 @@ const Leads: React.FC = () => {
                 <Badge variant={getStatusColor(lead.status)}>{lead.status}</Badge>
                 {lead.status !== LeadStatus.Won && lead.status !== LeadStatus.Lost && (
                     <div className="flex gap-1">
-                        <Button variant="ghost" onClick={() => setConvertingLead(lead)} className="p-1.5 text-emerald-400 hover:bg-emerald-500/10" aria-label="המר ללקוח"><CheckCircle size={16}/></Button>
+                        {isAdmin && <Button variant="ghost" onClick={() => setConvertingLead(lead)} className="p-1.5 text-emerald-400 hover:bg-emerald-500/10" aria-label="המר ללקוח"><CheckCircle size={16}/></Button>}
                         <Button variant="ghost" onClick={() => updateLead({...lead, status: LeadStatus.Not_relevant})} className="p-1.5 text-gray-500 hover:text-red-400" aria-label="סמן כלא רלוונטי"><XCircle size={16}/></Button>
                     </div>
                 )}
