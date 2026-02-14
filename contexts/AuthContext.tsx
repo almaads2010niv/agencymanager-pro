@@ -30,7 +30,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [role, setRole] = useState<UserRole>('viewer');
+  const [role, setRole] = useState<UserRole>('admin');
   const [displayName, setDisplayName] = useState('');
   const [allUsers, setAllUsers] = useState<UserRoleRecord[]>([]);
   const [isRoleLoaded, setIsRoleLoaded] = useState(false);
@@ -43,6 +43,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .select('*')
         .eq('user_id', currentUser.id)
         .single();
+
+      console.log('[AuthContext] loadRole for user:', currentUser.id, currentUser.email);
+      console.log('[AuthContext] query result - data:', data, 'error:', error);
 
       if (error && (error.code === 'PGRST116' || error.code === '42P01')) {
         // No role found for this user, OR table doesn't exist
@@ -59,16 +62,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
 
         if (insertError) {
-          console.warn('Could not create role:', insertError.message);
+          console.warn('[AuthContext] Could not create role:', insertError.message);
         }
 
+        console.log('[AuthContext] No role found, defaulting to admin for:', currentUser.email);
         setRole('admin');
         setDisplayName(name);
       } else if (data) {
+        console.log('[AuthContext] Role loaded from DB:', data.role, 'for:', currentUser.email);
         setRole(data.role as UserRole);
         setDisplayName(data.display_name || currentUser.email?.split('@')[0] || '');
       } else {
         // Fallback
+        console.log('[AuthContext] Fallback to admin for:', currentUser.email);
         setRole('admin');
         setDisplayName(currentUser.email?.split('@')[0] || 'Admin');
       }

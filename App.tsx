@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 
 import { DataProvider } from './contexts/DataContext'
-import { AuthProvider } from './contexts/AuthContext'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { supabase } from './lib/supabaseClient'
 
 import Layout from './components/Layout'
@@ -17,6 +17,42 @@ import Settings from './components/Settings'
 import TaxCalculator from './components/TaxCalculator'
 import ClientProfile from './components/ClientProfile'
 import Login from './components/Login'
+
+// Inner component that waits for role to load before rendering
+function AppContent() {
+  const { isRoleLoaded } = useAuth()
+
+  if (!isRoleLoaded) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: 'white', background: '#0B1121' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>⏳</div>
+          <div>טוען...</div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <DataProvider>
+      <Router>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/clients" element={<Clients />} />
+            <Route path="/clients/:clientId" element={<ClientProfile />} />
+            <Route path="/leads" element={<Leads />} />
+            <Route path="/deals" element={<Deals />} />
+            <Route path="/expenses" element={<Expenses />} />
+            <Route path="/debts" element={<Debts />} />
+            <Route path="/tax-calculator" element={<TaxCalculator />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </Layout>
+      </Router>
+    </DataProvider>
+  )
+}
 
 function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -39,8 +75,8 @@ function App() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: 'white' }}>
-        Loading
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: 'white', background: '#0B1121' }}>
+        טוען...
       </div>
     )
   }
@@ -51,23 +87,7 @@ function App() {
 
   return (
     <AuthProvider>
-      <DataProvider>
-        <Router>
-          <Layout>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/clients" element={<Clients />} />
-              <Route path="/clients/:clientId" element={<ClientProfile />} />
-              <Route path="/leads" element={<Leads />} />
-              <Route path="/deals" element={<Deals />} />
-              <Route path="/expenses" element={<Expenses />} />
-              <Route path="/debts" element={<Debts />} />
-              <Route path="/tax-calculator" element={<TaxCalculator />} />
-              <Route path="/settings" element={<Settings />} />
-            </Routes>
-          </Layout>
-        </Router>
-      </DataProvider>
+      <AppContent />
     </AuthProvider>
   )
 }
