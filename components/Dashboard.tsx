@@ -7,12 +7,22 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Legend
 } from 'recharts';
-import { Users, UserPlus, UserMinus, DollarSign, TrendingUp, AlertCircle, FileText } from 'lucide-react';
+import { Users, UserPlus, UserMinus, DollarSign, TrendingUp, AlertCircle, FileText, LucideIcon } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from './ui/Table';
 
-const KPICard = ({ title, value, subtitle, icon: Icon, highlight = false, color = "primary", onClick }: any) => {
+interface KPICardProps {
+  title: string;
+  value: string | number;
+  subtitle?: string;
+  icon: LucideIcon;
+  highlight?: boolean;
+  color?: string;
+  onClick?: () => void;
+}
+
+const KPICard: React.FC<KPICardProps> = ({ title, value, subtitle, icon: Icon, highlight = false, color = "primary", onClick }) => {
   const isPrimary = color === 'primary' || highlight;
   
   return (
@@ -39,7 +49,7 @@ const KPICard = ({ title, value, subtitle, icon: Icon, highlight = false, color 
 };
 
 const Dashboard: React.FC = () => {
-  const { clients, leads, expenses, payments, settings } = useData();
+  const { clients, leads, expenses, payments, settings, error, clearError } = useData();
   const navigate = useNavigate();
   const currentDate = new Date();
   const currentMonthKey = getMonthKey(currentDate);
@@ -129,6 +139,13 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-8">
+      {/* Error Toast */}
+      {error && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] bg-red-500/90 text-white px-6 py-3 rounded-xl shadow-lg flex items-center gap-3 animate-in fade-in slide-in-from-top-2" role="alert">
+          <span>{error}</span>
+          <button onClick={clearError} className="text-white/80 hover:text-white" aria-label="סגור">&#10005;</button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-end gap-4">
         <div>

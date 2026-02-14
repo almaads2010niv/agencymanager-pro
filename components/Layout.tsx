@@ -4,7 +4,15 @@ import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Setting
 import { useData } from '../contexts/DataContext';
 import { tokens } from '../design/tokens';
 
-const SidebarItem = ({ to, icon: Icon, label, isActive, onClick }: any) => (
+interface SidebarItemProps {
+  to: string;
+  icon: React.FC<{ size?: number; className?: string }>;
+  label: string;
+  isActive: boolean;
+  onClick: () => void;
+}
+
+const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon: Icon, label, isActive, onClick }) => (
   <Link
     to={to}
     onClick={onClick}
@@ -50,7 +58,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               </h1>
               <div className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-bold mt-1">Agency OS</div>
             </div>
-            <button onClick={closeSidebar} className="lg:hidden text-gray-400 hover:text-white">
+            <button onClick={closeSidebar} className="lg:hidden text-gray-400 hover:text-white" aria-label="סגור תפריט">
               <X size={24} />
             </button>
           </div>
@@ -81,7 +89,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         
         {/* Mobile Header */}
         <header className="h-16 bg-surface/50 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-4 lg:hidden relative z-10">
-          <button onClick={toggleSidebar} className="text-gray-300">
+          <button onClick={toggleSidebar} className="text-gray-300" aria-label="פתח תפריט">
             <Menu size={24} />
           </button>
           <span className="font-bold text-white">{settings.agencyName}</span>

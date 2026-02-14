@@ -1,34 +1,117 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service, 
-  AgencySettings, PaymentStatus, LeadStatus 
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import {
+  AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service,
+  AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel
 } from '../types';
-import { INITIAL_SERVICES, DEFAULT_SETTINGS, STORAGE_KEY } from '../constants';
-import { getMonthKey, generateId } from '../utils';
+import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
+import { generateId } from '../utils';
 import { supabase } from '../lib/supabaseClient';
 
-interface DataContextType extends AppData {
-  addClient: (client: Omit<Client, 'clientId' | 'addedAt'>) => void;
-  updateClient: (client: Client) => void;
-  deleteClient: (id: string) => void;
-  
-  addLead: (lead: Omit<Lead, 'leadId' | 'createdAt'>) => void;
-  updateLead: (lead: Lead) => void;
-  deleteLead: (id: string) => void;
-  convertLeadToClient: (leadId: string, clientData: Omit<Client, 'clientId' | 'addedAt'>) => void;
+// --- DB Row types (snake_case) ---
+interface ClientRow {
+  client_id: string;
+  client_name: string;
+  business_name: string;
+  phone: string;
+  email: string;
+  industry: string;
+  rating: string;
+  status: string;
+  join_date: string;
+  churn_date: string | null;
+  monthly_retainer: number;
+  billing_day: number;
+  services: string | string[];
+  effort_level: string;
+  supplier_cost_monthly: number;
+  notes: string;
+  next_review_date: string;
+  added_at: string;
+}
 
-  addDeal: (deal: Omit<OneTimeDeal, 'dealId'>) => void;
-  updateDeal: (deal: OneTimeDeal) => void;
-  
-  addExpense: (expense: Omit<SupplierExpense, 'expenseId'>) => void;
+interface LeadRow {
+  lead_id: string;
+  created_at: string;
+  lead_name: string;
+  business_name: string;
+  phone: string;
+  email: string;
+  source_channel: string;
+  interested_services: string | string[];
+  notes: string;
+  next_contact_date: string;
+  status: string;
+  quoted_monthly_value: number;
+  related_client_id: string;
+}
 
-  addPayment: (payment: Omit<Payment, 'paymentId'>) => void;
-  updatePayment: (payment: Payment) => void;
-  deletePayment: (id: string) => void;
-  
+interface DealRow {
+  deal_id: string;
+  client_id: string;
+  deal_name: string;
+  deal_type: string;
+  deal_amount: number;
+  deal_date: string;
+  deal_status: string;
+  supplier_cost: number;
+  notes: string;
+}
+
+interface ExpenseRow {
+  expense_id: string;
+  client_id: string;
+  expense_date: string;
+  month_key: string;
+  supplier_name: string;
+  expense_type: string;
+  amount: number;
+  notes: string;
+}
+
+interface PaymentRow {
+  payment_id: string;
+  client_id: string;
+  period_month: string;
+  amount_due: number;
+  amount_paid: number;
+  payment_date: string | null;
+  payment_status: string;
+  notes: string;
+}
+
+interface SettingsRow {
+  id?: number;
+  agency_name: string;
+  owner_name: string;
+  target_monthly_revenue: number;
+  target_monthly_gross_profit: number;
+}
+
+export interface DataContextType extends AppData {
+  isLoaded: boolean;
+  error: string | null;
+  clearError: () => void;
+  addClient: (client: Omit<Client, 'clientId' | 'addedAt'>) => Promise<void>;
+  updateClient: (client: Client) => Promise<void>;
+  deleteClient: (id: string) => Promise<void>;
+
+  addLead: (lead: Omit<Lead, 'leadId' | 'createdAt'>) => Promise<void>;
+  updateLead: (lead: Lead) => Promise<void>;
+  deleteLead: (id: string) => Promise<void>;
+  convertLeadToClient: (leadId: string, clientData: Omit<Client, 'clientId' | 'addedAt'>) => Promise<void>;
+
+  addDeal: (deal: Omit<OneTimeDeal, 'dealId'>) => Promise<void>;
+  updateDeal: (deal: OneTimeDeal) => Promise<void>;
+
+  addExpense: (expense: Omit<SupplierExpense, 'expenseId'>) => Promise<void>;
+
+  addPayment: (payment: Omit<Payment, 'paymentId'>) => Promise<void>;
+  updatePayment: (payment: Payment) => Promise<void>;
+  deletePayment: (id: string) => Promise<void>;
+
   updateServices: (services: Service[]) => void;
-  updateSettings: (settings: AgencySettings) => void;
-  
+  updateSettings: (settings: AgencySettings) => Promise<void>;
+
   importData: (json: string) => boolean;
   exportData: () => string;
 }
@@ -54,13 +137,23 @@ const LEAD_STATUS_MIGRATION: Record<string, string> = {
   'Not_relevant': 'לא רלוונטי',
 };
 
-// Helper function to migrate status values
 const migrateClientStatus = (status: string): string => {
   return CLIENT_STATUS_MIGRATION[status] || status;
 };
 
 const migrateLeadStatus = (status: string): string => {
   return LEAD_STATUS_MIGRATION[status] || status;
+};
+
+// Safe JSON parse helper
+const safeJsonParse = (value: string | unknown, fallback: unknown[] = []): unknown[] => {
+  if (typeof value !== 'string') return Array.isArray(value) ? value : fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
 };
 
 // Transformation functions: DB (snake_case) <-> TypeScript (camelCase)
@@ -85,21 +178,21 @@ const transformClientToDB = (client: Client) => ({
   added_at: client.addedAt,
 });
 
-const transformClientFromDB = (row: any): Client => ({
+const transformClientFromDB = (row: ClientRow): Client => ({
   clientId: row.client_id,
   clientName: row.client_name,
   businessName: row.business_name,
   phone: row.phone,
   email: row.email,
   industry: row.industry,
-  rating: row.rating,
-  status: migrateClientStatus(row.status) as any,
+  rating: row.rating as ClientRating,
+  status: migrateClientStatus(row.status) as ClientStatus,
   joinDate: row.join_date,
   churnDate: row.churn_date || undefined,
   monthlyRetainer: row.monthly_retainer,
   billingDay: row.billing_day,
-  services: typeof row.services === 'string' ? JSON.parse(row.services) : (row.services || []),
-  effortLevel: row.effort_level,
+  services: safeJsonParse(row.services) as string[],
+  effortLevel: row.effort_level as EffortLevel,
   supplierCostMonthly: row.supplier_cost_monthly,
   notes: row.notes || '',
   nextReviewDate: row.next_review_date || '',
@@ -122,18 +215,18 @@ const transformLeadToDB = (lead: Lead) => ({
   related_client_id: lead.relatedClientId,
 });
 
-const transformLeadFromDB = (row: any): Lead => ({
+const transformLeadFromDB = (row: LeadRow): Lead => ({
   leadId: row.lead_id,
   createdAt: row.created_at,
   leadName: row.lead_name,
   businessName: row.business_name,
   phone: row.phone,
   email: row.email,
-  sourceChannel: row.source_channel,
-  interestedServices: typeof row.interested_services === 'string' ? JSON.parse(row.interested_services) : (row.interested_services || []),
+  sourceChannel: row.source_channel as Lead['sourceChannel'],
+  interestedServices: safeJsonParse(row.interested_services) as string[],
   notes: row.notes || '',
   nextContactDate: row.next_contact_date,
-  status: migrateLeadStatus(row.status) as any,
+  status: migrateLeadStatus(row.status) as LeadStatus,
   quotedMonthlyValue: row.quoted_monthly_value,
   relatedClientId: row.related_client_id,
 });
@@ -150,14 +243,14 @@ const transformDealToDB = (deal: OneTimeDeal) => ({
   notes: deal.notes,
 });
 
-const transformDealFromDB = (row: any): OneTimeDeal => ({
+const transformDealFromDB = (row: DealRow): OneTimeDeal => ({
   dealId: row.deal_id,
   clientId: row.client_id,
   dealName: row.deal_name,
   dealType: row.deal_type,
   dealAmount: row.deal_amount,
   dealDate: row.deal_date,
-  dealStatus: row.deal_status,
+  dealStatus: row.deal_status as OneTimeDeal['dealStatus'],
   supplierCost: row.supplier_cost,
   notes: row.notes || '',
 });
@@ -173,13 +266,13 @@ const transformExpenseToDB = (expense: SupplierExpense) => ({
   notes: expense.notes,
 });
 
-const transformExpenseFromDB = (row: any): SupplierExpense => ({
+const transformExpenseFromDB = (row: ExpenseRow): SupplierExpense => ({
   expenseId: row.expense_id,
   clientId: row.client_id,
   expenseDate: row.expense_date,
   monthKey: row.month_key,
   supplierName: row.supplier_name,
-  expenseType: row.expense_type,
+  expenseType: row.expense_type as SupplierExpense['expenseType'],
   amount: row.amount,
   notes: row.notes || '',
 });
@@ -195,26 +288,26 @@ const transformPaymentToDB = (payment: Payment) => ({
   notes: payment.notes,
 });
 
-const transformPaymentFromDB = (row: any): Payment => ({
+const transformPaymentFromDB = (row: PaymentRow): Payment => ({
   paymentId: row.payment_id,
   clientId: row.client_id,
   periodMonth: row.period_month,
   amountDue: row.amount_due,
   amountPaid: row.amount_paid,
-  paymentDate: row.payment_date,
-  paymentStatus: row.payment_status,
+  paymentDate: row.payment_date || undefined,
+  paymentStatus: row.payment_status as PaymentStatus,
   notes: row.notes || '',
 });
 
 const transformSettingsToDB = (settings: AgencySettings) => ({
-  id: 1, // Single row for settings
+  id: 1,
   agency_name: settings.agencyName,
   owner_name: settings.ownerName,
   target_monthly_revenue: settings.targetMonthlyRevenue,
   target_monthly_gross_profit: settings.targetMonthlyGrossProfit,
 });
 
-const transformSettingsFromDB = (row: any): AgencySettings => ({
+const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
   agencyName: row.agency_name,
   ownerName: row.owner_name,
   targetMonthlyRevenue: row.target_monthly_revenue,
@@ -233,20 +326,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const clearError = useCallback(() => setError(null), []);
+
+  const showError = useCallback((message: string) => {
+    setError(message);
+    setTimeout(() => setError(null), 5000);
+  }, []);
 
   // Load data from Supabase on mount
   useEffect(() => {
     const loadData = async () => {
       try {
-        // Check auth first
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
-          console.warn('No session found, skipping data load');
           setIsLoaded(true);
           return;
         }
 
-        // Load all data in parallel
         const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
@@ -256,27 +354,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('settings').select('*').single()
         ]);
 
-        // Handle errors
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
         if (leadsRes.error) console.error('Error loading leads:', leadsRes.error);
         if (dealsRes.error) console.error('Error loading deals:', dealsRes.error);
         if (expensesRes.error) console.error('Error loading expenses:', expensesRes.error);
         if (paymentsRes.error) console.error('Error loading payments:', paymentsRes.error);
 
-        // Transform Supabase data to TypeScript types
         const clients = (clientsRes.data || []).map(transformClientFromDB);
         const leads = (leadsRes.data || []).map(transformLeadFromDB);
         const deals = (dealsRes.data || []).map(transformDealFromDB);
         const expenses = (expensesRes.data || []).map(transformExpenseFromDB);
         const payments = (paymentsRes.data || []).map(transformPaymentFromDB);
 
-        // Load settings or use defaults
         let settings = DEFAULT_SETTINGS;
         if (settingsRes.data && !settingsRes.error) {
           settings = transformSettingsFromDB(settingsRes.data);
         } else {
-          // Initialize settings if not exists
-          await supabase.from('settings').upsert(transformSettingsToDB(DEFAULT_SETTINGS));
+          const { error: upsertError } = await supabase.from('settings').upsert(transformSettingsToDB(DEFAULT_SETTINGS));
+          if (upsertError) console.error('Error initializing settings:', upsertError);
         }
 
         setData({
@@ -285,11 +380,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           oneTimeDeals: deals,
           expenses,
           payments,
-          services: INITIAL_SERVICES, // Services are static for now
+          services: INITIAL_SERVICES,
           settings
         });
-      } catch (error) {
-        console.error('Error loading data from Supabase:', error);
+      } catch (err) {
+        console.error('Error loading data from Supabase:', err);
       } finally {
         setIsLoaded(true);
       }
@@ -310,18 +405,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('clients')
         .insert(transformClientToDB(newClient));
 
-      if (error) {
-        console.error('Error adding client:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({
         ...prev,
         clients: [...prev.clients, newClient]
       }));
-    } catch (error) {
-      console.error('Failed to add client:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה בהוספת לקוח');
+      throw err;
     }
   };
 
@@ -332,48 +424,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .update(transformClientToDB(client))
         .eq('client_id', client.clientId);
 
-      if (error) {
-        console.error('Error updating client:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({
         ...prev,
         clients: prev.clients.map(c => c.clientId === client.clientId ? client : c)
       }));
-    } catch (error) {
-      console.error('Failed to update client:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה בעדכון לקוח');
+      throw err;
     }
   };
 
   const deleteClient = async (id: string) => {
-    if(!confirm('האם אתה בטוח? פעולה זו תמחק את כל הנתונים הקשורים ללקוח זה.')) {
-      return;
-    }
-
     try {
-      // Delete related deals and expenses first (or let DB handle with CASCADE)
-      await supabase
-        .from('deals')
-        .delete()
-        .eq('client_id', id);
-      
-      await supabase
-        .from('expenses')
-        .delete()
-        .eq('client_id', id);
+      await supabase.from('deals').delete().eq('client_id', id);
+      await supabase.from('expenses').delete().eq('client_id', id);
 
-      // Delete client
       const { error } = await supabase
         .from('clients')
         .delete()
         .eq('client_id', id);
 
-      if (error) {
-        console.error('Error deleting client:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({
         ...prev,
@@ -382,9 +455,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         expenses: prev.expenses.filter(e => e.clientId !== id),
         payments: prev.payments.filter(p => p.clientId !== id)
       }));
-    } catch (error) {
-      console.error('Failed to delete client:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה במחיקת לקוח');
+      throw err;
     }
   };
 
@@ -400,15 +473,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('leads')
         .insert(transformLeadToDB(newLead));
 
-      if (error) {
-        console.error('Error adding lead:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({ ...prev, leads: [...prev.leads, newLead] }));
-    } catch (error) {
-      console.error('Failed to add lead:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה בהוספת ליד');
+      throw err;
     }
   };
 
@@ -419,18 +489,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .update(transformLeadToDB(lead))
         .eq('lead_id', lead.leadId);
 
-      if (error) {
-        console.error('Error updating lead:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({
         ...prev,
         leads: prev.leads.map(l => l.leadId === lead.leadId ? lead : l)
       }));
-    } catch (error) {
-      console.error('Failed to update lead:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה בעדכון ליד');
+      throw err;
     }
   };
 
@@ -441,18 +508,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .delete()
         .eq('lead_id', id);
 
-      if (error) {
-        console.error('Error deleting lead:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({
         ...prev,
         leads: prev.leads.filter(l => l.leadId !== id)
       }));
-    } catch (error) {
-      console.error('Failed to delete lead:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה במחיקת ליד');
+      throw err;
     }
   };
 
@@ -464,17 +528,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     try {
-      // Add client
       const { error: clientError } = await supabase
         .from('clients')
         .insert(transformClientToDB(newClient));
 
-      if (clientError) {
-        console.error('Error adding client from lead:', clientError);
-        throw clientError;
-      }
+      if (clientError) throw clientError;
 
-      // Update lead status
       const lead = data.leads.find(l => l.leadId === leadId);
       if (lead) {
         const updatedLead = { ...lead, status: LeadStatus.Won, relatedClientId: newClient.clientId };
@@ -484,7 +543,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .eq('lead_id', leadId);
 
         if (leadError) {
-          console.error('Error updating lead:', leadError);
+          // Rollback: delete the client we just created
+          await supabase.from('clients').delete().eq('client_id', newClient.clientId);
           throw leadError;
         }
 
@@ -494,9 +554,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           leads: prev.leads.map(l => l.leadId === leadId ? updatedLead : l)
         }));
       }
-    } catch (error) {
-      console.error('Failed to convert lead to client:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה בהמרת ליד ללקוח');
+      throw err;
     }
   };
 
@@ -511,15 +571,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('deals')
         .insert(transformDealToDB(newDeal));
 
-      if (error) {
-        console.error('Error adding deal:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({ ...prev, oneTimeDeals: [...prev.oneTimeDeals, newDeal] }));
-    } catch (error) {
-      console.error('Failed to add deal:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה בהוספת פרויקט');
+      throw err;
     }
   };
 
@@ -530,18 +587,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .update(transformDealToDB(deal))
         .eq('deal_id', deal.dealId);
 
-      if (error) {
-        console.error('Error updating deal:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({
         ...prev,
         oneTimeDeals: prev.oneTimeDeals.map(d => d.dealId === deal.dealId ? deal : d)
       }));
-    } catch (error) {
-      console.error('Failed to update deal:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה בעדכון פרויקט');
+      throw err;
     }
   };
 
@@ -556,15 +610,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('expenses')
         .insert(transformExpenseToDB(newExpense));
 
-      if (error) {
-        console.error('Error adding expense:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({ ...prev, expenses: [...prev.expenses, newExpense] }));
-    } catch (error) {
-      console.error('Failed to add expense:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה בהוספת הוצאה');
+      throw err;
     }
   };
 
@@ -579,15 +630,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('payments')
         .insert(transformPaymentToDB(newPayment));
 
-      if (error) {
-        console.error('Error adding payment:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({ ...prev, payments: [...prev.payments, newPayment] }));
-    } catch (error) {
-      console.error('Failed to add payment:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה בהוספת חוב');
+      throw err;
     }
   };
 
@@ -598,49 +646,38 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .update(transformPaymentToDB(payment))
         .eq('payment_id', payment.paymentId);
 
-      if (error) {
-        console.error('Error updating payment:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({
         ...prev,
         payments: prev.payments.map(p => p.paymentId === payment.paymentId ? payment : p)
       }));
-    } catch (error) {
-      console.error('Failed to update payment:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה בעדכון חוב');
+      throw err;
     }
   };
 
   const deletePayment = async (id: string) => {
-    if(!confirm('האם אתה בטוח שברצונך למחוק חוב זה?')) {
-      return;
-    }
-
     try {
       const { error } = await supabase
         .from('payments')
         .delete()
         .eq('payment_id', id);
 
-      if (error) {
-        console.error('Error deleting payment:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({
         ...prev,
         payments: prev.payments.filter(p => p.paymentId !== id)
       }));
-    } catch (error) {
-      console.error('Failed to delete payment:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה במחיקת חוב');
+      throw err;
     }
   };
 
   const updateServices = (services: Service[]) => {
-    // Services are static for now, but keep in state for UI
     setData(prev => ({ ...prev, services }));
   };
 
@@ -650,29 +687,34 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('settings')
         .upsert(transformSettingsToDB(settings));
 
-      if (error) {
-        console.error('Error updating settings:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setData(prev => ({ ...prev, settings }));
-    } catch (error) {
-      console.error('Failed to update settings:', error);
-      throw error;
+    } catch (err) {
+      showError('שגיאה בשמירת הגדרות');
+      throw err;
     }
   };
 
   const importData = (json: string): boolean => {
     try {
       const parsed = JSON.parse(json);
-      // Basic validation
+      if (!parsed || typeof parsed !== 'object') throw new Error("Invalid format");
       if (!Array.isArray(parsed.clients) || !Array.isArray(parsed.leads)) {
-        throw new Error("Invalid format");
+        throw new Error("Invalid format: missing clients or leads arrays");
       }
-      setData(parsed);
+      setData({
+        clients: parsed.clients,
+        leads: parsed.leads,
+        oneTimeDeals: parsed.oneTimeDeals || [],
+        expenses: parsed.expenses || [],
+        payments: parsed.payments || [],
+        services: parsed.services || INITIAL_SERVICES,
+        settings: parsed.settings || DEFAULT_SETTINGS,
+      });
       return true;
     } catch (e) {
-      console.error(e);
+      console.error('Import error:', e);
       return false;
     }
   };
@@ -684,6 +726,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <DataContext.Provider value={{
       ...data,
+      isLoaded,
+      error,
+      clearError,
       addClient, updateClient, deleteClient,
       addLead, updateLead, deleteLead, convertLeadToClient,
       addDeal, updateDeal,

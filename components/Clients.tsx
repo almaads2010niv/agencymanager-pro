@@ -12,6 +12,7 @@ import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '.
 
 const Clients: React.FC = () => {
   const { clients, services, addClient, updateClient, deleteClient } = useData();
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Partial<Client> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -129,8 +130,8 @@ const Clients: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button variant="ghost" onClick={() => openEditClient(client)} icon={<Edit2 size={16} />} className="p-1" />
-                      <Button variant="ghost" onClick={() => deleteClient(client.clientId)} icon={<Trash2 size={16} />} className="p-1 text-red-400 hover:text-red-300" />
+                      <Button variant="ghost" onClick={() => openEditClient(client)} icon={<Edit2 size={16} />} className="p-1" aria-label="ערוך לקוח" />
+                      <Button variant="ghost" onClick={() => setConfirmDeleteId(client.clientId)} icon={<Trash2 size={16} />} className="p-1 text-red-400 hover:text-red-300" aria-label="מחק לקוח" />
                     </div>
                   </TableCell>
                 </TableRow>
@@ -222,6 +223,17 @@ const Clients: React.FC = () => {
                </div>
             </form>
          )}
+      </Modal>
+
+      {/* Confirm Delete Modal */}
+      <Modal isOpen={!!confirmDeleteId} onClose={() => setConfirmDeleteId(null)} title="אישור מחיקה" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך למחוק את הלקוח? פעולה זו תמחק גם את כל הפרויקטים וההוצאות המשויכים.</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteId(null)}>ביטול</Button>
+            <Button type="button" variant="danger" onClick={() => { if (confirmDeleteId) { deleteClient(confirmDeleteId); setConfirmDeleteId(null); } }}>מחק לקוח</Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

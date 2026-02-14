@@ -16,6 +16,7 @@ const Debts: React.FC = () => {
   const [editingPayment, setEditingPayment] = useState<Partial<Payment> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Filter only active clients for selection
   const activeClients = clients.filter(c => c.status !== 'עזב');
@@ -183,17 +184,19 @@ const Debts: React.FC = () => {
                         title="סמן כשולם"
                       />
                     )}
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => openEditPayment(payment)} 
-                      icon={<Edit2 size={16} />} 
-                      className="p-1" 
+                    <Button
+                      variant="ghost"
+                      onClick={() => openEditPayment(payment)}
+                      icon={<Edit2 size={16} />}
+                      className="p-1"
+                      aria-label="ערוך חוב"
                     />
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => deletePayment(payment.paymentId)} 
-                      icon={<Trash2 size={16} />} 
-                      className="p-1 text-red-400 hover:text-red-300" 
+                    <Button
+                      variant="ghost"
+                      onClick={() => setConfirmDeleteId(payment.paymentId)}
+                      icon={<Trash2 size={16} />}
+                      className="p-1 text-red-400 hover:text-red-300"
+                      aria-label="מחק חוב"
                     />
                   </div>
                 </TableCell>
@@ -285,6 +288,17 @@ const Debts: React.FC = () => {
             </div>
           </form>
         )}
+      </Modal>
+
+      {/* Confirm Delete Modal */}
+      <Modal isOpen={!!confirmDeleteId} onClose={() => setConfirmDeleteId(null)} title="אישור מחיקה" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך למחוק חוב זה?</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteId(null)}>ביטול</Button>
+            <Button type="button" variant="danger" onClick={() => { if (confirmDeleteId) { deletePayment(confirmDeleteId); setConfirmDeleteId(null); } }}>מחק</Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

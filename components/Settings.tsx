@@ -38,6 +38,9 @@ const Settings: React.FC = () => {
         else alert('שגיאה ביבוא הנתונים. וודא שהקובץ תקין.');
       }
     };
+    reader.onerror = () => {
+      alert('שגיאה בקריאת הקובץ. נסה שוב.');
+    };
     reader.readAsText(file);
   };
 
@@ -67,7 +70,10 @@ const Settings: React.FC = () => {
              <div key={service.serviceKey} className="flex items-center justify-between bg-[#0B1121] p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
                <span className="text-gray-200 text-sm font-medium">{service.label}</span>
                <div className="flex items-center gap-2">
-                 <button 
+                 <button
+                    role="switch"
+                    aria-checked={service.isActive}
+                    aria-label={`${service.label} - ${service.isActive ? 'פעיל' : 'כבוי'}`}
                     onClick={() => {
                        const newServices = [...services];
                        newServices[index].isActive = !newServices[index].isActive;
@@ -75,7 +81,7 @@ const Settings: React.FC = () => {
                     }}
                     className={`w-11 h-6 rounded-full transition-colors flex items-center px-1 duration-300 ${service.isActive ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-gray-700'}`}
                  >
-                   <div className={`w-4 h-4 rounded-full bg-white transition-transform duration-300 ${service.isActive ? 'translate-x-0' : '-translate-x-5'}`}></div>
+                   <div className={`w-4 h-4 rounded-full bg-white transition-transform duration-300 ${service.isActive ? 'translate-x-0' : 'ltr:-translate-x-5 rtl:translate-x-5'}`}></div>
                  </button>
                </div>
              </div>
@@ -102,7 +108,7 @@ const Settings: React.FC = () => {
             </div>
             <div className="text-center">
                 <div className="font-bold text-white text-lg">ייבוא נתונים (Restore)</div>
-                <div className="text-sm text-gray-500 mt-1">שחזר מגיבוי (דרוס קיים)</div>
+                <div className="text-sm text-gray-500 mt-1">שחזר מגיבוי (דורס קיים)</div>
             </div>
           </button>
           <input 

@@ -31,9 +31,9 @@ export const Button: React.FC<ButtonProps> = ({
       {...props}
     >
       {isLoading ? (
-        <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+        <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin me-2" />
       ) : icon ? (
-        <span className={children ? "ml-2" : ""}>{icon}</span>
+        <span className={children ? "ms-2" : ""}>{icon}</span>
       ) : null}
       {children}
     </button>

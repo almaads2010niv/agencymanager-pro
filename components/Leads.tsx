@@ -15,6 +15,7 @@ const Leads: React.FC = () => {
   const [editingLead, setEditingLead] = useState<Partial<Lead> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [convertingLead, setConvertingLead] = useState<Lead | null>(null);
 
   const filteredLeads = leads.filter(l => {
     const matchesSearch = l.leadName.includes(searchTerm) || (l.phone && l.phone.includes(searchTerm));
@@ -48,8 +49,7 @@ const Leads: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleConvertToClient = (lead: Lead) => {
-    if (!confirm('האם להפוך ליד זה ללקוח פעיל?')) return;
+  const doConvertToClient = (lead: Lead) => {
     convertLeadToClient(lead.leadId, {
       clientName: lead.leadName,
       businessName: lead.businessName || lead.leadName,
@@ -106,8 +106,8 @@ const Leads: React.FC = () => {
                 <Badge variant={getStatusColor(lead.status)}>{lead.status}</Badge>
                 {lead.status !== LeadStatus.Won && lead.status !== LeadStatus.Lost && (
                     <div className="flex gap-1">
-                        <Button variant="ghost" onClick={() => handleConvertToClient(lead)} className="p-1.5 text-emerald-400 hover:bg-emerald-500/10"><CheckCircle size={16}/></Button>
-                        <Button variant="ghost" onClick={() => updateLead({...lead, status: LeadStatus.Not_relevant})} className="p-1.5 text-gray-500 hover:text-red-400"><XCircle size={16}/></Button>
+                        <Button variant="ghost" onClick={() => setConvertingLead(lead)} className="p-1.5 text-emerald-400 hover:bg-emerald-500/10" aria-label="המר ללקוח"><CheckCircle size={16}/></Button>
+                        <Button variant="ghost" onClick={() => updateLead({...lead, status: LeadStatus.Not_relevant})} className="p-1.5 text-gray-500 hover:text-red-400" aria-label="סמן כלא רלוונטי"><XCircle size={16}/></Button>
                     </div>
                 )}
              </div>
@@ -189,6 +189,17 @@ const Leads: React.FC = () => {
                 </div>
               </form>
         )}
+      </Modal>
+
+      {/* Confirm Convert Modal */}
+      <Modal isOpen={!!convertingLead} onClose={() => setConvertingLead(null)} title="המרת ליד ללקוח" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם להפוך את <span className="text-white font-bold">{convertingLead?.leadName}</span> ללקוח פעיל?</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConvertingLead(null)}>ביטול</Button>
+            <Button type="button" onClick={() => { if (convertingLead) { doConvertToClient(convertingLead); setConvertingLead(null); } }}>אשר והמר</Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

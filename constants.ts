@@ -21,5 +21,3 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   targetMonthlyRevenue: 50000,
   targetMonthlyGrossProfit: 30000,
 };
-
-export const STORAGE_KEY = 'agency_manager_db_v1';
