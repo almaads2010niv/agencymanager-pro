@@ -75,6 +75,7 @@ export interface Lead {
   quotedMonthlyValue: number;
   relatedClientId?: string;
   createdBy?: string;
+  assignedTo?: string; // UUID of assigned handler (user_id from user_roles)
 }
 
 export enum DealStatus {
@@ -175,6 +176,15 @@ export interface ClientNote {
   createdAt: string;
 }
 
+export interface LeadNote {
+  id: string;
+  leadId: string;
+  content: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface AppData {
   clients: Client[];
   leads: Lead[];
@@ -186,4 +196,5 @@ export interface AppData {
   activities: ActivityEntry[];
   retainerHistory: RetainerChange[];
   clientNotes: ClientNote[];
+  leadNotes: LeadNote[];
 }

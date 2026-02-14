@@ -17,6 +17,7 @@ import Debts from './components/Debts'
 import Settings from './components/Settings'
 import TaxCalculator from './components/TaxCalculator'
 import ClientProfile from './components/ClientProfile'
+import LeadProfile from './components/LeadProfile'
 import ProfitLoss from './components/ProfitLoss'
 import Login from './components/Login'
 
@@ -44,6 +45,7 @@ function AppContent() {
             <Route path="/clients" element={<Clients />} />
             <Route path="/clients/:clientId" element={<ClientProfile />} />
             <Route path="/leads" element={<Leads />} />
+            <Route path="/leads/:leadId" element={<LeadProfile />} />
             <Route path="/deals" element={<Deals />} />
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/debts" element={<Debts />} />

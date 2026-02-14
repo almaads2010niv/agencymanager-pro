@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import {
   AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service,
   AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel,
-  ActivityEntry, RetainerChange, ClientNote
+  ActivityEntry, RetainerChange, ClientNote, LeadNote
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -55,6 +55,16 @@ interface LeadRow {
   quoted_monthly_value: number;
   related_client_id: string;
   created_by?: string;
+  assigned_to: string | null;
+}
+
+interface LeadNoteRow {
+  id: string;
+  lead_id: string;
+  content: string;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
 }
 
 interface DealRow {
@@ -151,6 +161,9 @@ export interface DataContextType extends AppData {
 
   addClientNote: (clientId: string, content: string, userId: string, userName: string) => Promise<void>;
   deleteClientNote: (noteId: string) => Promise<void>;
+
+  addLeadNote: (leadId: string, content: string, userId: string, userName: string) => Promise<void>;
+  deleteLeadNote: (noteId: string) => Promise<void>;
 
   updateServices: (services: Service[]) => void;
   updateSettings: (settings: AgencySettings) => Promise<void>;
@@ -259,6 +272,7 @@ const transformLeadToDB = (lead: Lead) => ({
   quoted_monthly_value: lead.quotedMonthlyValue,
   related_client_id: lead.relatedClientId,
   created_by: lead.createdBy || null,
+  assigned_to: lead.assignedTo || null,
 });
 
 const transformLeadFromDB = (row: LeadRow): Lead => ({
@@ -276,6 +290,7 @@ const transformLeadFromDB = (row: LeadRow): Lead => ({
   quotedMonthlyValue: row.quoted_monthly_value,
   relatedClientId: row.related_client_id,
   createdBy: row.created_by || undefined,
+  assignedTo: row.assigned_to || undefined,
 });
 
 const transformDealToDB = (deal: OneTimeDeal) => ({
@@ -405,6 +420,24 @@ const transformClientNoteFromDB = (row: ClientNoteRow): ClientNote => ({
   createdAt: row.created_at,
 });
 
+const transformLeadNoteToDB = (note: LeadNote) => ({
+  id: note.id,
+  lead_id: note.leadId,
+  content: note.content,
+  created_by: note.createdBy,
+  created_by_name: note.createdByName,
+  created_at: note.createdAt,
+});
+
+const transformLeadNoteFromDB = (row: LeadNoteRow): LeadNote => ({
+  id: row.id,
+  leadId: row.lead_id,
+  content: row.content,
+  createdBy: row.created_by,
+  createdByName: row.created_by_name || '',
+  createdAt: row.created_at,
+});
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [data, setData] = useState<AppData>({
     clients: [],
@@ -417,6 +450,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     activities: [],
     retainerHistory: [],
     clientNotes: [],
+    leadNotes: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -466,7 +500,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
@@ -476,6 +510,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(50),
           supabase.from('retainer_changes').select('*').order('changed_at', { ascending: false }),
           supabase.from('client_notes').select('*').order('created_at', { ascending: false }),
+          supabase.from('lead_notes').select('*').order('created_at', { ascending: false }),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -499,6 +534,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }));
         const retainerHistory: RetainerChange[] = (retainerChangesRes.data || []).map((row: RetainerChangeRow) => transformRetainerChangeFromDB(row));
         const clientNotes: ClientNote[] = (clientNotesRes.data || []).map((row: ClientNoteRow) => transformClientNoteFromDB(row));
+        const leadNotes: LeadNote[] = (leadNotesRes.data || []).map((row: LeadNoteRow) => transformLeadNoteFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
         if (settingsRes.data && !settingsRes.error) {
@@ -519,6 +555,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           activities,
           retainerHistory,
           clientNotes,
+          leadNotes,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -1107,6 +1144,56 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // --- Lead Notes ---
+  const addLeadNote = async (leadId: string, content: string, userId: string, userName: string) => {
+    const note: LeadNote = {
+      id: generateId(),
+      leadId,
+      content,
+      createdBy: userId,
+      createdByName: userName,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const { error } = await supabase
+        .from('lead_notes')
+        .insert(transformLeadNoteToDB(note));
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        leadNotes: [note, ...prev.leadNotes],
+      }));
+
+      const leadName = data.leads.find(l => l.leadId === leadId)?.leadName || leadId;
+      logActivity('note_added', 'lead', `הערה חדשה לליד ${leadName}`, leadId);
+    } catch (err) {
+      showError('שגיאה בהוספת הערה');
+      throw err;
+    }
+  };
+
+  const deleteLeadNote = async (noteId: string) => {
+    try {
+      const { error } = await supabase
+        .from('lead_notes')
+        .delete()
+        .eq('id', noteId);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        leadNotes: prev.leadNotes.filter(n => n.id !== noteId),
+      }));
+    } catch (err) {
+      showError('שגיאה במחיקת הערה');
+      throw err;
+    }
+  };
+
   const updateServices = (services: Service[]) => {
     setData(prev => ({ ...prev, services }));
   };
@@ -1144,6 +1231,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activities: parsed.activities || [],
         retainerHistory: parsed.retainerHistory || [],
         clientNotes: parsed.clientNotes || [],
+        leadNotes: parsed.leadNotes || [],
       });
       return true;
     } catch (e) {
@@ -1169,6 +1257,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addPayment, updatePayment, deletePayment, generateMonthlyPayments,
       uploadClientFile, listClientFiles, deleteClientFile,
       addClientNote, deleteClientNote,
+      addLeadNote, deleteLeadNote,
       updateServices, updateSettings,
       importData, exportData
     }}>

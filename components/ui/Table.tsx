@@ -28,8 +28,8 @@ export const TableBody: React.FC<{ children: React.ReactNode }> = ({ children })
   </tbody>
 );
 
-export const TableRow: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <tr className="group hover:bg-white/[0.02] transition-colors duration-150">
+export const TableRow: React.FC<React.HTMLAttributes<HTMLTableRowElement> & { children: React.ReactNode }> = ({ children, className = '', ...props }) => (
+  <tr className={`group hover:bg-white/[0.02] transition-colors duration-150 ${className}`} {...props}>
     {children}
   </tr>
 );

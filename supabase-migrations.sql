@@ -356,5 +356,45 @@ CREATE POLICY "contracts_delete" ON storage.objects FOR DELETE
   USING (bucket_id = 'contracts' AND (SELECT is_admin()));
 
 -- ============================================================
+-- 5. LEAD MANAGEMENT UPGRADE (assigned handler + notes)
+-- ============================================================
+
+-- Assigned handler on leads
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'leads' AND column_name = 'assigned_to') THEN
+    ALTER TABLE leads ADD COLUMN assigned_to uuid DEFAULT NULL;
+  END IF;
+END $$;
+
+-- Lead notes history table
+CREATE TABLE IF NOT EXISTS lead_notes (
+  id text PRIMARY KEY,
+  lead_id text REFERENCES leads(lead_id) ON DELETE CASCADE,
+  content text NOT NULL,
+  created_by text NOT NULL,
+  created_by_name text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- RLS for lead_notes
+ALTER TABLE lead_notes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "lead_notes_select" ON lead_notes;
+CREATE POLICY "lead_notes_select" ON lead_notes FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "lead_notes_insert" ON lead_notes;
+CREATE POLICY "lead_notes_insert" ON lead_notes FOR INSERT
+  TO authenticated
+  WITH CHECK (true); -- All authenticated users can add notes
+
+DROP POLICY IF EXISTS "lead_notes_delete" ON lead_notes;
+CREATE POLICY "lead_notes_delete" ON lead_notes FOR DELETE
+  TO authenticated
+  USING (is_admin()); -- Only admins can delete notes
+
+-- ============================================================
 -- DONE! All migrations and RLS policies applied.
 -- ============================================================

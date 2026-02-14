@@ -69,7 +69,7 @@ Committed: 443c937 - "Fix 19 audit issues..."
 Pushed to GitHub -> Vercel auto-deployed.
 
 ===============================================================================
-SESSION 2 (2026-02-14) - Feature Upgrades (IN PROGRESS)
+SESSION 2 (2026-02-14) - 9 Feature Upgrades ✅ COMPLETED
 ===============================================================================
 
 USER REQUESTED 9 NEW FEATURES (everything except PDF reports):
@@ -122,28 +122,6 @@ FEATURE 9: Activity Log
 - Track CRUD operations in Supabase activity_log table
 - Show recent activity in Dashboard
 
-IMPLEMENTATION ORDER:
-Phase 1: Feature 3 (YoY fix), Feature 5 (Edit/Delete Expenses)
-Phase 2: Feature 1 (Tax Calculator)
-Phase 3: Feature 6 (Auto-generate debts), Feature 4 (Notification badges)
-Phase 4: Feature 7 (Client Profile), Feature 8 (Global Search)
-Phase 5: Feature 9 (Activity Log), Feature 2 (Role System)
-
-SUPABASE MIGRATIONS NEEDED:
-1. ALTER TABLE agency_settings ADD COLUMN employee_salary numeric DEFAULT 0;
-2. CREATE TABLE activity_log (...);
-3. CREATE TABLE user_roles (...);
-4. ALTER TABLE leads ADD COLUMN created_by uuid;
-
-NEW FILES TO CREATE:
-1. utils/taxCalculator.ts
-2. components/TaxCalculator.tsx
-3. components/ClientProfile.tsx
-4. components/CommandPalette.tsx
-5. contexts/AuthContext.tsx
-
-STATUS: ALL 9 FEATURES COMPLETED ✅
-
 COMPLETED FEATURES LOG:
 - Feature 3 ✅: Fixed YoY Growth - replaced hardcoded 10% with actual calculation
 - Feature 5 ✅: Edit/Delete Expenses - full CRUD in Expenses.tsx + DataContext
@@ -156,6 +134,104 @@ COMPLETED FEATURES LOG:
 - Feature 9 ✅: Activity Log - logActivity in DataContext + ActivityLog.tsx in Dashboard
 - Feature 2 ✅: Multi-User Role System - AuthContext.tsx, role-gated sidebar,
   viewer mini dashboard, filtered leads, user management in Settings
+
+===============================================================================
+SESSION 3 (2026-02-14) - Theme Toggle, Viewer Fix, Client File Uploads
+===============================================================================
+
+WHAT HAPPENED:
+- Added dark/light theme toggle to Dashboard
+- Fixed viewer role not being applied correctly
+- Added client file uploads (contracts/documents) to ClientProfile
+- Storage bucket "contracts" for Supabase Storage with RLS
+
+===============================================================================
+SESSION 4 (2026-02-14) - Retainer History, Advanced Roles, RLS, User Sync
+===============================================================================
+
+WHAT HAPPENED:
+- Retainer change history tracking (retainer_changes table)
+- Advanced page-level permissions for viewer roles (page_permissions JSON)
+- Full RLS policies for all tables in supabase-migrations.sql
+- User sync fix: match by email for pre-created viewers, then update user_id
+- UUID casting fix in RLS policies (user_id is uuid type, not text)
+
+===============================================================================
+SESSION 5 (2026-02-14) - Edge Function, Lead Visibility, Enhanced CRM
+===============================================================================
+
+WHAT HAPPENED:
+User wanted admin to create user accounts directly from CRM instead of
+self-registration. Also reported viewer seeing empty system and no leads.
+Then requested major CRM enhancements for client management.
+
+CHANGES:
+
+1. EDGE FUNCTION FOR USER CREATION
+   - User explicitly rejected self-registration approach
+   - Created `supabase/functions/create-user/index.ts` (Deno Edge Function)
+   - Verifies caller is authenticated admin via user_roles table
+   - Uses service_role key to call supabase.auth.admin.createUser()
+   - Auto-confirms email, creates user_roles entry
+   - AuthContext.tsx addViewer() now calls Edge Function
+   - Settings.tsx: 3-column form (name, email, password) for adding users
+   - Login.tsx: removed self-registration, only login + forgot password
+   - Deployed via: npx supabase functions deploy create-user --project-ref rxckkozbkrabpjdgyxqm
+   - Committed: 6925a1a
+
+2. LEAD VISIBILITY FIX
+   - Problem: Viewer (Natalie) saw empty system, no leads despite having permission
+   - Root cause (dual layer):
+     a) RLS policy restricted to admin OR created_by = auth.uid()
+     b) Frontend filter: leads.filter(l => l.createdBy === user.id)
+   - Fix: Changed both to allow all authenticated users to see all leads
+   - RLS: leads_select USING (true)
+   - Frontend: const visibleLeads = leads (no filtering)
+   - Committed: 1085824
+
+3. ENHANCED CLIENT MANAGEMENT (CRM Upgrade)
+   User requested: assigned handler, notes history, click-to-view, UX improvements.
+
+   a) Assigned Handler (מטפל)
+      - Added `assignedTo?: string` to Client interface (types.ts)
+      - Added `assigned_to uuid` column to clients table
+      - Dropdown in edit modal with all users from allUsers
+      - Shown in table as avatar + name column
+      - Shown in ClientProfile header as violet badge
+
+   b) Client Notes History
+      - New `ClientNote` interface in types.ts
+      - New `client_notes` Supabase table with RLS
+      - CRUD functions in DataContext: addClientNote, deleteClientNote
+      - ClientProfile: textarea + send button, notes list with avatars/timestamps
+      - Admin-only delete with confirmation modal
+
+   c) Click-to-View Client Profile
+      - Entire table row is clickable -> navigates to /clients/:clientId
+      - Action buttons (edit/delete) stop propagation
+      - Row has cursor-pointer + hover effect
+
+   d) UX Improvements
+      - Quick stats bar above client table (active count, revenue, profit, total)
+      - Effort level colored dots (green/yellow/red)
+      - Inline status/rating dropdowns on client profile
+      - Activity timeline on profile (filtered from activity_log)
+      - getRelativeTime helper for timestamp display
+
+   FILES MODIFIED:
+   - types.ts (assignedTo, ClientNote, clientNotes in AppData)
+   - contexts/DataContext.tsx (ClientNoteRow, transforms, CRUD, loadData)
+   - components/Clients.tsx (row click, handler column, stats bar, effort dots)
+   - components/ClientProfile.tsx (notes, inline edit, activity, handler badge)
+   - supabase-migrations.sql (assigned_to column, client_notes table + RLS)
+
+   SQL MIGRATION (user needs to run):
+     ALTER TABLE clients ADD COLUMN assigned_to uuid DEFAULT NULL;
+     CREATE TABLE client_notes (...);
+     + RLS policies for client_notes
+
+   Committed: 0c3cea1
+   Pushed to GitHub -> Vercel auto-deployed.
 
 ===============================================================================
 ARCHITECTURE NOTES
@@ -173,7 +249,7 @@ Component Structure:
         -> ui/ (Button, Card, Form, Modal, Badge, Table)
 
 State Management:
-  Single React Context (DataContext) holds all app state
+  Single React Context (DataContext) holds all app state (~1100 lines)
   All CRUD operations are async with try/catch + error toast
   No external state libraries (Redux, Zustand, etc.)
 
@@ -181,8 +257,23 @@ Auth:
   Supabase Auth (email/password)
   Session check on App mount
   Role system: AuthContext.tsx with admin/viewer roles
-  First user auto-becomes admin, subsequent users get viewer role
-  Role table: user_roles (user_id, role, display_name)
+  Page-level permissions (page_permissions JSON in user_roles)
+  First user auto-becomes admin
+  Admin creates accounts via Edge Function (no self-registration)
+  Edge Function: supabase/functions/create-user/index.ts
+
+Supabase Tables:
+  clients (+ assigned_to uuid)
+  leads (+ created_by uuid)
+  deals
+  expenses (+ is_recurring boolean)
+  payments
+  settings (+ employee_salary)
+  activity_log
+  retainer_changes
+  client_notes (id, client_id, content, created_by, created_by_name, created_at)
+  user_roles (user_id, email, role, display_name, page_permissions)
+  storage.buckets: contracts
 
 Styling:
   Tailwind CSS via CDN (not PostCSS build)
@@ -199,3 +290,15 @@ Key Patterns:
   - safeJsonParse helper for crash-safe JSON
   - Atomic operations with rollback support
   - Confirm modals for destructive actions
+  - allUsers from AuthContext for user dropdowns
+  - is_admin() SECURITY DEFINER function for RLS
+  - Edge Functions with service_role key for admin operations
+
+GIT HISTORY (key commits):
+  443c937 - Fix 19 audit issues
+  [session 2 commits] - 9 features
+  [session 3 commits] - theme, viewer fix, file uploads
+  [session 4 commits] - retainer history, advanced roles, RLS, user sync
+  6925a1a - Edge Function for admin user creation
+  1085824 - Viewers can see all leads
+  0c3cea1 - Enhanced client management (handler, notes, CRM view)

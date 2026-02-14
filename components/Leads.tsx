@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Lead, LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel } from '../types';
 import { formatCurrency, formatPhoneForWhatsApp } from '../utils';
-import { Plus, Search, CheckCircle, XCircle, List, LayoutGrid, Phone, MessageCircle, ArrowUpDown, Calendar } from 'lucide-react';
+import { Plus, Search, CheckCircle, XCircle, List, LayoutGrid, Phone, MessageCircle, ArrowUpDown, Calendar, User } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select, Textarea, Checkbox } from './ui/Form';
@@ -64,7 +65,14 @@ const isOverdue = (dateStr: string): boolean => {
 
 const Leads: React.FC = () => {
   const { leads, services, addLead, updateLead, deleteLead, convertLeadToClient } = useData();
-  const { isAdmin, isViewer, user } = useAuth();
+  const { isAdmin, isViewer, user, allUsers } = useAuth();
+  const navigate = useNavigate();
+
+  const getUserName = (userId?: string) => {
+    if (!userId) return null;
+    const u = allUsers.find(u => u.user_id === userId);
+    return u?.display_name || null;
+  };
 
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -148,6 +156,7 @@ const Leads: React.FC = () => {
       nextContactDate: new Date().toISOString().split('T')[0],
       notes: '',
       createdBy: user?.id || undefined,
+      assignedTo: undefined,
     });
     setIsModalOpen(true);
   };
@@ -253,6 +262,7 @@ const Leads: React.FC = () => {
             </button>
           </TableHead>
           <TableHead>סטטוס</TableHead>
+          <TableHead>מטפל</TableHead>
           <TableHead>
             <button
               onClick={() => handleSort('nextContactDate')}
@@ -267,7 +277,7 @@ const Leads: React.FC = () => {
         <TableBody>
           {filteredLeads.length === 0 ? (
             <tr>
-              <td colSpan={8} className="p-12 text-center text-gray-500">
+              <td colSpan={9} className="p-12 text-center text-gray-500">
                 לא נמצאו לידים
               </td>
             </tr>
@@ -275,21 +285,27 @@ const Leads: React.FC = () => {
             filteredLeads.map(lead => {
               const overdue = isOverdue(lead.nextContactDate) && OPEN_STATUSES.includes(lead.status);
               const rowBg = getRowBgClass(lead);
+              const handlerName = getUserName(lead.assignedTo);
 
               return (
-                <tr key={lead.leadId} className={`group hover:bg-white/[0.03] transition-colors duration-150 ${rowBg}`}>
+                <TableRow
+                  key={lead.leadId}
+                  className={`cursor-pointer ${rowBg}`}
+                  onClick={() => navigate(`/leads/${lead.leadId}`)}
+                >
                   <TableCell className="font-semibold text-white">{lead.leadName}</TableCell>
                   <TableCell>{lead.businessName || <span className="text-gray-600">-</span>}</TableCell>
                   <TableCell>
                     {lead.phone ? (
                       <div className="flex items-center gap-2">
-                        <a href={`tel:${lead.phone}`} className="text-gray-300 hover:text-white transition-colors">
+                        <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()} className="text-gray-300 hover:text-white transition-colors">
                           {lead.phone}
                         </a>
                         <a
                           href={`https://wa.me/${formatPhoneForWhatsApp(lead.phone).replace('+', '')}`}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
                           className="inline-flex items-center justify-center w-7 h-7 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-colors"
                           title="WhatsApp"
                         >
@@ -309,6 +325,7 @@ const Leads: React.FC = () => {
                   <TableCell>
                     <select
                       value={lead.status}
+                      onClick={e => e.stopPropagation()}
                       onChange={(e) => handleInlineStatusChange(lead, e.target.value as LeadStatus)}
                       className="bg-transparent border border-white/10 rounded-md px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-primary/50 cursor-pointer hover:border-white/20 transition-colors"
                     >
@@ -318,12 +335,25 @@ const Leads: React.FC = () => {
                     </select>
                   </TableCell>
                   <TableCell>
+                    {handlerName ? (
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-6 h-6 rounded-full bg-violet-500/20 flex items-center justify-center flex-shrink-0">
+                          <User size={12} className="text-violet-400" />
+                        </div>
+                        <span className="text-xs text-gray-300 truncate max-w-[80px]">{handlerName}</span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-600">לא משויך</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <span className={`inline-flex items-center gap-1.5 ${overdue ? 'text-red-400 font-bold' : 'text-gray-300'}`}>
                       <Calendar size={14} className={overdue ? 'text-red-400' : 'text-gray-500'} />
                       {new Date(lead.nextContactDate).toLocaleDateString('he-IL')}
                     </span>
-                  </TableCell>                  <TableCell>
-                    <div className="flex items-center gap-1">
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                       <Button
                         variant="ghost"
                         className="p-1.5 text-gray-400 hover:text-white"
@@ -354,7 +384,7 @@ const Leads: React.FC = () => {
                       )}
                     </div>
                   </TableCell>
-                </tr>
+                </TableRow>
               );
             })
           )}
@@ -397,11 +427,12 @@ const Leads: React.FC = () => {
                 ) : (
                   columnLeads.map(lead => {
                     const overdue = isOverdue(lead.nextContactDate);
+                    const handlerName = getUserName(lead.assignedTo);
 
                     return (
                       <div
                         key={lead.leadId}
-                        onClick={() => { setEditingLead(lead); setIsModalOpen(true); }}
+                        onClick={() => navigate(`/leads/${lead.leadId}`)}
 
                         className={`
                           p-3 rounded-lg border cursor-pointer transition-all duration-200
@@ -441,9 +472,19 @@ const Leads: React.FC = () => {
                           </Badge>
                         </div>
 
-                        <div className={`flex items-center gap-1.5 text-xs ${overdue ? 'text-red-400 font-semibold' : 'text-gray-500'}`}>
-                          <Calendar size={12} />
-                          {new Date(lead.nextContactDate).toLocaleDateString('he-IL')}
+                        <div className="flex items-center justify-between">
+                          <div className={`flex items-center gap-1.5 text-xs ${overdue ? 'text-red-400 font-semibold' : 'text-gray-500'}`}>
+                            <Calendar size={12} />
+                            {new Date(lead.nextContactDate).toLocaleDateString('he-IL')}
+                          </div>
+                          {handlerName && (
+                            <div className="flex items-center gap-1">
+                              <div className="w-5 h-5 rounded-full bg-violet-500/20 flex items-center justify-center">
+                                <User size={10} className="text-violet-400" />
+                              </div>
+                              <span className="text-[10px] text-gray-500 truncate max-w-[60px]">{handlerName}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -516,9 +557,21 @@ const Leads: React.FC = () => {
               <Input label="הצעת מחיר (₪)" type="number" value={editingLead.quotedMonthlyValue} onChange={e => setEditingLead({ ...editingLead, quotedMonthlyValue: Number(e.target.value) })} />
               <Input label="תאריך קשר הבא" type="date" value={editingLead.nextContactDate ? new Date(editingLead.nextContactDate).toISOString().split('T')[0] : ''} onChange={e => setEditingLead({ ...editingLead, nextContactDate: e.target.value })} />
             </div>
-            <Select label="סטטוס" value={editingLead.status} onChange={e => setEditingLead({ ...editingLead, status: e.target.value as LeadStatus })}>
-              {Object.values(LeadStatus).map(s => <option key={s} value={s}>{s}</option>)}
-            </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <Select label="סטטוס" value={editingLead.status} onChange={e => setEditingLead({ ...editingLead, status: e.target.value as LeadStatus })}>
+                {Object.values(LeadStatus).map(s => <option key={s} value={s}>{s}</option>)}
+              </Select>
+              <Select
+                label="מטפל אחראי"
+                value={editingLead.assignedTo || ''}
+                onChange={e => setEditingLead({ ...editingLead, assignedTo: e.target.value || undefined })}
+              >
+                <option value="">לא משויך</option>
+                {allUsers.map(u => (
+                  <option key={u.user_id} value={u.user_id}>{u.display_name}</option>
+                ))}
+              </Select>
+            </div>
             <div>
               <label className="text-xs font-medium text-gray-400 uppercase tracking-wider block mb-2">שירותים מתעניינים</label>
               <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-3 border border-white/10 rounded-lg bg-[#0B1121]">
