@@ -19,14 +19,14 @@ const Clients: React.FC = () => {
   const [editingClient, setEditingClient] = useState<Partial<Client> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRating, setFilterRating] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<string>(ClientStatus.Active);
 
   const filteredClients = clients.filter(c => {
     const matchesSearch = c.clientName.includes(searchTerm) || c.businessName.includes(searchTerm);
     const matchesRating = filterRating === 'all' || c.rating === filterRating;
     const matchesStatus = filterStatus === 'all' || c.status === filterStatus;
     return matchesSearch && matchesRating && matchesStatus;
-  });
+  }).sort((a, b) => new Date(a.joinDate).getTime() - new Date(b.joinDate).getTime());
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

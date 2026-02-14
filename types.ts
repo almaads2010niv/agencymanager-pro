@@ -111,6 +111,7 @@ export interface SupplierExpense {
   expenseType: ExpenseType;
   amount: number;
   notes: string;
+  isRecurring: boolean;
 }
 
 export enum PaymentStatus {

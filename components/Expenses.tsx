@@ -2,15 +2,16 @@ import React, { useState } from 'react';
 import { useData } from '../contexts/DataContext';
 import { SupplierExpense, ExpenseType } from '../types';
 import { formatCurrency, formatDate, getMonthKey } from '../utils';
-import { Plus, Edit2, Trash2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Zap, Repeat } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
-import { Input, Select } from './ui/Form';
+import { Input, Select, Checkbox } from './ui/Form';
 import { Modal } from './ui/Modal';
+import { Badge } from './ui/Badge';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from './ui/Table';
 
 const Expenses: React.FC = () => {
-  const { expenses, clients, addExpense, updateExpense, deleteExpense } = useData();
+  const { expenses, clients, addExpense, updateExpense, deleteExpense, generateMonthlyExpenses } = useData();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Partial<SupplierExpense> | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -39,7 +40,8 @@ const Expenses: React.FC = () => {
       supplierName: '',
       expenseType: ExpenseType.Media,
       amount: 0,
-      notes: ''
+      notes: '',
+      isRecurring: false,
     });
     setIsModalOpen(true);
   };
@@ -57,9 +59,17 @@ const Expenses: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
         <h2 className="text-3xl font-black text-white tracking-tight">הוצאות ספקים</h2>
-        <Button onClick={openNewExpense} variant="danger" icon={<Plus size={18} />}>הוצאה חדשה</Button>
+        <div className="flex gap-3">
+          <Button onClick={async () => {
+            const monthKey = getMonthKey(new Date());
+            const count = await generateMonthlyExpenses(monthKey);
+            if (count > 0) alert(`נוצרו ${count} הוצאות קבועות לחודש הנוכחי`);
+            else alert('כל ההוצאות הקבועות כבר קיימות לחודש זה');
+          }} variant="secondary" icon={<Zap size={18} />}>ייצור הוצאות חודשיות</Button>
+          <Button onClick={openNewExpense} variant="danger" icon={<Plus size={18} />}>הוצאה חדשה</Button>
+        </div>
       </div>
 
       <Card noPadding>
@@ -77,7 +87,16 @@ const Expenses: React.FC = () => {
               {expenses.sort((a,b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime()).map(exp => (
                 <TableRow key={exp.expenseId}>
                    <TableCell className="text-gray-400">{formatDate(exp.expenseDate)}</TableCell>
-                   <TableCell className="font-medium text-white">{exp.supplierName}</TableCell>
+                   <TableCell className="font-medium text-white">
+                     <div className="flex items-center gap-2">
+                       {exp.supplierName}
+                       {exp.isRecurring && (
+                         <Badge variant="info">
+                           <span className="flex items-center gap-1"><Repeat size={12} />קבועה</span>
+                         </Badge>
+                       )}
+                     </div>
+                   </TableCell>
                    <TableCell>{exp.expenseType}</TableCell>
                    <TableCell>{getClientName(exp.clientId)}</TableCell>
                    <TableCell className="font-mono text-red-400 font-bold">{formatCurrency(exp.amount)}</TableCell>
@@ -129,6 +148,12 @@ const Expenses: React.FC = () => {
                 </Select>
              </div>
              <Input label="הערות" value={editingExpense.notes} onChange={e => setEditingExpense({...editingExpense, notes: e.target.value})} />
+
+             <Checkbox
+               label="הוצאה קבועה (חוזרת מדי חודש)"
+               checked={editingExpense.isRecurring || false}
+               onChange={(checked) => setEditingExpense({...editingExpense, isRecurring: checked})}
+             />
 
              <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
               <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>ביטול</Button>

@@ -68,6 +68,7 @@ interface ExpenseRow {
   expense_type: string;
   amount: number;
   notes: string;
+  is_recurring: boolean;
 }
 
 interface PaymentRow {
@@ -109,6 +110,7 @@ export interface DataContextType extends AppData {
   addExpense: (expense: Omit<SupplierExpense, 'expenseId'>) => Promise<void>;
   updateExpense: (expense: SupplierExpense) => Promise<void>;
   deleteExpense: (id: string) => Promise<void>;
+  generateMonthlyExpenses: (monthKey: string) => Promise<number>;
 
   addPayment: (payment: Omit<Payment, 'paymentId'>) => Promise<void>;
   updatePayment: (payment: Payment) => Promise<void>;
@@ -272,6 +274,7 @@ const transformExpenseToDB = (expense: SupplierExpense) => ({
   expense_type: expense.expenseType,
   amount: expense.amount,
   notes: expense.notes,
+  is_recurring: expense.isRecurring,
 });
 
 const transformExpenseFromDB = (row: ExpenseRow): SupplierExpense => ({
@@ -283,6 +286,7 @@ const transformExpenseFromDB = (row: ExpenseRow): SupplierExpense => ({
   expenseType: row.expense_type as SupplierExpense['expenseType'],
   amount: row.amount,
   notes: row.notes || '',
+  isRecurring: row.is_recurring ?? false,
 });
 
 const transformPaymentToDB = (payment: Payment) => ({
@@ -720,6 +724,53 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const generateMonthlyExpenses = async (monthKey: string): Promise<number> => {
+    try {
+      // 1. Get all recurring expenses (from any month)
+      const recurringExpenses = data.expenses.filter(e => e.isRecurring);
+
+      // 2. Build dedup set for target month
+      const existingForMonth = data.expenses.filter(e => e.monthKey === monthKey);
+      const existingKeys = new Set(
+        existingForMonth.map(e => `${e.supplierName}_${e.clientId || ''}`)
+      );
+
+      // 3. Create new expenses, skipping duplicates
+      const newExpenses: SupplierExpense[] = recurringExpenses
+        .filter(e => !existingKeys.has(`${e.supplierName}_${e.clientId || ''}`))
+        .map(e => ({
+          expenseId: generateId(),
+          clientId: e.clientId,
+          expenseDate: `${monthKey.substring(0, 4)}-${monthKey.substring(4, 6)}-01`,
+          monthKey: monthKey,
+          supplierName: e.supplierName,
+          expenseType: e.expenseType,
+          amount: e.amount,
+          notes: e.notes,
+          isRecurring: true,
+        }));
+
+      if (newExpenses.length === 0) return 0;
+
+      // 4. Batch insert to Supabase
+      const dbRows = newExpenses.map(e => transformExpenseToDB(e));
+      const { error } = await supabase.from('expenses').insert(dbRows);
+      if (error) throw error;
+
+      // 5. Update local state
+      setData(prev => ({ ...prev, expenses: [...prev.expenses, ...newExpenses] }));
+
+      // 6. Log activity
+      logActivity('expenses_generated', 'expense',
+        `יוצרו ${newExpenses.length} הוצאות קבועות לחודש ${monthKey}`);
+
+      return newExpenses.length;
+    } catch (err) {
+      showError('שגיאה בייצור הוצאות חודשיות');
+      throw err;
+    }
+  };
+
   const addPayment = async (payment: Omit<Payment, 'paymentId'>) => {
     const newPayment: Payment = {
       ...payment,
@@ -870,7 +921,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addClient, updateClient, deleteClient,
       addLead, updateLead, deleteLead, convertLeadToClient,
       addDeal, updateDeal,
-      addExpense, updateExpense, deleteExpense,
+      addExpense, updateExpense, deleteExpense, generateMonthlyExpenses,
       addPayment, updatePayment, deletePayment, generateMonthlyPayments,
       updateServices, updateSettings,
       importData, exportData
