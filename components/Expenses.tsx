@@ -15,6 +15,8 @@ const Expenses: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Partial<SupplierExpense> | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const [generateFromMonth, setGenerateFromMonth] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,12 +64,10 @@ const Expenses: React.FC = () => {
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
         <h2 className="text-3xl font-black text-white tracking-tight">הוצאות ספקים</h2>
         <div className="flex gap-3">
-          <Button onClick={async () => {
-            const monthKey = getMonthKey(new Date());
-            const count = await generateMonthlyExpenses(monthKey);
-            if (count > 0) alert(`נוצרו ${count} הוצאות קבועות לחודש הנוכחי`);
-            else alert('כל ההוצאות הקבועות כבר קיימות לחודש זה');
-          }} variant="secondary" icon={<Zap size={18} />}>ייצור הוצאות חודשיות</Button>
+          <Button onClick={() => {
+            setGenerateFromMonth(new Date().toISOString().substring(0, 7));
+            setIsGenerateModalOpen(true);
+          }} variant="secondary" icon={<Zap size={18} />}>ייצור הוצאות קבועות</Button>
           <Button onClick={openNewExpense} variant="danger" icon={<Plus size={18} />}>הוצאה חדשה</Button>
         </div>
       </div>
@@ -170,6 +170,54 @@ const Expenses: React.FC = () => {
           <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
             <Button type="button" variant="ghost" onClick={() => setConfirmDeleteId(null)}>ביטול</Button>
             <Button type="button" variant="danger" onClick={() => { if (confirmDeleteId) { deleteExpense(confirmDeleteId); setConfirmDeleteId(null); } }}>מחק</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Generate Recurring Expenses Modal */}
+      <Modal isOpen={isGenerateModalOpen} onClose={() => setIsGenerateModalOpen(false)} title="ייצור הוצאות קבועות" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">בחר את החודש ההתחלתי לייצור הוצאות קבועות עד החודש הנוכחי.</p>
+          <Input
+            label="מחודש"
+            type="month"
+            value={generateFromMonth}
+            onChange={e => setGenerateFromMonth(e.target.value)}
+          />
+          {expenses.filter(e => e.isRecurring).length === 0 && (
+            <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20 text-yellow-400 text-sm">
+              אין הוצאות קבועות מוגדרות. צור הוצאה חדשה וסמן אותה כ&quot;הוצאה קבועה&quot; תחילה.
+            </div>
+          )}
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setIsGenerateModalOpen(false)}>ביטול</Button>
+            <Button type="button" onClick={async () => {
+              if (!generateFromMonth) return;
+              const [fromYear, fromMonth] = generateFromMonth.split('-').map(Number);
+              const now = new Date();
+              const toYear = now.getFullYear();
+              const toMonth = now.getMonth() + 1;
+
+              let totalGenerated = 0;
+              let y = fromYear;
+              let m = fromMonth;
+
+              while (y < toYear || (y === toYear && m <= toMonth)) {
+                const monthKey = `${y}${String(m).padStart(2, '0')}`;
+                try {
+                  const count = await generateMonthlyExpenses(monthKey);
+                  totalGenerated += count;
+                } catch {
+                  // Skip errors for individual months
+                }
+                m++;
+                if (m > 12) { m = 1; y++; }
+              }
+
+              setIsGenerateModalOpen(false);
+              if (totalGenerated > 0) alert(`נוצרו ${totalGenerated} הוצאות קבועות`);
+              else alert('כל ההוצאות הקבועות כבר קיימות לתקופה זו');
+            }} icon={<Zap size={18} />}>ייצור</Button>
           </div>
         </div>
       </Modal>

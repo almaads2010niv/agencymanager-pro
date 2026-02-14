@@ -7,6 +7,7 @@ export type UserRole = 'admin' | 'viewer';
 interface UserRoleRecord {
   id: string;
   user_id: string;
+  email?: string;
   role: UserRole;
   display_name: string;
   created_at: string;
@@ -38,6 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Load role for current user
   const loadRole = useCallback(async (currentUser: User) => {
     try {
+      // 1. First try matching by user_id
       const { data, error } = await supabase
         .from('user_roles')
         .select('*')
@@ -47,37 +49,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('[AuthContext] loadRole for user:', currentUser.id, currentUser.email);
       console.log('[AuthContext] query result - data:', data, 'error:', error);
 
-      if (error && (error.code === 'PGRST116' || error.code === '42P01')) {
-        // No role found for this user, OR table doesn't exist
-        // Default to admin - owner can demote users later from Settings
-        const name = currentUser.email?.split('@')[0] || 'Admin';
-
-        // Try to create admin role for this user
-        const { error: insertError } = await supabase
-          .from('user_roles')
-          .insert({
-            user_id: currentUser.id,
-            role: 'admin',
-            display_name: name,
-          });
-
-        if (insertError) {
-          console.warn('[AuthContext] Could not create role:', insertError.message);
+      if (data && !error) {
+        // Found by user_id — update email if not set
+        if (!data.email && currentUser.email) {
+          await supabase.from('user_roles').update({ email: currentUser.email }).eq('user_id', currentUser.id);
         }
-
-        console.log('[AuthContext] No role found, defaulting to admin for:', currentUser.email);
-        setRole('admin');
-        setDisplayName(name);
-      } else if (data) {
         console.log('[AuthContext] Role loaded from DB:', data.role, 'for:', currentUser.email);
         setRole(data.role as UserRole);
         setDisplayName(data.display_name || currentUser.email?.split('@')[0] || '');
-      } else {
-        // Fallback
-        console.log('[AuthContext] Fallback to admin for:', currentUser.email);
-        setRole('admin');
-        setDisplayName(currentUser.email?.split('@')[0] || 'Admin');
+        return;
       }
+
+      // 2. No match by user_id — try matching by email (for pre-created viewer roles)
+      if (currentUser.email) {
+        const { data: emailMatch, error: emailError } = await supabase
+          .from('user_roles')
+          .select('*')
+          .eq('email', currentUser.email)
+          .single();
+
+        if (emailMatch && !emailError) {
+          // Found by email — update user_id to the real auth id
+          await supabase.from('user_roles')
+            .update({ user_id: currentUser.id })
+            .eq('email', currentUser.email);
+
+          console.log('[AuthContext] Role found by email, linked user_id:', emailMatch.role, currentUser.email);
+          setRole(emailMatch.role as UserRole);
+          setDisplayName(emailMatch.display_name || currentUser.email.split('@')[0] || '');
+          return;
+        }
+      }
+
+      // 3. No role found at all — create admin role (first user / owner)
+      const name = currentUser.email?.split('@')[0] || 'Admin';
+      const { error: insertError } = await supabase
+        .from('user_roles')
+        .insert({
+          user_id: currentUser.id,
+          email: currentUser.email || null,
+          role: 'admin',
+          display_name: name,
+        });
+
+      if (insertError) {
+        console.warn('[AuthContext] Could not create role:', insertError.message);
+      }
+
+      console.log('[AuthContext] No role found, defaulting to admin for:', currentUser.email);
+      setRole('admin');
+      setDisplayName(name);
     } catch (err) {
       console.warn('Error loading role:', err);
       // Graceful fallback to admin if table doesn't exist
@@ -146,16 +167,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addViewer = async (email: string, viewerDisplayName: string): Promise<string | null> => {
     try {
-      // Use Supabase admin invite (requires service role, so we just create the role entry)
-      // The admin should create the user in Supabase Auth dashboard first
-      // Here we just pre-create the role so when the user logs in, they get viewer role
-
-      // For simplicity: create a placeholder entry with a generated UUID
-      // When the actual user signs up/logs in, their role will match
+      // Pre-create a role entry with the email.
+      // When the actual user logs in, loadRole will match by email and link the real user_id.
+      const placeholderId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
       const { error } = await supabase
         .from('user_roles')
         .insert({
-          user_id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2),
+          user_id: placeholderId,
+          email: email.toLowerCase().trim(),
           role: 'viewer',
           display_name: viewerDisplayName,
         });

@@ -91,6 +91,12 @@ interface SettingsRow {
   employee_salary: number;
 }
 
+export interface ClientFile {
+  name: string;
+  url: string;
+  createdAt: string;
+}
+
 export interface DataContextType extends AppData {
   isLoaded: boolean;
   error: string | null;
@@ -116,6 +122,10 @@ export interface DataContextType extends AppData {
   updatePayment: (payment: Payment) => Promise<void>;
   deletePayment: (id: string) => Promise<void>;
   generateMonthlyPayments: (monthKey: string) => Promise<number>;
+
+  uploadClientFile: (clientId: string, file: File) => Promise<string | null>;
+  listClientFiles: (clientId: string) => Promise<ClientFile[]>;
+  deleteClientFile: (clientId: string, fileName: string) => Promise<void>;
 
   updateServices: (services: Service[]) => void;
   updateSettings: (settings: AgencySettings) => Promise<void>;
@@ -865,6 +875,81 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // --- Client File Upload (Supabase Storage) ---
+  const uploadClientFile = async (clientId: string, file: File): Promise<string | null> => {
+    try {
+      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._\-\u0590-\u05FF]/g, '_')}`;
+      const filePath = `${clientId}/${safeName}`;
+
+      const { error } = await supabase.storage
+        .from('contracts')
+        .upload(filePath, file, { upsert: false });
+
+      if (error) {
+        showError('שגיאה בהעלאת קובץ: ' + error.message);
+        return null;
+      }
+
+      const clientName = data.clients.find(c => c.clientId === clientId)?.businessName || clientId;
+      logActivity('file_uploaded', 'client', `הועלה קובץ "${file.name}" ללקוח ${clientName}`, clientId);
+      return safeName;
+    } catch (err) {
+      showError('שגיאה בהעלאת קובץ');
+      return null;
+    }
+  };
+
+  const listClientFiles = async (clientId: string): Promise<ClientFile[]> => {
+    try {
+      const { data: files, error } = await supabase.storage
+        .from('contracts')
+        .list(clientId, { sortBy: { column: 'created_at', order: 'desc' } });
+
+      if (error || !files) return [];
+
+      return files
+        .filter(f => f.name !== '.emptyFolderPlaceholder')
+        .map(f => {
+          const { data: urlData } = supabase.storage
+            .from('contracts')
+            .getPublicUrl(`${clientId}/${f.name}`);
+
+          return {
+            name: f.name.replace(/^\d+_/, ''), // Remove timestamp prefix for display
+            url: urlData.publicUrl,
+            createdAt: f.created_at || '',
+          };
+        });
+    } catch {
+      return [];
+    }
+  };
+
+  const deleteClientFile = async (clientId: string, fileName: string): Promise<void> => {
+    try {
+      // We need the full storage name (with timestamp prefix)
+      const { data: files } = await supabase.storage
+        .from('contracts')
+        .list(clientId);
+
+      const match = files?.find(f => f.name === fileName || f.name.replace(/^\d+_/, '') === fileName);
+      if (!match) {
+        showError('הקובץ לא נמצא');
+        return;
+      }
+
+      const { error } = await supabase.storage
+        .from('contracts')
+        .remove([`${clientId}/${match.name}`]);
+
+      if (error) throw error;
+
+      logActivity('file_deleted', 'client', `נמחק קובץ "${fileName}"`, clientId);
+    } catch (err) {
+      showError('שגיאה במחיקת קובץ');
+    }
+  };
+
   const updateServices = (services: Service[]) => {
     setData(prev => ({ ...prev, services }));
   };
@@ -923,6 +1008,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addDeal, updateDeal,
       addExpense, updateExpense, deleteExpense, generateMonthlyExpenses,
       addPayment, updatePayment, deletePayment, generateMonthlyPayments,
+      uploadClientFile, listClientFiles, deleteClientFile,
       updateServices, updateSettings,
       importData, exportData
     }}>

@@ -1,17 +1,54 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
+import type { ClientFile } from '../contexts/DataContext';
 import { formatCurrency, formatDate, getMonthName } from '../utils';
-import { ArrowRight, Phone, Mail, Calendar, Star, DollarSign, TrendingUp } from 'lucide-react';
+import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
+import { Modal } from './ui/Modal';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from './ui/Table';
 
 const ClientProfile: React.FC = () => {
   const { clientId } = useParams<{ clientId: string }>();
   const navigate = useNavigate();
-  const { clients, oneTimeDeals, expenses, payments, services } = useData();
+  const { clients, oneTimeDeals, expenses, payments, services, uploadClientFile, listClientFiles, deleteClientFile } = useData();
+  const [clientFiles, setClientFiles] = useState<ClientFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [confirmDeleteFile, setConfirmDeleteFile] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load files when clientId changes
+  useEffect(() => {
+    if (clientId) {
+      listClientFiles(clientId).then(setClientFiles);
+    }
+  }, [clientId, listClientFiles]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !clientId) return;
+    setIsUploading(true);
+    try {
+      for (const file of Array.from(e.target.files)) {
+        await uploadClientFile(clientId, file);
+      }
+      // Refresh file list
+      const files = await listClientFiles(clientId);
+      setClientFiles(files);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteFile = async (fileName: string) => {
+    if (!clientId) return;
+    await deleteClientFile(clientId, fileName);
+    const files = await listClientFiles(clientId);
+    setClientFiles(files);
+    setConfirmDeleteFile(null);
+  };
 
   const client = clients.find(c => c.clientId === clientId);
 
@@ -222,6 +259,74 @@ const ClientProfile: React.FC = () => {
           </Table>
         </Card>
       )}
+
+      {/* Client Files / Contracts */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <CardHeader title="קבצים והסכמים" subtitle={`${clientFiles.length} קבצים`} />
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+              multiple
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              icon={<Upload size={16} />}
+              disabled={isUploading}
+            >
+              {isUploading ? 'מעלה...' : 'העלאת קובץ'}
+            </Button>
+          </div>
+        </div>
+
+        {clientFiles.length > 0 ? (
+          <div className="space-y-2">
+            {clientFiles.map(file => (
+              <div key={file.name} className="flex items-center justify-between p-3 rounded-lg bg-[#0B1121] border border-white/5 hover:border-white/10 transition-all">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <FileText size={18} className="text-primary shrink-0" />
+                  <span className="text-white text-sm truncate">{file.name}</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <a
+                    href={file.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-primary/10 transition-all"
+                    title="פתח קובץ"
+                  >
+                    <ExternalLink size={16} />
+                  </a>
+                  <button
+                    onClick={() => setConfirmDeleteFile(file.name)}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-400/10 transition-all"
+                    title="מחק קובץ"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-500 text-sm text-center py-6 italic">אין קבצים. העלה הסכמים, חשבוניות או מסמכים.</p>
+        )}
+      </Card>
+
+      {/* Confirm Delete File Modal */}
+      <Modal isOpen={!!confirmDeleteFile} onClose={() => setConfirmDeleteFile(null)} title="מחיקת קובץ" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך למחוק את הקובץ &quot;{confirmDeleteFile}&quot;?</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteFile(null)}>ביטול</Button>
+            <Button type="button" variant="danger" onClick={() => confirmDeleteFile && handleDeleteFile(confirmDeleteFile)}>מחק</Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
