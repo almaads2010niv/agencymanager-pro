@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Settings, Briefcase, CreditCard, Calculator, Search, LogOut, Shield, Eye } from 'lucide-react';
+import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Settings, Briefcase, CreditCard, Calculator, Search, LogOut, Shield, Eye, Sun, Moon } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { LeadStatus, PaymentStatus } from '../types';
 import { tokens } from '../design/tokens';
 import CommandPalette from './CommandPalette';
@@ -44,6 +45,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const { settings, leads, payments } = useData();
   const { isAdmin, isViewer, displayName, role, logout } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
   const closeSidebar = () => setIsSidebarOpen(false);
@@ -123,6 +125,16 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
           {/* User Info & Logout */}
           <div className="p-4 border-t border-white/5 space-y-3">
+             {/* Theme Toggle */}
+             <button
+               onClick={toggleTheme}
+               className="w-full flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 border border-white/5 hover:border-primary/30 hover:bg-primary/5 text-gray-400 hover:text-primary transition-all text-xs"
+               aria-label={isDark ? 'מעבר למצב בהיר' : 'מעבר למצב כהה'}
+             >
+               {isDark ? <Sun size={14} /> : <Moon size={14} />}
+               <span>{isDark ? 'מצב בהיר' : 'מצב כהה'}</span>
+             </button>
+
              <div className="flex items-center gap-3 px-2">
                <div className={`p-1.5 rounded-lg ${isAdmin ? 'bg-primary/10 text-primary' : 'bg-violet-500/10 text-violet-400'}`}>
                  {isAdmin ? <Shield size={14} /> : <Eye size={14} />}

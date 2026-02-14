@@ -15,7 +15,7 @@ const Debts: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Partial<Payment> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<string>('unpaid');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Filter only active clients for selection
@@ -24,7 +24,12 @@ const Debts: React.FC = () => {
   const filteredPayments = payments.filter(p => {
     const client = clients.find(c => c.clientId === p.clientId);
     const matchesSearch = client?.businessName?.includes(searchTerm) || client?.clientName?.includes(searchTerm);
-    const matchesStatus = filterStatus === 'all' || p.paymentStatus === filterStatus;
+    let matchesStatus = true;
+    if (filterStatus === 'unpaid') {
+      matchesStatus = p.paymentStatus !== PaymentStatus.Paid;
+    } else if (filterStatus !== 'all') {
+      matchesStatus = p.paymentStatus === filterStatus;
+    }
     return matchesSearch && matchesStatus;
   });
 
@@ -140,6 +145,7 @@ const Debts: React.FC = () => {
           />
         </div>
         <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+          <option value="unpaid">חובות פתוחים (ברירת מחדל)</option>
           <option value="all">כל הסטטוסים</option>
           <option value={PaymentStatus.Unpaid}>לא שולם</option>
           <option value={PaymentStatus.Partial}>שולם חלקית</option>

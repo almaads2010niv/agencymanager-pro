@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js'
 
 import { DataProvider } from './contexts/DataContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 import { supabase } from './lib/supabaseClient'
 
 import Layout from './components/Layout'
@@ -86,9 +87,11 @@ function App() {
   }
 
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ThemeProvider>
   )
 }
 

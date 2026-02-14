@@ -1,17 +1,23 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { ClientStatus } from '../types';
 import { formatCurrency, getMonthKey } from '../utils';
 import { calculateTax } from '../utils/taxCalculator';
 import type { TaxBreakdown } from '../utils/taxCalculator';
-import { Calculator, ChevronDown, ChevronUp, Info } from 'lucide-react';
+import { Calculator, ChevronDown, ChevronUp, Info, AlertTriangle, Settings } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Badge } from './ui/Badge';
+import { Button } from './ui/Button';
+import { Input } from './ui/Form';
 
 const TaxCalculator: React.FC = () => {
-  const { clients, expenses, settings } = useData();
+  const { clients, expenses, settings, updateSettings } = useData();
+  const navigate = useNavigate();
   const [showBrackets, setShowBrackets] = useState(true);
   const [showBL, setShowBL] = useState(true);
+  const [editSalary, setEditSalary] = useState(false);
+  const [tempSalary, setTempSalary] = useState(settings.employeeSalary || 0);
 
   const currentDate = new Date();
   const currentMonthKey = getMonthKey(currentDate);
@@ -42,6 +48,53 @@ const TaxCalculator: React.FC = () => {
           {currentDate.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}
         </Badge>
       </div>
+
+      {/* Salary Configuration Card */}
+      <Card className="border border-primary/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+              <Settings size={18} />
+            </div>
+            <div>
+              <div className="text-sm text-gray-400">משכורת שכיר חודשית</div>
+              {!editSalary ? (
+                <div className="text-xl font-bold text-white">{settings.employeeSalary > 0 ? formatCurrency(settings.employeeSalary) : <span className="text-amber-400">לא הוגדרה</span>}</div>
+              ) : (
+                <div className="flex items-center gap-3 mt-1">
+                  <Input
+                    type="number"
+                    value={tempSalary || ''}
+                    onChange={e => setTempSalary(Number(e.target.value) || 0)}
+                    className="w-40"
+                    placeholder="₪ סכום חודשי"
+                    onFocus={e => { if (e.target.value === '0') e.target.value = ''; }}
+                  />
+                  <Button onClick={async () => {
+                    await updateSettings({ ...settings, employeeSalary: tempSalary });
+                    setEditSalary(false);
+                  }}>שמור</Button>
+                  <Button variant="ghost" onClick={() => { setEditSalary(false); setTempSalary(settings.employeeSalary || 0); }}>ביטול</Button>
+                </div>
+              )}
+            </div>
+          </div>
+          {!editSalary && (
+            <Button variant="secondary" onClick={() => { setTempSalary(settings.employeeSalary || 0); setEditSalary(true); }}>
+              {settings.employeeSalary > 0 ? 'עדכן' : 'הגדר משכורת'}
+            </Button>
+          )}
+        </div>
+        {settings.employeeSalary === 0 && !editSalary && (
+          <div className="mt-3 flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
+            <AlertTriangle size={16} className="text-amber-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-amber-300">
+              לא הוגדרה משכורת שכיר. החישוב מתבצע על הכנסה עצמאית בלבד.
+              לחץ "הגדר משכורת" כדי להוסיף את המשכורת החודשית שלך ולקבל חישוב מדויק.
+            </p>
+          </div>
+        )}
+      </Card>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

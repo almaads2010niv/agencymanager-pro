@@ -46,6 +46,7 @@
         color: #f8fafc;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
+        transition: background-color 0.3s ease, color 0.3s ease;
       }
       /* Modern Scrollbar */
       ::-webkit-scrollbar {
@@ -53,16 +54,16 @@
         height: 6px;
       }
       ::-webkit-scrollbar-track {
-        background: transparent; 
+        background: transparent;
       }
       ::-webkit-scrollbar-thumb {
-        background: #334155; 
+        background: #334155;
         border-radius: 3px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #475569; 
+        background: #475569;
       }
-      
+
       /* Glass backdrop utility */
       .glass-panel {
         background: rgba(21, 30, 50, 0.7);
@@ -84,6 +85,51 @@
       .custom-scrollbar::-webkit-scrollbar-thumb:hover {
         background: #475569;
       }
+
+      /* ===== LIGHT MODE OVERRIDES ===== */
+      html.light body {
+        background-color: #f8fafc;
+        color: #1e293b;
+      }
+      html.light ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+      }
+      html.light ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+      html.light .glass-panel {
+        background: rgba(255, 255, 255, 0.8);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+      }
+      /* Light mode color overrides via CSS custom properties */
+      html.light .bg-background { background-color: #f8fafc !important; }
+      html.light .bg-surface\/30, html.light .bg-surface\/50, html.light .bg-surface\/80 { background-color: rgba(255,255,255,0.85) !important; }
+      html.light .bg-\[\#0B1121\] { background-color: #f1f5f9 !important; }
+      html.light .bg-\[\#151e32\] { background-color: #f1f5f9 !important; }
+      html.light .border-white\/5, html.light .border-white\/10 { border-color: rgba(0,0,0,0.08) !important; }
+      html.light .border-l.border-white\/5 { border-color: rgba(0,0,0,0.08) !important; }
+      html.light .text-white { color: #1e293b !important; }
+      html.light .text-gray-100 { color: #334155 !important; }
+      html.light .text-gray-200 { color: #475569 !important; }
+      html.light .text-gray-300 { color: #64748b !important; }
+      html.light .text-gray-400 { color: #94a3b8 !important; }
+      html.light .text-gray-500 { color: #94a3b8 !important; }
+      html.light .text-gray-600 { color: #cbd5e1 !important; }
+      html.light .bg-white\/5 { background-color: rgba(0,0,0,0.04) !important; }
+      html.light .bg-white\/10 { background-color: rgba(0,0,0,0.06) !important; }
+      html.light .hover\:bg-white\/5:hover { background-color: rgba(0,0,0,0.04) !important; }
+      html.light .bg-black\/80 { background-color: rgba(0,0,0,0.3) !important; }
+      html.light .shadow-glass { box-shadow: 0 4px 30px rgba(0, 0, 0, 0.06) !important; }
+      html.light .shadow-card { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06) !important; }
+      /* Cards in light mode */
+      html.light .bg-surface { background-color: #ffffff !important; }
+      html.light [class*="bg-surface"] { background-color: rgba(255,255,255,0.9) !important; }
+      /* Fix fonts that should remain readable */
+      html.light .font-mono.text-white { color: #1e293b !important; }
+      /* Ensure primary colors remain vivid */
+      html.light .bg-primary\/5 { background-color: rgba(6, 182, 212, 0.08) !important; }
+      html.light .bg-primary\/10 { background-color: rgba(6, 182, 212, 0.12) !important; }
+      html.light .bg-primary\/20 { background-color: rgba(6, 182, 212, 0.15) !important; }
     </style>
   <script type="importmap">
 {
