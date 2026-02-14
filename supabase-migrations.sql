@@ -63,6 +63,24 @@ BEGIN
   END IF;
 END $$;
 
+-- Assigned handler on clients
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'clients' AND column_name = 'assigned_to') THEN
+    ALTER TABLE clients ADD COLUMN assigned_to uuid DEFAULT NULL;
+  END IF;
+END $$;
+
+-- Client notes history table
+CREATE TABLE IF NOT EXISTS client_notes (
+  id text PRIMARY KEY,
+  client_id text REFERENCES clients(client_id) ON DELETE CASCADE,
+  content text NOT NULL,
+  created_by text NOT NULL,
+  created_by_name text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- ============================================================
 -- 3. STORAGE BUCKET
 -- ============================================================
@@ -297,6 +315,26 @@ DROP POLICY IF EXISTS "retainer_changes_insert" ON retainer_changes;
 CREATE POLICY "retainer_changes_insert" ON retainer_changes FOR INSERT
   TO authenticated
   WITH CHECK (is_admin());
+
+-- --------------------------------------------------------
+-- CLIENT_NOTES TABLE
+-- --------------------------------------------------------
+ALTER TABLE client_notes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "client_notes_select" ON client_notes;
+CREATE POLICY "client_notes_select" ON client_notes FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "client_notes_insert" ON client_notes;
+CREATE POLICY "client_notes_insert" ON client_notes FOR INSERT
+  TO authenticated
+  WITH CHECK (true); -- All authenticated users can add notes
+
+DROP POLICY IF EXISTS "client_notes_delete" ON client_notes;
+CREATE POLICY "client_notes_delete" ON client_notes FOR DELETE
+  TO authenticated
+  USING (is_admin()); -- Only admins can delete notes
 
 -- --------------------------------------------------------
 -- STORAGE POLICIES (contracts bucket)

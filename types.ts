@@ -37,6 +37,7 @@ export interface Client {
   notes: string;
   nextReviewDate: string; // ISO Date string
   addedAt: string; // ISO Date string
+  assignedTo?: string; // UUID of assigned handler (user_id from user_roles)
 }
 
 export enum LeadStatus {
@@ -165,6 +166,15 @@ export interface RetainerChange {
   notes: string;
 }
 
+export interface ClientNote {
+  id: string;
+  clientId: string;
+  content: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface AppData {
   clients: Client[];
   leads: Lead[];
@@ -175,4 +185,5 @@ export interface AppData {
   settings: AgencySettings;
   activities: ActivityEntry[];
   retainerHistory: RetainerChange[];
+  clientNotes: ClientNote[];
 }

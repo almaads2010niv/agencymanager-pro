@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
+import { useAuth } from '../contexts/AuthContext';
 import { Client, ClientRating, ClientStatus, EffortLevel } from '../types';
 import { formatCurrency, formatPhoneForWhatsApp } from '../utils';
-import { Plus, Search, Edit2, Trash2, X, MessageCircle } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, MessageCircle, User } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select, Textarea, Checkbox } from './ui/Form';
@@ -14,12 +15,19 @@ import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '.
 const Clients: React.FC = () => {
   const navigate = useNavigate();
   const { clients, services, addClient, updateClient, deleteClient } = useData();
+  const { allUsers } = useAuth();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Partial<Client> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRating, setFilterRating] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>(ClientStatus.Active);
+
+  const getUserName = (userId?: string) => {
+    if (!userId) return null;
+    const user = allUsers.find(u => u.user_id === userId);
+    return user?.display_name || null;
+  };
 
   const filteredClients = clients.filter(c => {
     const matchesSearch = c.clientName.includes(searchTerm) || c.businessName.includes(searchTerm);
@@ -31,7 +39,7 @@ const Clients: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingClient) return;
-    const formData = editingClient as Client; 
+    const formData = editingClient as Client;
     if (formData.clientId) updateClient(formData);
     else addClient(formData);
     setIsModalOpen(false);
@@ -56,6 +64,7 @@ const Clients: React.FC = () => {
       supplierCostMonthly: 0,
       notes: '',
       nextReviewDate: '',
+      assignedTo: undefined,
     });
     setIsModalOpen(true);
   };
@@ -74,6 +83,15 @@ const Clients: React.FC = () => {
     }
   };
 
+  const getEffortDot = (effort?: EffortLevel) => {
+    switch (effort) {
+      case EffortLevel.Low: return 'bg-emerald-400';
+      case EffortLevel.Medium: return 'bg-yellow-400';
+      case EffortLevel.High: return 'bg-red-400';
+      default: return 'bg-gray-500';
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
@@ -84,8 +102,8 @@ const Clients: React.FC = () => {
       <Card className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="relative">
           <Search className="absolute right-3 top-3.5 text-gray-500" size={18} />
-          <Input 
-            placeholder="חיפוש לפי שם לקוח או עסק..." 
+          <Input
+            placeholder="חיפוש לפי שם לקוח או עסק..."
             className="pr-10"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -101,6 +119,25 @@ const Clients: React.FC = () => {
         </Select>
       </Card>
 
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-[#151C2C] border border-white/5 rounded-xl p-4">
+          <div className="text-[10px] text-gray-500 uppercase">לקוחות פעילים</div>
+          <div className="text-2xl font-bold text-white mt-1">{clients.filter(c => c.status === ClientStatus.Active).length}</div>
+        </div>
+        <div className="bg-[#151C2C] border border-white/5 rounded-xl p-4">
+          <div className="text-[10px] text-gray-500 uppercase">הכנסה חודשית</div>
+          <div className="text-2xl font-bold text-emerald-400 font-mono mt-1">{formatCurrency(clients.filter(c => c.status === ClientStatus.Active).reduce((sum, c) => sum + c.monthlyRetainer, 0))}</div>
+        </div>
+        <div className="bg-[#151C2C] border border-white/5 rounded-xl p-4">
+          <div className="text-[10px] text-gray-500 uppercase">רווח חודשי</div>
+          <div className="text-2xl font-bold text-primary font-mono mt-1">{formatCurrency(clients.filter(c => c.status === ClientStatus.Active).reduce((sum, c) => sum + (c.monthlyRetainer - c.supplierCostMonthly), 0))}</div>
+        </div>
+        <div className="bg-[#151C2C] border border-white/5 rounded-xl p-4">
+          <div className="text-[10px] text-gray-500 uppercase">סה"כ לקוחות</div>
+          <div className="text-2xl font-bold text-white mt-1">{clients.length}</div>
+        </div>
+      </div>
+
       <Card noPadding>
         <Table>
             <TableHeader>
@@ -110,23 +147,29 @@ const Clients: React.FC = () => {
               <TableHead>רווח</TableHead>
               <TableHead>סטטוס</TableHead>
               <TableHead>דירוג</TableHead>
+              <TableHead>מטפל</TableHead>
               <TableHead>פעולות</TableHead>
             </TableHeader>
             <TableBody>
               {filteredClients.map(client => (
-                <TableRow key={client.clientId}>
+                <TableRow key={client.clientId} className="cursor-pointer hover:bg-white/[0.03]" onClick={() => navigate(`/clients/${client.clientId}`)}>
                   <TableCell className="font-bold text-base">
-                    <button onClick={() => navigate(`/clients/${client.clientId}`)} className="text-white hover:text-primary transition-colors text-right">{client.businessName}</button>
+                    <span className="text-white">{client.businessName}</span>
                   </TableCell>
                   <TableCell>
-                    <div className="text-white">{client.clientName}</div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-gray-500">{client.phone}</span>
-                      {client.phone && (
-                        <a href={`https://wa.me/${formatPhoneForWhatsApp(client.phone).replace('+', '')}`} target="_blank" rel="noopener noreferrer" className="p-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-all" title="WhatsApp">
-                          <MessageCircle size={12} />
-                        </a>
-                      )}
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full shrink-0 ${getEffortDot(client.effortLevel)}`} title={client.effortLevel || 'לא הוגדר'} />
+                      <div>
+                        <div className="text-white">{client.clientName}</div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-gray-500">{client.phone}</span>
+                          {client.phone && (
+                            <a href={`https://wa.me/${formatPhoneForWhatsApp(client.phone).replace('+', '')}`} target="_blank" rel="noopener noreferrer" className="p-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-all" title="WhatsApp" onClick={e => e.stopPropagation()}>
+                              <MessageCircle size={12} />
+                            </a>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell className="text-white font-mono">{formatCurrency(client.monthlyRetainer)}</TableCell>
@@ -140,7 +183,19 @@ const Clients: React.FC = () => {
                      <Badge variant={client.rating === 'A_plus' ? 'primary' : 'neutral'}>{client.rating}</Badge>
                   </TableCell>
                   <TableCell>
-                    <div className="flex gap-2">
+                    {getUserName(client.assignedTo) ? (
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-6 h-6 rounded-full bg-violet-500/20 text-violet-400 flex items-center justify-center text-[10px] font-bold">
+                          {getUserName(client.assignedTo)!.charAt(0)}
+                        </div>
+                        <span className="text-gray-300 text-xs">{getUserName(client.assignedTo)}</span>
+                      </div>
+                    ) : (
+                      <span className="text-gray-600 text-xs">לא משויך</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-2" onClick={e => e.stopPropagation()}>
                       <Button variant="ghost" onClick={() => openEditClient(client)} icon={<Edit2 size={16} />} className="p-1" aria-label="ערוך לקוח" />
                       <Button variant="ghost" onClick={() => setConfirmDeleteId(client.clientId)} icon={<Trash2 size={16} />} className="p-1 text-red-400 hover:text-red-300" aria-label="מחק לקוח" />
                     </div>
@@ -149,7 +204,7 @@ const Clients: React.FC = () => {
               ))}
               {filteredClients.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-12 text-center text-gray-500 italic">לא נמצאו לקוחות</td>
+                  <td colSpan={8} className="p-12 text-center text-gray-500 italic">לא נמצאו לקוחות</td>
                 </tr>
               )}
             </TableBody>
@@ -213,7 +268,7 @@ const Clients: React.FC = () => {
                  <h4 className="text-primary text-sm font-bold uppercase tracking-wider border-b border-white/10 pb-2">שירותים</h4>
                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {services.filter(s => s.isActive).map(service => (
-                    <Checkbox 
+                    <Checkbox
                         key={service.serviceKey}
                         label={service.label}
                         checked={editingClient.services?.includes(service.serviceKey) || false}
@@ -225,6 +280,12 @@ const Clients: React.FC = () => {
                     />
                   ))}
                 </div>
+                <Select label="מטפל אחראי" value={editingClient.assignedTo || ''} onChange={e => setEditingClient({...editingClient, assignedTo: e.target.value || undefined})}>
+                  <option value="">לא משויך</option>
+                  {allUsers.map(u => (
+                    <option key={u.user_id} value={u.user_id}>{u.display_name} ({u.role === 'admin' ? 'מנהל' : 'צופה'})</option>
+                  ))}
+                </Select>
                 <Textarea label="הערות" value={editingClient.notes} onChange={e => setEditingClient({...editingClient, notes: e.target.value})} />
               </div>
 

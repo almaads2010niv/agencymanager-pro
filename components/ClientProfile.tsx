@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
+import { useAuth } from '../contexts/AuthContext';
 import type { ClientFile } from '../contexts/DataContext';
+import { ClientStatus, ClientRating } from '../types';
 import { formatCurrency, formatDate, getMonthName, formatPhoneForWhatsApp } from '../utils';
-import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle } from 'lucide-react';
+import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle, User, Send, Clock } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -13,11 +15,50 @@ import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '.
 const ClientProfile: React.FC = () => {
   const { clientId } = useParams<{ clientId: string }>();
   const navigate = useNavigate();
-  const { clients, oneTimeDeals, expenses, payments, services, retainerHistory, uploadClientFile, listClientFiles, deleteClientFile } = useData();
+  const { user, displayName: currentUserName, allUsers, isAdmin } = useAuth();
+  const {
+    clients, oneTimeDeals, expenses, payments, services, retainerHistory,
+    uploadClientFile, listClientFiles, deleteClientFile,
+    clientNotes, addClientNote, deleteClientNote, updateClient, activities
+  } = useData();
+
   const [clientFiles, setClientFiles] = useState<ClientFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [confirmDeleteFile, setConfirmDeleteFile] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Notes state
+  const [newNoteContent, setNewNoteContent] = useState('');
+  const [isAddingNote, setIsAddingNote] = useState(false);
+  const [confirmDeleteNoteId, setConfirmDeleteNoteId] = useState<string | null>(null);
+
+  // Filter notes for this client
+  const clientNotesFiltered = clientNotes.filter(n => n.clientId === clientId);
+
+  // Filter activities for this client
+  const clientActivities = activities.filter(a => a.entityId === clientId).slice(0, 20);
+
+  // Helper to get user name from allUsers
+  const getUserName = (userId?: string) => {
+    if (!userId) return null;
+    const u = allUsers.find(u => u.user_id === userId);
+    return u?.display_name || null;
+  };
+
+  // Relative time helper
+  const getRelativeTime = (dateStr: string) => {
+    const now = new Date();
+    const date = new Date(dateStr);
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 1) return 'עכשיו';
+    if (diffMins < 60) return `לפני ${diffMins} דקות`;
+    if (diffHours < 24) return `לפני ${diffHours} שעות`;
+    if (diffDays < 7) return `לפני ${diffDays} ימים`;
+    return formatDate(dateStr);
+  };
 
   // Load files when clientId changes
   useEffect(() => {
@@ -50,6 +91,29 @@ const ClientProfile: React.FC = () => {
     setConfirmDeleteFile(null);
   };
 
+  // Handle note submission
+  const handleAddNote = async () => {
+    if (!newNoteContent.trim() || !user) return;
+    setIsAddingNote(true);
+    try {
+      await addClientNote(clientId!, newNoteContent.trim(), user.id, currentUserName);
+      setNewNoteContent('');
+    } finally {
+      setIsAddingNote(false);
+    }
+  };
+
+  // Quick-edit handlers for status and rating
+  const handleStatusChange = async (newStatus: string) => {
+    if (!client) return;
+    await updateClient({ ...client, status: newStatus as ClientStatus });
+  };
+
+  const handleRatingChange = async (newRating: string) => {
+    if (!client) return;
+    await updateClient({ ...client, rating: newRating as ClientRating });
+  };
+
   const client = clients.find(c => c.clientId === clientId);
 
   if (!client) {
@@ -79,13 +143,6 @@ const ClientProfile: React.FC = () => {
     .filter(s => activeServiceKeys.includes(s.serviceKey))
     .map(s => s.label);
 
-  const getStatusBadge = (status: string) => {
-    if (status === 'פעיל') return 'success';
-    if (status === 'בתהליך עזיבה') return 'danger';
-    if (status === 'מושהה') return 'warning';
-    return 'neutral';
-  };
-
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -93,10 +150,30 @@ const ClientProfile: React.FC = () => {
         <Button onClick={() => navigate('/clients')} variant="ghost" icon={<ArrowRight size={18} />}>חזרה</Button>
         <div className="flex-1">
           <h2 className="text-3xl font-black text-white tracking-tight">{client.businessName}</h2>
-          <p className="text-gray-400 mt-1">{client.clientName}</p>
+          <div className="flex items-center gap-3 mt-1">
+            <span className="text-gray-400">{client.clientName}</span>
+            {getUserName(client.assignedTo) && (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-violet-500/10">
+                <User size={12} className="text-violet-400" />
+                <span className="text-violet-400 text-xs">{getUserName(client.assignedTo)}</span>
+              </div>
+            )}
+          </div>
         </div>
-        <Badge variant={getStatusBadge(client.status)} className="text-sm py-1.5 px-3">{client.status}</Badge>
-        <Badge variant={client.rating === 'A_plus' ? 'primary' : 'neutral'} className="text-sm py-1.5 px-3">{client.rating}</Badge>
+        <select
+          value={client.status}
+          onChange={e => handleStatusChange(e.target.value)}
+          className="bg-[#0B1121] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-gray-300 outline-none cursor-pointer"
+        >
+          {Object.values(ClientStatus).map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select
+          value={client.rating}
+          onChange={e => handleRatingChange(e.target.value)}
+          className="bg-[#0B1121] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-gray-300 outline-none cursor-pointer"
+        >
+          {Object.values(ClientRating).map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
       </div>
 
       {/* Contact + Financial Summary */}
@@ -174,6 +251,61 @@ const ClientProfile: React.FC = () => {
           )}
         </Card>
       </div>
+
+      {/* Notes History */}
+      <Card>
+        <CardHeader title="הערות והיסטוריה" subtitle={`${clientNotesFiltered.length} הערות`} />
+        {/* Add note form */}
+        <div className="mt-4 flex gap-3">
+          <div className="flex-1">
+            <textarea
+              value={newNoteContent}
+              onChange={e => setNewNoteContent(e.target.value)}
+              placeholder="הוסף הערה..."
+              rows={2}
+              className="w-full bg-[#0B1121] border border-white/10 rounded-xl p-3 text-white text-sm outline-none focus:border-primary/50 resize-none"
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddNote(); } }}
+            />
+          </div>
+          <Button onClick={handleAddNote} disabled={isAddingNote || !newNoteContent.trim()} icon={<Send size={16} />} className="self-end">
+            {isAddingNote ? '...' : 'שלח'}
+          </Button>
+        </div>
+
+        {/* Notes list */}
+        <div className="mt-6 space-y-4">
+          {clientNotesFiltered.length === 0 ? (
+            <p className="text-gray-600 text-sm text-center py-6 italic">אין הערות עדיין. הוסף הערה ראשונה למעלה.</p>
+          ) : (
+            clientNotesFiltered.map(note => (
+              <div key={note.id} className="flex gap-3 group">
+                {/* Avatar */}
+                <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
+                  {note.createdByName.charAt(0) || '?'}
+                </div>
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-white text-sm font-medium">{note.createdByName}</span>
+                    <span className="text-gray-600 text-[10px]">{getRelativeTime(note.createdAt)}</span>
+                  </div>
+                  <p className="text-gray-300 text-sm whitespace-pre-wrap">{note.content}</p>
+                </div>
+                {/* Delete button (admin only) */}
+                {isAdmin && (
+                  <button
+                    onClick={() => setConfirmDeleteNoteId(note.id)}
+                    className="p-1 rounded text-gray-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                    title="מחק הערה"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
 
       {/* Deals History */}
       {clientDeals.length > 0 && (
@@ -293,6 +425,26 @@ const ClientProfile: React.FC = () => {
         </Card>
       )}
 
+      {/* Activity Timeline */}
+      {clientActivities.length > 0 && (
+        <Card>
+          <CardHeader title="היסטוריית פעילות" subtitle={`${clientActivities.length} פעולות אחרונות`} />
+          <div className="mt-4 space-y-3">
+            {clientActivities.map(activity => (
+              <div key={activity.id} className="flex items-start gap-3 py-2 border-b border-white/5 last:border-0">
+                <div className="p-1.5 rounded-lg bg-primary/10 mt-0.5">
+                  <Clock size={14} className="text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-gray-300 text-sm">{activity.description}</p>
+                  <span className="text-gray-600 text-[10px]">{getRelativeTime(activity.createdAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* Client Files / Contracts */}
       <Card>
         <div className="flex items-center justify-between mb-4">
@@ -357,6 +509,17 @@ const ClientProfile: React.FC = () => {
           <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
             <Button type="button" variant="ghost" onClick={() => setConfirmDeleteFile(null)}>ביטול</Button>
             <Button type="button" variant="danger" onClick={() => confirmDeleteFile && handleDeleteFile(confirmDeleteFile)}>מחק</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Delete Note Modal */}
+      <Modal isOpen={!!confirmDeleteNoteId} onClose={() => setConfirmDeleteNoteId(null)} title="מחיקת הערה" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך למחוק את ההערה?</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteNoteId(null)}>ביטול</Button>
+            <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteNoteId) { await deleteClientNote(confirmDeleteNoteId); setConfirmDeleteNoteId(null); } }}>מחק</Button>
           </div>
         </div>
       </Modal>
