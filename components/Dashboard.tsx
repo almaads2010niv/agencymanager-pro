@@ -129,12 +129,47 @@ const Dashboard: React.FC = () => {
   // If viewer, show mini dashboard
   if (isViewer) return <ViewerDashboard />;
 
+  // --- Helper Functions (must be defined before use) ---
+
+  // Calculate MRR for a specific month based on active clients
+  const calculateMRRForMonth = (monthKey: string) => {
+    const year = parseInt(monthKey.substring(0, 4));
+    const month = parseInt(monthKey.substring(4, 6));
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+
+    return clients
+      .filter(c => {
+        const joinDate = new Date(c.joinDate);
+        joinDate.setHours(0, 0, 0, 0);
+        const joinedBeforeOrDuring = joinDate <= monthEnd;
+
+        if (!c.churnDate) {
+          return joinedBeforeOrDuring;
+        }
+
+        const churnDate = new Date(c.churnDate);
+        churnDate.setHours(0, 0, 0, 0);
+        const wasActiveDuringMonth = churnDate >= monthStart;
+
+        return joinedBeforeOrDuring && wasActiveDuringMonth;
+      })
+      .reduce((sum, c) => sum + (c.monthlyRetainer || 0), 0);
+  };
+
+  // Get last year's month key for comparison
+  const getLastYearMonthKey = (monthKey: string) => {
+    const year = parseInt(monthKey.substring(0, 4)) - 1;
+    const month = monthKey.substring(4, 6);
+    return `${year}${month}`;
+  };
+
   // --- Calculations ---
   const activeClients = clients.filter(c => c.status === ClientStatus.Active);
   const activeClientsCount = activeClients.length;
   const newClientsThisMonth = clients.filter(c => getMonthKey(new Date(c.joinDate)) === currentMonthKey).length;
   const churnedClientsThisMonth = clients.filter(c => c.status === ClientStatus.Left && c.churnDate && getMonthKey(new Date(c.churnDate)) === currentMonthKey).length;
-  const monthlyMRR = activeClients.reduce((sum, c) => sum + (c.monthlyRetainer || 0), 0) + 
+  const monthlyMRR = activeClients.reduce((sum, c) => sum + (c.monthlyRetainer || 0), 0) +
                      clients.filter(c => c.status === ClientStatus.Paused).reduce((sum, c) => sum + (c.monthlyRetainer || 0), 0);
   const totalSupplierCostCurrentMonth = expenses
     .filter(e => e.monthKey === currentMonthKey)
@@ -161,49 +196,6 @@ const Dashboard: React.FC = () => {
     const d = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
     months.push(getMonthKey(d));
   }
-
-  // Calculate MRR for a specific month based on active clients
-  const calculateMRRForMonth = (monthKey: string) => {
-    const year = parseInt(monthKey.substring(0, 4));
-    const month = parseInt(monthKey.substring(4, 6));
-    // First day of the month at 00:00:00
-    const monthStart = new Date(year, month - 1, 1);
-    // Last day of the month at 23:59:59 (day 0 of next month gives last day of current month)
-    const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
-    
-    return clients
-      .filter(c => {
-        const joinDate = new Date(c.joinDate);
-        // Reset time to start of day for accurate comparison
-        joinDate.setHours(0, 0, 0, 0);
-        
-        // Client was active in this month if:
-        // 1. They joined on or before the last day of this month
-        const joinedBeforeOrDuring = joinDate <= monthEnd;
-        
-        // 2. They either didn't churn yet, OR churned on or after the first day of this month
-        //    (meaning they were active for at least part of this month)
-        if (!c.churnDate) {
-          // No churn date = still active
-          return joinedBeforeOrDuring;
-        }
-        
-        const churnDate = new Date(c.churnDate);
-        churnDate.setHours(0, 0, 0, 0);
-        // If they churned, they must have churned on or after the first day of this month
-        const wasActiveDuringMonth = churnDate >= monthStart;
-        
-        return joinedBeforeOrDuring && wasActiveDuringMonth;
-      })
-      .reduce((sum, c) => sum + (c.monthlyRetainer || 0), 0);
-  };
-
-  // Get last year's month key for comparison
-  const getLastYearMonthKey = (monthKey: string) => {
-    const year = parseInt(monthKey.substring(0, 4)) - 1;
-    const month = monthKey.substring(4, 6);
-    return `${year}${month}`;
-  };
 
   const mrrData = months.map(mKey => {
     const lastYearMKey = getLastYearMonthKey(mKey);
