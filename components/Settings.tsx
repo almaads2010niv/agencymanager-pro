@@ -294,8 +294,12 @@ const Settings: React.FC = () => {
                   <Input label="אימייל" type="email" value={newViewerEmail} onChange={e => setNewViewerEmail(e.target.value)} placeholder="email@example.com" />
                 </div>
                 {userError && <div className="text-red-400 text-sm">{userError}</div>}
-                <div className="text-xs text-gray-500">
-                  * הפרילנסר צריך להירשם ב-Supabase Auth עם אותו אימייל. לאחר ההרשמה יקבל הרשאות ברירת מחדל (דשבורד + לידים).
+                <div className="text-xs text-gray-500 space-y-1">
+                  <div>📋 <strong>איך זה עובד:</strong></div>
+                  <div>1. הזן את שם ואימייל הפרילנסר כאן</div>
+                  <div>2. שלח לו את הלינק למערכת: <span className="text-primary select-all font-mono">{window.location.origin}</span></div>
+                  <div>3. הוא ילחץ "פרילנסר חדש? הירשם כאן" וירשם עם <strong>אותו אימייל</strong></div>
+                  <div>4. המערכת תזהה אותו אוטומטית ותיתן לו הרשאות (ברירת מחדל: דשבורד + לידים)</div>
                 </div>
                 <div className="flex gap-3 justify-end">
                   <Button variant="ghost" onClick={() => { setShowAddUser(false); setUserError(null); }}>ביטול</Button>
