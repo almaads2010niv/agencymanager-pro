@@ -53,7 +53,7 @@ export interface AuthContextType {
   hasPageAccess: (page: PagePermission) => boolean;
   logout: () => Promise<void>;
   refreshUsers: () => Promise<void>;
-  addViewer: (email: string, displayName: string) => Promise<string | null>;
+  addViewer: (email: string, displayName: string, password: string) => Promise<string | null>;
   removeUser: (userId: string) => Promise<string | null>;
   updateUserRole: (userId: string, newRole: UserRole) => Promise<string | null>;
   updateUserPermissions: (userId: string, permissions: PagePermission[]) => Promise<string | null>;
@@ -234,36 +234,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return pagePermissions.includes(page);
   }, [role, pagePermissions]);
 
-  const addViewer = async (email: string, viewerDisplayName: string): Promise<string | null> => {
+  const addViewer = async (email: string, viewerDisplayName: string, password: string): Promise<string | null> => {
     try {
       // Check for duplicate email first
       const trimmedEmail = email.toLowerCase().trim();
       const existingUser = allUsers.find(u => u.email === trimmedEmail);
       if (existingUser) return 'משתמש עם אימייל זה כבר קיים במערכת';
 
-      // Pre-create a role entry with the email.
-      // When the actual user logs in, loadRole will match by email and link the real user_id.
-      const placeholderId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
-      const { error } = await supabase
-        .from('user_roles')
-        .insert({
-          user_id: placeholderId,
+      if (!password || password.length < 6) {
+        return 'סיסמה חייבת להכיל לפחות 6 תווים';
+      }
+
+      // Call Edge Function to create the Auth user + user_roles entry
+      const { data, error } = await supabase.functions.invoke('create-user', {
+        body: {
           email: trimmedEmail,
-          role: 'viewer',
-          display_name: viewerDisplayName,
-          page_permissions: JSON.stringify(DEFAULT_VIEWER_PERMISSIONS),
-        });
+          password,
+          displayName: viewerDisplayName,
+        },
+      });
 
       if (error) {
-        if (error.code === '42501') return 'אין הרשאה להוסיף משתמשים. בדוק את ה-RLS policies ב-Supabase.';
-        if (error.code === '23505') return 'משתמש עם אימייל זה כבר קיים';
-        return 'שגיאה מ-Supabase: ' + error.message;
+        return 'שגיאה בחיבור לשרת: ' + error.message;
+      }
+
+      // Edge Function returns { success, userId, email } or { error }
+      if (data?.error) {
+        if (data.error === 'email_exists') return 'משתמש עם אימייל זה כבר רשום ב-Supabase Auth';
+        if (data.error === 'Only admins can create users') return 'רק מנהלים יכולים ליצור משתמשים';
+        return 'שגיאה: ' + data.error;
       }
 
       await refreshUsers();
       return null;
     } catch (err) {
-      return 'שגיאה בהוספת משתמש';
+      return 'שגיאה בהוספת משתמש. ודא שה-Edge Function פעיל.';
     }
   };
 

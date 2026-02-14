@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 
-type Mode = 'login' | 'register' | 'forgot';
+type Mode = 'login' | 'forgot';
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -17,7 +16,6 @@ export default function Login() {
     setError(null)
     setSuccess(null)
     setPassword('')
-    setConfirmPassword('')
   }
 
   const onLogin = async (e: React.FormEvent) => {
@@ -36,39 +34,6 @@ export default function Login() {
       if (error.message === 'Invalid login credentials') setError('אימייל או סיסמה שגויים')
       else if (error.message === 'Email not confirmed') setError('יש לאשר את האימייל לפני התחברות. בדוק את תיבת הדואר.')
       else setError(error.message)
-    }
-  }
-
-  const onRegister = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    setSuccess(null)
-
-    if (password.length < 6) {
-      setError('הסיסמה חייבת להכיל לפחות 6 תווים')
-      return
-    }
-    if (password !== confirmPassword) {
-      setError('הסיסמאות אינן תואמות')
-      return
-    }
-
-    setLoading(true)
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    })
-
-    setLoading(false)
-    if (error) {
-      if (error.message.includes('already registered')) setError('אימייל זה כבר רשום במערכת. נסה להתחבר.')
-      else setError(error.message)
-    } else {
-      setSuccess('ההרשמה הצליחה! אם אישור אימייל מופעל — בדוק את תיבת הדואר. אחרת, תוכל להתחבר עכשיו.')
-      setMode('login')
-      setPassword('')
-      setConfirmPassword('')
     }
   }
 
@@ -103,7 +68,7 @@ export default function Login() {
         </div>
 
         <form
-          onSubmit={mode === 'login' ? onLogin : mode === 'register' ? onRegister : onForgotPassword}
+          onSubmit={mode === 'login' ? onLogin : onForgotPassword}
           style={{
             background: '#151C2C',
             padding: 28,
@@ -113,7 +78,7 @@ export default function Login() {
           }}
         >
           <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>
-            {mode === 'login' ? 'התחברות' : mode === 'register' ? 'הרשמת פרילנסר' : 'שחזור סיסמה'}
+            {mode === 'login' ? 'התחברות' : 'שחזור סיסמה'}
           </div>
 
           {/* Email */}
@@ -132,37 +97,17 @@ export default function Login() {
             }}
           />
 
-          {/* Password - not in forgot mode */}
-          {mode !== 'forgot' && (
+          {/* Password - only in login mode */}
+          {mode === 'login' && (
             <>
               <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#aaa' }}>סיסמה</label>
               <input
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 type="password"
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                autoComplete="current-password"
                 required
                 aria-label="סיסמה"
-                style={{
-                  width: '100%', padding: 11, marginBottom: 14, boxSizing: 'border-box',
-                  background: '#0B1121', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
-                  color: 'white', fontSize: 14, outline: 'none',
-                }}
-              />
-            </>
-          )}
-
-          {/* Confirm Password - only in register mode */}
-          {mode === 'register' && (
-            <>
-              <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#aaa' }}>אימות סיסמה</label>
-              <input
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                type="password"
-                autoComplete="new-password"
-                required
-                aria-label="אימות סיסמה"
                 style={{
                   width: '100%', padding: 11, marginBottom: 14, boxSizing: 'border-box',
                   background: '#0B1121', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
@@ -181,37 +126,21 @@ export default function Login() {
             type="submit"
             disabled={loading}
             style={{
-              width: '100%', padding: 13, background: mode === 'register' ? '#7c3aed' : '#e53935',
+              width: '100%', padding: 13, background: '#e53935',
               color: 'white', border: 0, borderRadius: 10, fontWeight: 700, fontSize: 15,
               cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.7 : 1,
               transition: 'all 0.2s',
             }}
           >
-            {loading ? '...' : mode === 'login' ? 'התחבר' : mode === 'register' ? 'הרשמה' : 'שלח קישור איפוס'}
+            {loading ? '...' : mode === 'login' ? 'התחבר' : 'שלח קישור איפוס'}
           </button>
 
           {/* Mode Switchers */}
           <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
             {mode === 'login' && (
-              <>
-                <button type="button" onClick={() => switchMode('register')} style={{ background: 'none', border: 'none', color: '#818cf8', fontSize: 13, cursor: 'pointer' }}>
-                  פרילנסר חדש? הירשם כאן
-                </button>
-                <button type="button" onClick={() => switchMode('forgot')} style={{ background: 'none', border: 'none', color: '#666', fontSize: 12, cursor: 'pointer' }}>
-                  שכחתי סיסמה
-                </button>
-              </>
-            )}
-            {mode === 'register' && (
-              <>
-                <div style={{ fontSize: 11, color: '#666', textAlign: 'center', lineHeight: 1.5 }}>
-                  * הירשם עם האימייל שהמנהל הוסיף עבורך.<br/>
-                  המערכת תזהה אותך אוטומטית ותיתן לך את ההרשאות המתאימות.
-                </div>
-                <button type="button" onClick={() => switchMode('login')} style={{ background: 'none', border: 'none', color: '#818cf8', fontSize: 13, cursor: 'pointer' }}>
-                  יש לך חשבון? התחבר
-                </button>
-              </>
+              <button type="button" onClick={() => switchMode('forgot')} style={{ background: 'none', border: 'none', color: '#666', fontSize: 12, cursor: 'pointer' }}>
+                שכחתי סיסמה
+              </button>
             )}
             {mode === 'forgot' && (
               <button type="button" onClick={() => switchMode('login')} style={{ background: 'none', border: 'none', color: '#818cf8', fontSize: 13, cursor: 'pointer' }}>
@@ -219,6 +148,13 @@ export default function Login() {
               </button>
             )}
           </div>
+
+          {/* Info for new users */}
+          {mode === 'login' && (
+            <div style={{ marginTop: 16, fontSize: 11, color: '#555', textAlign: 'center', lineHeight: 1.6 }}>
+              פרילנסר חדש? קבל פרטי התחברות מהמנהל שלך
+            </div>
+          )}
         </form>
       </div>
     </div>

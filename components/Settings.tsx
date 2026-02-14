@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
 import { useAuth, ALL_PAGES, PagePermission } from '../contexts/AuthContext';
-import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown } from 'lucide-react';
+import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown, KeyRound } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select } from './ui/Form';
@@ -15,6 +15,7 @@ const Settings: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newViewerName, setNewViewerName] = useState('');
   const [newViewerEmail, setNewViewerEmail] = useState('');
+  const [newViewerPassword, setNewViewerPassword] = useState('');
   const [showAddUser, setShowAddUser] = useState(false);
   const [userError, setUserError] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
@@ -289,27 +290,30 @@ const Settings: React.FC = () => {
             {/* Add viewer section */}
             {showAddUser ? (
               <div className="p-4 bg-[#0B1121] rounded-xl border border-white/10 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <Input label="שם תצוגה" value={newViewerName} onChange={e => setNewViewerName(e.target.value)} placeholder="שם הפרילנסר" />
                   <Input label="אימייל" type="email" value={newViewerEmail} onChange={e => setNewViewerEmail(e.target.value)} placeholder="email@example.com" />
+                  <Input label="סיסמה ראשונית" type="password" value={newViewerPassword} onChange={e => setNewViewerPassword(e.target.value)} placeholder="לפחות 6 תווים" />
                 </div>
                 {userError && <div className="text-red-400 text-sm">{userError}</div>}
                 <div className="text-xs text-gray-500 space-y-1">
-                  <div>📋 <strong>איך זה עובד:</strong></div>
-                  <div>1. הזן את שם ואימייל הפרילנסר כאן</div>
-                  <div>2. שלח לו את הלינק למערכת: <span className="text-primary select-all font-mono">{window.location.origin}</span></div>
-                  <div>3. הוא ילחץ "פרילנסר חדש? הירשם כאן" וירשם עם <strong>אותו אימייל</strong></div>
-                  <div>4. המערכת תזהה אותו אוטומטית ותיתן לו הרשאות (ברירת מחדל: דשבורד + לידים)</div>
+                  <div><KeyRound size={12} className="inline me-1" /> <strong>איך זה עובד:</strong></div>
+                  <div>1. הזן שם, אימייל וסיסמה ראשונית לפרילנסר</div>
+                  <div>2. שלח לו את הלינק + פרטי ההתחברות: <span className="text-primary select-all font-mono">{window.location.origin}</span></div>
+                  <div>3. הפרילנסר נכנס עם האימייל והסיסמה שהגדרת (יכול לשנות סיסמה דרך "שכחתי סיסמה")</div>
                 </div>
                 <div className="flex gap-3 justify-end">
                   <Button variant="ghost" onClick={() => { setShowAddUser(false); setUserError(null); }}>ביטול</Button>
                   <Button onClick={async () => {
                     if (!newViewerName.trim()) { setUserError('שם תצוגה נדרש'); return; }
-                    const err = await addViewer(newViewerEmail, newViewerName);
+                    if (!newViewerEmail.trim()) { setUserError('אימייל נדרש'); return; }
+                    if (!newViewerPassword || newViewerPassword.length < 6) { setUserError('סיסמה חייבת להכיל לפחות 6 תווים'); return; }
+                    const err = await addViewer(newViewerEmail, newViewerName, newViewerPassword);
                     if (err) setUserError(err);
                     else {
                       setNewViewerName('');
                       setNewViewerEmail('');
+                      setNewViewerPassword('');
                       setShowAddUser(false);
                       setUserError(null);
                     }
