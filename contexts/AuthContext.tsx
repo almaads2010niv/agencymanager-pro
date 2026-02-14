@@ -44,49 +44,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('user_id', currentUser.id)
         .single();
 
-      if (error && error.code === 'PGRST116') {
-        // No role found - check if ANY roles exist
-        const { data: allRoles, error: allError } = await supabase
+      if (error && (error.code === 'PGRST116' || error.code === '42P01')) {
+        // No role found for this user, OR table doesn't exist
+        // Default to admin - owner can demote users later from Settings
+        const name = currentUser.email?.split('@')[0] || 'Admin';
+
+        // Try to create admin role for this user
+        const { error: insertError } = await supabase
           .from('user_roles')
-          .select('*');
-
-        if (allError) {
-          // Table might not exist yet - default to admin for the first/only user
-          console.warn('user_roles table may not exist:', allError.message);
-          setRole('admin');
-          setDisplayName(currentUser.email?.split('@')[0] || 'Admin');
-          setIsRoleLoaded(true);
-          return;
-        }
-
-        if (!allRoles || allRoles.length === 0) {
-          // First user → make admin
-          const { error: insertError } = await supabase
-            .from('user_roles')
-            .insert({
-              user_id: currentUser.id,
-              role: 'admin',
-              display_name: currentUser.email?.split('@')[0] || 'Admin',
-            });
-
-          if (insertError) {
-            console.warn('Could not create admin role:', insertError.message);
-          }
-
-          setRole('admin');
-          setDisplayName(currentUser.email?.split('@')[0] || 'Admin');
-        } else {
-          // Roles exist but this user doesn't have one - default to viewer
-          // Auto-create viewer role
-          const name = currentUser.email?.split('@')[0] || 'Viewer';
-          await supabase.from('user_roles').insert({
+          .insert({
             user_id: currentUser.id,
-            role: 'viewer',
+            role: 'admin',
             display_name: name,
           });
-          setRole('viewer');
-          setDisplayName(name);
+
+        if (insertError) {
+          console.warn('Could not create role:', insertError.message);
         }
+
+        setRole('admin');
+        setDisplayName(name);
       } else if (data) {
         setRole(data.role as UserRole);
         setDisplayName(data.display_name || currentUser.email?.split('@')[0] || '');
