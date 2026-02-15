@@ -7,11 +7,13 @@ interface CardProps {
   noPadding?: boolean;
   hoverEffect?: boolean;
   onClick?: () => void;
+  id?: string;
 }
 
-export const Card: React.FC<CardProps> = ({ children, className = '', noPadding = false, hoverEffect = false, onClick }) => {
+export const Card: React.FC<CardProps> = ({ children, className = '', noPadding = false, hoverEffect = false, onClick, id }) => {
   return (
-    <div 
+    <div
+      id={id}
       onClick={onClick}
       className={`
         rounded-2xl 

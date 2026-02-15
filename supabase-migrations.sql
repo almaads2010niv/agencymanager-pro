@@ -449,5 +449,38 @@ BEGIN
 END $$;
 
 -- ============================================================
+-- 8. AI RECOMMENDATIONS TABLE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS ai_recommendations (
+  id text PRIMARY KEY,
+  client_id text DEFAULT NULL,
+  lead_id text DEFAULT NULL,
+  recommendation text NOT NULL DEFAULT '',
+  created_by text NOT NULL,
+  created_by_name text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT fk_airec_client FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE CASCADE,
+  CONSTRAINT fk_airec_lead FOREIGN KEY (lead_id) REFERENCES leads(lead_id) ON DELETE CASCADE
+);
+
+ALTER TABLE ai_recommendations ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "ai_recommendations_select" ON ai_recommendations;
+CREATE POLICY "ai_recommendations_select" ON ai_recommendations FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "ai_recommendations_insert" ON ai_recommendations;
+CREATE POLICY "ai_recommendations_insert" ON ai_recommendations FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "ai_recommendations_delete" ON ai_recommendations;
+CREATE POLICY "ai_recommendations_delete" ON ai_recommendations FOR DELETE
+  TO authenticated
+  USING (is_admin());
+
+-- ============================================================
 -- DONE! All migrations and RLS policies applied.
 -- ============================================================

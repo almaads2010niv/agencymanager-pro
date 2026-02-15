@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import {
   AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service,
   AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel,
-  ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript
+  ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript, AIRecommendation
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -75,6 +75,16 @@ interface CallTranscriptRow {
   participants: string;
   transcript: string;
   summary: string;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+}
+
+interface AIRecommendationRow {
+  id: string;
+  client_id: string | null;
+  lead_id: string | null;
+  recommendation: string;
   created_by: string;
   created_by_name: string;
   created_at: string;
@@ -183,6 +193,9 @@ export interface DataContextType extends AppData {
 
   addCallTranscript: (transcript: Omit<CallTranscript, 'id' | 'createdAt'>) => Promise<void>;
   deleteCallTranscript: (id: string) => Promise<void>;
+
+  addAIRecommendation: (rec: Omit<AIRecommendation, 'id' | 'createdAt'>) => Promise<void>;
+  deleteAIRecommendation: (id: string) => Promise<void>;
 
   updateServices: (services: Service[]) => void;
   updateSettings: (settings: AgencySettings) => Promise<void>;
@@ -489,6 +502,26 @@ const transformCallTranscriptFromDB = (row: CallTranscriptRow): CallTranscript =
   createdAt: row.created_at,
 });
 
+const transformAIRecommendationToDB = (rec: AIRecommendation) => ({
+  id: rec.id,
+  client_id: rec.clientId || null,
+  lead_id: rec.leadId || null,
+  recommendation: rec.recommendation,
+  created_by: rec.createdBy,
+  created_by_name: rec.createdByName,
+  created_at: rec.createdAt,
+});
+
+const transformAIRecommendationFromDB = (row: AIRecommendationRow): AIRecommendation => ({
+  id: row.id,
+  clientId: row.client_id || undefined,
+  leadId: row.lead_id || undefined,
+  recommendation: row.recommendation || '',
+  createdBy: row.created_by,
+  createdByName: row.created_by_name || '',
+  createdAt: row.created_at,
+});
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [data, setData] = useState<AppData>({
     clients: [],
@@ -503,6 +536,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clientNotes: [],
     leadNotes: [],
     callTranscripts: [],
+    aiRecommendations: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -552,7 +586,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
@@ -564,6 +598,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('client_notes').select('*').order('created_at', { ascending: false }),
           supabase.from('lead_notes').select('*').order('created_at', { ascending: false }),
           supabase.from('call_transcripts').select('*').order('call_date', { ascending: false }),
+          supabase.from('ai_recommendations').select('*').order('created_at', { ascending: false }),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -589,6 +624,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const clientNotes: ClientNote[] = (clientNotesRes.data || []).map((row: ClientNoteRow) => transformClientNoteFromDB(row));
         const leadNotes: LeadNote[] = (leadNotesRes.data || []).map((row: LeadNoteRow) => transformLeadNoteFromDB(row));
         const callTranscripts: CallTranscript[] = (callTranscriptsRes.data || []).map((row: CallTranscriptRow) => transformCallTranscriptFromDB(row));
+        const aiRecommendations: AIRecommendation[] = (aiRecommendationsRes.data || []).map((row: AIRecommendationRow) => transformAIRecommendationFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
         if (settingsRes.data && !settingsRes.error) {
@@ -611,6 +647,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           clientNotes,
           leadNotes,
           callTranscripts,
+          aiRecommendations,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -1299,6 +1336,56 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // --- AI Recommendations ---
+  const addAIRecommendation = async (rec: Omit<AIRecommendation, 'id' | 'createdAt'>) => {
+    const newRec: AIRecommendation = {
+      ...rec,
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const { error } = await supabase
+        .from('ai_recommendations')
+        .insert(transformAIRecommendationToDB(newRec));
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        aiRecommendations: [newRec, ...prev.aiRecommendations],
+      }));
+
+      const entityName = rec.clientId
+        ? data.clients.find(c => c.clientId === rec.clientId)?.businessName
+        : data.leads.find(l => l.leadId === rec.leadId)?.leadName;
+      logActivity('ai_recommendation_added', rec.clientId ? 'client' : 'lead',
+        `המלצת AI חדשה: ${entityName || ''}`, rec.clientId || rec.leadId);
+    } catch (err) {
+      showError('שגיאה בשמירת המלצת AI');
+      throw err;
+    }
+  };
+
+  const deleteAIRecommendation = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('ai_recommendations')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        aiRecommendations: prev.aiRecommendations.filter(r => r.id !== id),
+      }));
+    } catch (err) {
+      showError('שגיאה במחיקת המלצת AI');
+      throw err;
+    }
+  };
+
   const updateServices = (services: Service[]) => {
     setData(prev => ({ ...prev, services }));
   };
@@ -1369,6 +1456,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         clientNotes: parsed.clientNotes || [],
         leadNotes: parsed.leadNotes || [],
         callTranscripts: parsed.callTranscripts || [],
+        aiRecommendations: parsed.aiRecommendations || [],
       });
       return true;
     } catch (e) {
@@ -1396,6 +1484,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addClientNote, deleteClientNote,
       addLeadNote, deleteLeadNote,
       addCallTranscript, deleteCallTranscript,
+      addAIRecommendation, deleteAIRecommendation,
       updateServices, updateSettings, saveApiKeys,
       importData, exportData
     }}>

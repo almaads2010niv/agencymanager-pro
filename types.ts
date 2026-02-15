@@ -202,6 +202,16 @@ export interface CallTranscript {
   createdAt: string;
 }
 
+export interface AIRecommendation {
+  id: string;
+  clientId?: string;
+  leadId?: string;
+  recommendation: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface AppData {
   clients: Client[];
   leads: Lead[];
@@ -215,4 +225,5 @@ export interface AppData {
   clientNotes: ClientNote[];
   leadNotes: LeadNote[];
   callTranscripts: CallTranscript[];
+  aiRecommendations: AIRecommendation[];
 }

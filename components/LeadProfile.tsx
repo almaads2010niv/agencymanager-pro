@@ -49,6 +49,7 @@ const LeadProfile: React.FC = () => {
     leadNotes, addLeadNote, deleteLeadNote,
     updateLead, convertLeadToClient,
     callTranscripts, addCallTranscript, deleteCallTranscript,
+    aiRecommendations, addAIRecommendation, deleteAIRecommendation,
   } = useData();
 
   // Notes state
@@ -64,19 +65,27 @@ const LeadProfile: React.FC = () => {
   const [confirmDeleteTranscriptId, setConfirmDeleteTranscriptId] = useState<string | null>(null);
 
   // AI state
-  const [aiRecommendation, setAiRecommendation] = useState<string | null>(null);
   const [isLoadingAI, setIsLoadingAI] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [expandedRecommendationId, setExpandedRecommendationId] = useState<string | null>(null);
+  const [confirmDeleteRecommendationId, setConfirmDeleteRecommendationId] = useState<string | null>(null);
 
   // Proposal state
   const [isGeneratingProposal, setIsGeneratingProposal] = useState(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
+
+  // Expand/collapse for long notes in contact info
+  const [notesExpanded, setNotesExpanded] = useState(false);
+  const NOTES_PREVIEW_LENGTH = 150;
 
   // Filter notes for this lead
   const leadNotesFiltered = leadNotes.filter(n => n.leadId === leadId);
 
   // Filter transcripts for this lead
   const leadTranscripts = callTranscripts.filter(ct => ct.leadId === leadId);
+
+  // Filter AI recommendations for this lead
+  const leadRecommendations = aiRecommendations.filter(r => r.leadId === leadId);
 
   // Filter activities for this lead
   const leadActivities = activities.filter(a => a.entityId === leadId).slice(0, 20);
@@ -147,7 +156,7 @@ const LeadProfile: React.FC = () => {
   };
 
   const handleGetRecommendations = async () => {
-    if (!lead) return;
+    if (!lead || !user) return;
     setIsLoadingAI(true);
     setAiError(null);
     try {
@@ -168,7 +177,13 @@ const LeadProfile: React.FC = () => {
       });
       const result = await res.json();
       if (result.success) {
-        setAiRecommendation(result.recommendation);
+        // Auto-save recommendation to DB
+        await addAIRecommendation({
+          leadId: lead.leadId,
+          recommendation: result.recommendation,
+          createdBy: user.id,
+          createdByName: currentUserName,
+        });
       } else {
         setAiError(result.error || 'שגיאה בקבלת המלצות');
       }
@@ -264,7 +279,7 @@ const LeadProfile: React.FC = () => {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div id="lead-header" className="flex items-center gap-4">
         <Button onClick={() => navigate('/leads')} variant="ghost" icon={<ArrowRight size={18} />}>חזרה</Button>
         <div className="flex-1">
           <h2 className="text-3xl font-black text-white tracking-tight">{lead.leadName}</h2>
@@ -373,7 +388,21 @@ const LeadProfile: React.FC = () => {
             {lead.notes && (
               <div className="pt-3 border-t border-white/5">
                 <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">הערות</p>
-                <p className="text-gray-300 text-sm whitespace-pre-wrap">{lead.notes}</p>
+                {lead.notes.length > NOTES_PREVIEW_LENGTH ? (
+                  <>
+                    <p className="text-gray-300 text-sm whitespace-pre-wrap">
+                      {notesExpanded ? lead.notes : lead.notes.substring(0, NOTES_PREVIEW_LENGTH) + '...'}
+                    </p>
+                    <button
+                      onClick={() => setNotesExpanded(!notesExpanded)}
+                      className="text-primary text-xs mt-1 hover:underline flex items-center gap-1"
+                    >
+                      {notesExpanded ? <><ChevronUp size={12} /> הצג פחות</> : <><ChevronDown size={12} /> הצג עוד</>}
+                    </button>
+                  </>
+                ) : (
+                  <p className="text-gray-300 text-sm whitespace-pre-wrap">{lead.notes}</p>
+                )}
               </div>
             )}
           </div>
@@ -399,6 +428,54 @@ const LeadProfile: React.FC = () => {
                 <Badge variant={getSourceBadgeVariant(lead.sourceChannel)}>{lead.sourceChannel}</Badge>
               </div>
             </div>
+          </div>
+
+          {/* Quick Summary Shortcuts */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+            <button
+              onClick={() => document.getElementById('lead-notes-section')?.scrollIntoView({ behavior: 'smooth' })}
+              className={`p-3 rounded-xl border text-start transition-all hover:bg-white/[0.03] ${leadNotesFiltered.length > 0 ? 'bg-[#0B1121] border-primary/20' : 'bg-[#0B1121] border-white/5'}`}
+            >
+              <div className="flex items-center gap-2">
+                <Send size={14} className={leadNotesFiltered.length > 0 ? 'text-primary' : 'text-gray-600'} />
+                <span className={`text-sm font-medium ${leadNotesFiltered.length > 0 ? 'text-gray-200' : 'text-gray-500'}`}>
+                  {leadNotesFiltered.length} הערות
+                </span>
+              </div>
+            </button>
+            <button
+              onClick={() => document.getElementById('lead-transcripts-section')?.scrollIntoView({ behavior: 'smooth' })}
+              className={`p-3 rounded-xl border text-start transition-all hover:bg-white/[0.03] ${leadTranscripts.length > 0 ? 'bg-[#0B1121] border-amber-500/20' : 'bg-[#0B1121] border-white/5'}`}
+            >
+              <div className="flex items-center gap-2">
+                <Phone size={14} className={leadTranscripts.length > 0 ? 'text-amber-400' : 'text-gray-600'} />
+                <span className={`text-sm font-medium ${leadTranscripts.length > 0 ? 'text-gray-200' : 'text-gray-500'}`}>
+                  {leadTranscripts.length} תמלולים
+                </span>
+              </div>
+            </button>
+            {settings.hasCanvaKey && (
+              <button
+                onClick={() => document.getElementById('lead-header')?.scrollIntoView({ behavior: 'smooth' })}
+                className="p-3 bg-[#0B1121] rounded-xl border border-white/5 text-start transition-all hover:bg-white/[0.03]"
+              >
+                <div className="flex items-center gap-2">
+                  <FileText size={14} className="text-gray-600" />
+                  <span className="text-sm font-medium text-gray-500">הצעת מחיר</span>
+                </div>
+              </button>
+            )}
+            <button
+              onClick={() => document.getElementById('lead-ai-section')?.scrollIntoView({ behavior: 'smooth' })}
+              className={`p-3 rounded-xl border text-start transition-all hover:bg-white/[0.03] ${leadRecommendations.length > 0 ? 'bg-[#0B1121] border-purple-500/20' : 'bg-[#0B1121] border-white/5'}`}
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles size={14} className={leadRecommendations.length > 0 ? 'text-purple-400' : 'text-gray-600'} />
+                <span className={`text-sm font-medium ${leadRecommendations.length > 0 ? 'text-gray-200' : 'text-gray-500'}`}>
+                  {leadRecommendations.length} המלצות AI
+                </span>
+              </div>
+            </button>
           </div>
 
           {/* Services */}
@@ -430,7 +507,7 @@ const LeadProfile: React.FC = () => {
       </div>
 
       {/* Notes History */}
-      <Card>
+      <Card id="lead-notes-section">
         <CardHeader title="הערות והיסטוריה" subtitle={`${leadNotesFiltered.length} הערות`} />
         {/* Add note form */}
         <div className="mt-4 flex gap-3">
@@ -485,7 +562,7 @@ const LeadProfile: React.FC = () => {
       </Card>
 
       {/* Call Transcripts Section */}
-      <Card>
+      <Card id="lead-transcripts-section">
         <div className="flex items-center justify-between mb-4">
           <CardHeader title="תמלולי שיחות" subtitle={`${leadTranscripts.length} תמלולים`} />
           <Button onClick={() => setShowAddTranscript(true)} icon={<Plus size={16} />}>הוסף תמלול</Button>
@@ -550,10 +627,10 @@ const LeadProfile: React.FC = () => {
       </Card>
 
       {/* AI Recommendations */}
-      <Card>
+      <Card id="lead-ai-section">
         <div className="flex items-center justify-between mb-4">
-          <CardHeader title="המלצות AI" subtitle="מנוע Gemini" />
-          <Button onClick={handleGetRecommendations} disabled={isLoadingAI} icon={<Sparkles size={16} />}>
+          <CardHeader title="המלצות AI" subtitle={leadRecommendations.length > 0 ? `${leadRecommendations.length} המלצות` : 'מנוע Gemini'} />
+          <Button onClick={handleGetRecommendations} disabled={isLoadingAI || !settings.hasGeminiKey} icon={<Sparkles size={16} />}>
             {isLoadingAI ? 'מנתח...' : 'קבל המלצות'}
           </Button>
         </div>
@@ -562,20 +639,57 @@ const LeadProfile: React.FC = () => {
             {aiError}
           </div>
         )}
-        {aiRecommendation ? (
-          <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5">
-            <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed">{aiRecommendation}</p>
-          </div>
-        ) : !isLoadingAI && (
-          <p className="text-gray-600 text-sm text-center py-6 italic">
-            לחץ על &quot;קבל המלצות&quot; לקבלת ניתוח AI מבוסס הערות ותמלולי שיחות.
-          </p>
-        )}
         {isLoadingAI && (
           <div className="flex items-center justify-center py-8 gap-3">
             <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
             <span className="text-gray-400 text-sm">מנתח מידע...</span>
           </div>
+        )}
+        {leadRecommendations.length > 0 ? (
+          <div className="space-y-3">
+            {leadRecommendations.map(rec => {
+              const isExpanded = expandedRecommendationId === rec.id;
+              const preview = rec.recommendation.length > 150 ? rec.recommendation.substring(0, 150) + '...' : rec.recommendation;
+              return (
+                <div key={rec.id} className="bg-[#0B1121] rounded-xl border border-white/5 overflow-hidden">
+                  <button
+                    onClick={() => setExpandedRecommendationId(isExpanded ? null : rec.id)}
+                    className="w-full text-start p-4 hover:bg-white/[0.02] transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={14} className="text-amber-400" />
+                        <span className="text-xs text-gray-400">{formatDateTime(rec.createdAt)}</span>
+                        <span className="text-xs text-gray-600">· {rec.createdByName}</span>
+                      </div>
+                      {isExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+                    </div>
+                    {!isExpanded && (
+                      <p className="text-gray-400 text-sm mt-1 line-clamp-2">{preview}</p>
+                    )}
+                  </button>
+                  {isExpanded && (
+                    <div>
+                      <div className="px-4 pb-4 max-h-96 overflow-y-auto custom-scrollbar">
+                        <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed">{rec.recommendation}</p>
+                      </div>
+                      {isAdmin && (
+                        <div className="px-4 pb-3 border-t border-white/5 pt-2 flex justify-end">
+                          <button onClick={() => setConfirmDeleteRecommendationId(rec.id)} className="text-red-400/60 hover:text-red-400 text-xs flex items-center gap-1">
+                            <Trash2 size={12} /> מחק
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : !isLoadingAI && (
+          <p className="text-gray-600 text-sm text-center py-6 italic">
+            לחץ על &quot;קבל המלצות&quot; לקבלת ניתוח AI מבוסס הערות ותמלולי שיחות.
+          </p>
         )}
       </Card>
 
@@ -644,6 +758,17 @@ const LeadProfile: React.FC = () => {
           <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
             <Button type="button" variant="ghost" onClick={() => setConfirmDeleteTranscriptId(null)}>ביטול</Button>
             <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteTranscriptId) { await deleteCallTranscript(confirmDeleteTranscriptId); setConfirmDeleteTranscriptId(null); } }}>מחק</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Delete AI Recommendation Modal */}
+      <Modal isOpen={!!confirmDeleteRecommendationId} onClose={() => setConfirmDeleteRecommendationId(null)} title="מחיקת המלצת AI" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך למחוק את המלצת ה-AI?</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteRecommendationId(null)}>ביטול</Button>
+            <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteRecommendationId) { await deleteAIRecommendation(confirmDeleteRecommendationId); setConfirmDeleteRecommendationId(null); } }}>מחק</Button>
           </div>
         </div>
       </Modal>

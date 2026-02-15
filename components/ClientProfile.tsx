@@ -22,7 +22,8 @@ const ClientProfile: React.FC = () => {
     clients, oneTimeDeals, expenses, payments, services, retainerHistory,
     uploadClientFile, listClientFiles, deleteClientFile,
     clientNotes, addClientNote, deleteClientNote, updateClient, activities,
-    callTranscripts, addCallTranscript, deleteCallTranscript
+    callTranscripts, addCallTranscript, deleteCallTranscript,
+    aiRecommendations, addAIRecommendation, deleteAIRecommendation, settings
   } = useData();
 
   const [clientFiles, setClientFiles] = useState<ClientFile[]>([]);
@@ -42,15 +43,23 @@ const ClientProfile: React.FC = () => {
   const [confirmDeleteTranscriptId, setConfirmDeleteTranscriptId] = useState<string | null>(null);
 
   // AI state
-  const [aiRecommendation, setAiRecommendation] = useState<string | null>(null);
   const [isLoadingAI, setIsLoadingAI] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [expandedRecommendationId, setExpandedRecommendationId] = useState<string | null>(null);
+  const [confirmDeleteRecommendationId, setConfirmDeleteRecommendationId] = useState<string | null>(null);
+
+  // Expand/collapse for long notes in contact info
+  const [notesExpanded, setNotesExpanded] = useState(false);
+  const NOTES_PREVIEW_LENGTH = 150;
 
   // Filter notes for this client
   const clientNotesFiltered = clientNotes.filter(n => n.clientId === clientId);
 
   // Filter transcripts for this client
   const clientTranscripts = callTranscripts.filter(ct => ct.clientId === clientId);
+
+  // Filter AI recommendations for this client
+  const clientRecommendations = aiRecommendations.filter(r => r.clientId === clientId);
 
   // Filter activities for this client
   const clientActivities = activities.filter(a => a.entityId === clientId).slice(0, 20);
@@ -147,7 +156,7 @@ const ClientProfile: React.FC = () => {
   };
 
   const handleGetRecommendations = async () => {
-    if (!client) return;
+    if (!client || !user) return;
     setIsLoadingAI(true);
     setAiError(null);
     try {
@@ -168,7 +177,13 @@ const ClientProfile: React.FC = () => {
       });
       const result = await res.json();
       if (result.success) {
-        setAiRecommendation(result.recommendation);
+        // Auto-save recommendation to DB
+        await addAIRecommendation({
+          clientId: client.clientId,
+          recommendation: result.recommendation,
+          createdBy: user.id,
+          createdByName: currentUserName,
+        });
       } else {
         setAiError(result.error || 'שגיאה בקבלת המלצות');
       }
@@ -275,7 +290,21 @@ const ClientProfile: React.FC = () => {
             {client.notes && (
               <div className="pt-3 border-t border-white/5">
                 <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">הערות</p>
-                <p className="text-gray-300 text-sm">{client.notes}</p>
+                {client.notes.length > NOTES_PREVIEW_LENGTH ? (
+                  <>
+                    <p className="text-gray-300 text-sm whitespace-pre-wrap">
+                      {notesExpanded ? client.notes : client.notes.substring(0, NOTES_PREVIEW_LENGTH) + '...'}
+                    </p>
+                    <button
+                      onClick={() => setNotesExpanded(!notesExpanded)}
+                      className="text-primary text-xs mt-1 hover:underline flex items-center gap-1"
+                    >
+                      {notesExpanded ? <><ChevronUp size={12} /> הצג פחות</> : <><ChevronDown size={12} /> הצג עוד</>}
+                    </button>
+                  </>
+                ) : (
+                  <p className="text-gray-300 text-sm whitespace-pre-wrap">{client.notes}</p>
+                )}
               </div>
             )}
           </div>
@@ -440,8 +469,8 @@ const ClientProfile: React.FC = () => {
       {/* AI Recommendations */}
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <CardHeader title="המלצות AI" subtitle="מנוע Gemini" />
-          <Button onClick={handleGetRecommendations} disabled={isLoadingAI} icon={<Sparkles size={16} />}>
+          <CardHeader title="המלצות AI" subtitle={clientRecommendations.length > 0 ? `${clientRecommendations.length} המלצות` : 'מנוע Gemini'} />
+          <Button onClick={handleGetRecommendations} disabled={isLoadingAI || !settings.hasGeminiKey} icon={<Sparkles size={16} />}>
             {isLoadingAI ? 'מנתח...' : 'קבל המלצות'}
           </Button>
         </div>
@@ -450,20 +479,57 @@ const ClientProfile: React.FC = () => {
             {aiError}
           </div>
         )}
-        {aiRecommendation ? (
-          <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5">
-            <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed">{aiRecommendation}</p>
-          </div>
-        ) : !isLoadingAI && (
-          <p className="text-gray-600 text-sm text-center py-6 italic">
-            לחץ על &quot;קבל המלצות&quot; לקבלת ניתוח AI מבוסס הערות ותמלולי שיחות.
-          </p>
-        )}
         {isLoadingAI && (
           <div className="flex items-center justify-center py-8 gap-3">
             <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
             <span className="text-gray-400 text-sm">מנתח מידע...</span>
           </div>
+        )}
+        {clientRecommendations.length > 0 ? (
+          <div className="space-y-3">
+            {clientRecommendations.map(rec => {
+              const isExpanded = expandedRecommendationId === rec.id;
+              const preview = rec.recommendation.length > 150 ? rec.recommendation.substring(0, 150) + '...' : rec.recommendation;
+              return (
+                <div key={rec.id} className="bg-[#0B1121] rounded-xl border border-white/5 overflow-hidden">
+                  <button
+                    onClick={() => setExpandedRecommendationId(isExpanded ? null : rec.id)}
+                    className="w-full text-start p-4 hover:bg-white/[0.02] transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={14} className="text-amber-400" />
+                        <span className="text-xs text-gray-400">{formatDateTime(rec.createdAt)}</span>
+                        <span className="text-xs text-gray-600">· {rec.createdByName}</span>
+                      </div>
+                      {isExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+                    </div>
+                    {!isExpanded && (
+                      <p className="text-gray-400 text-sm mt-1 line-clamp-2">{preview}</p>
+                    )}
+                  </button>
+                  {isExpanded && (
+                    <div>
+                      <div className="px-4 pb-4 max-h-96 overflow-y-auto custom-scrollbar">
+                        <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed">{rec.recommendation}</p>
+                      </div>
+                      {isAdmin && (
+                        <div className="px-4 pb-3 border-t border-white/5 pt-2 flex justify-end">
+                          <button onClick={() => setConfirmDeleteRecommendationId(rec.id)} className="text-red-400/60 hover:text-red-400 text-xs flex items-center gap-1">
+                            <Trash2 size={12} /> מחק
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : !isLoadingAI && (
+          <p className="text-gray-600 text-sm text-center py-6 italic">
+            לחץ על &quot;קבל המלצות&quot; לקבלת ניתוח AI מבוסס הערות ותמלולי שיחות.
+          </p>
         )}
       </Card>
 
@@ -707,6 +773,17 @@ const ClientProfile: React.FC = () => {
           <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
             <Button type="button" variant="ghost" onClick={() => setConfirmDeleteTranscriptId(null)}>ביטול</Button>
             <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteTranscriptId) { await deleteCallTranscript(confirmDeleteTranscriptId); setConfirmDeleteTranscriptId(null); } }}>מחק</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Delete AI Recommendation Modal */}
+      <Modal isOpen={!!confirmDeleteRecommendationId} onClose={() => setConfirmDeleteRecommendationId(null)} title="מחיקת המלצת AI" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך למחוק את המלצת ה-AI?</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteRecommendationId(null)}>ביטול</Button>
+            <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteRecommendationId) { await deleteAIRecommendation(confirmDeleteRecommendationId); setConfirmDeleteRecommendationId(null); } }}>מחק</Button>
           </div>
         </div>
       </Modal>
