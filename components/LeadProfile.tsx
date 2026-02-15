@@ -731,7 +731,7 @@ const LeadProfile: React.FC = () => {
         {isTranscribing && (
           <div className="flex items-center justify-center py-4 gap-3 mb-4 bg-primary/5 border border-primary/20 rounded-xl">
             <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-            <span className="text-gray-400 text-sm">מתמלל הקלטה... (זה יכול לקחת דקה-שתיים)</span>
+            <span className="text-gray-400 text-sm">מתמלל הקלטה... (2-5 דקות עבור שיחות ארוכות)</span>
           </div>
         )}
         {transcribeError && (

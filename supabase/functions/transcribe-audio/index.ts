@@ -1,8 +1,10 @@
 // Supabase Edge Function: transcribe-audio
 // Transcribes audio recordings via Gemini API with the user's fixed prompt
+// Uses gemini-2.5-flash for high-quality Hebrew transcription
 // Deploy: npx supabase functions deploy transcribe-audio --project-ref rxckkozbkrabpjdgyxqm
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { encode as base64Encode } from 'https://deno.land/std@0.208.0/encoding/base64.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -77,7 +79,7 @@ Deno.serve(async (req) => {
     if (!audioRes.ok) {
       return new Response(JSON.stringify({
         success: false,
-        error: 'שגיאה בהורדת קובץ ההקלטה',
+        error: `שגיאה בהורדת קובץ ההקלטה (${audioRes.status})`,
       }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -87,14 +89,8 @@ Deno.serve(async (req) => {
     const audioBuffer = await audioRes.arrayBuffer()
     const audioBytes = new Uint8Array(audioBuffer)
 
-    // Convert to base64
-    let base64Audio = ''
-    const chunkSize = 8192
-    for (let i = 0; i < audioBytes.length; i += chunkSize) {
-      const chunk = audioBytes.subarray(i, Math.min(i + chunkSize, audioBytes.length))
-      base64Audio += String.fromCharCode(...chunk)
-    }
-    base64Audio = btoa(base64Audio)
+    // Convert to base64 using Deno's standard library (reliable for large files)
+    const base64Audio = base64Encode(audioBytes)
 
     // Determine mime type
     const audioMimeType = mimeType || 'audio/mpeg'
@@ -112,10 +108,10 @@ ${contactName}: yyyy
 
 רווח כפול בין כל דובר
 
-חשוב מאוד: כשתסיים את התמלול, כתוב את המילה הבאה בשורה נפרדת:
+חשוב מאוד: כשתסיים את התמלול, כתוב את הסימן הבא בשורה נפרדת:
 ---SUMMARY_START---
 
-ואז תסכם לי את השיחה שאתעד אותה במערכת ה CRM שלי
+ואז תסכם לי את השיחה שאתעד אותה במערכת ה CRM שלי.
 מה התיעוד אמור להראות?
 פרופיל הלקוח
 צרכי הלקוח
@@ -124,9 +120,9 @@ ${contactName}: yyyy
 מה כדאי לעשות הלאה
 כותרת לכל קטגוריה בתיעוד`
 
-    // 6. Call Gemini API with audio
+    // 6. Call Gemini API with audio — using gemini-2.5-flash for high quality Hebrew transcription
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -143,8 +139,8 @@ ${contactName}: yyyy
             ],
           }],
           generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 16384,
+            temperature: 0.2,
+            maxOutputTokens: 65536,
           },
         }),
       }
@@ -154,7 +150,7 @@ ${contactName}: yyyy
       const errText = await geminiRes.text()
       return new Response(JSON.stringify({
         success: false,
-        error: `Gemini API error (${geminiRes.status}): ${errText}`,
+        error: `Gemini API error (${geminiRes.status}): ${errText.substring(0, 500)}`,
       }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -162,7 +158,15 @@ ${contactName}: yyyy
     }
 
     const geminiResult = await geminiRes.json()
-    const fullText = geminiResult.candidates?.[0]?.content?.parts?.[0]?.text
+
+    // Gemini 2.5 may return thinking content in parts — extract the text part
+    const parts = geminiResult.candidates?.[0]?.content?.parts || []
+    let fullText = ''
+    for (const part of parts) {
+      if (part.text && !part.thought) {
+        fullText += part.text
+      }
+    }
 
     if (!fullText) {
       return new Response(JSON.stringify({
@@ -186,12 +190,17 @@ ${contactName}: yyyy
     } else {
       // Fallback: Look for CRM summary section markers (with or without markdown formatting)
       const summaryPatterns = [
-        /\n\s*\**\s*סיכום\s*(שיחה\s*)?(ל-?\s*)?CRM\s*[-:]*\s*\**/i,
-        /\n\s*\**\s*סיכום השיחה\s*[-:]*\s*\**/,
-        /\n\s*\**\s*תיעוד\s*(ה)?שיחה\s*[-:]*\s*\**/,
-        /\n\s*\**\s*סיכום לתיעוד\s*[-:]*\s*\**/,
-        /\n\s*\**\s*תיעוד CRM\s*[-:]*\s*\**/,
-        /\n\s*\**\s*פרופיל הלקוח\s*[-:]*\s*\**/,
+        /\n\s*#{1,3}\s*סיכום\s*(שיחה\s*)?(ל-?\s*)?CRM/i,
+        /\n\s*\*{1,2}\s*סיכום\s*(שיחה\s*)?(ל-?\s*)?CRM\s*[-:]*\s*\*{0,2}/i,
+        /\n\s*#{1,3}\s*סיכום השיחה/,
+        /\n\s*\*{1,2}\s*סיכום השיחה\s*[-:]*\s*\*{0,2}/,
+        /\n\s*#{1,3}\s*תיעוד\s*(ה)?שיחה/,
+        /\n\s*\*{1,2}\s*תיעוד\s*(ה)?שיחה\s*[-:]*\s*\*{0,2}/,
+        /\n\s*#{1,3}\s*סיכום לתיעוד/,
+        /\n\s*#{1,3}\s*תיעוד CRM/,
+        /\n\s*\*{1,2}\s*תיעוד CRM\s*[-:]*\s*\*{0,2}/,
+        /\n\s*#{1,3}\s*פרופיל הלקוח/,
+        /\n\s*\*{1,2}\s*פרופיל הלקוח\s*[-:]*\s*\*{0,2}/,
       ]
 
       for (const pattern of summaryPatterns) {
