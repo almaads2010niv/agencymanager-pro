@@ -117,7 +117,6 @@ ${transcriptsText ? `סיכומי שיחות אחרונות:\n${transcriptsText}
           generationConfig: {
             temperature: 0.8,
             maxOutputTokens: 1024,
-            responseMimeType: 'application/json',
           },
         }),
       }
@@ -127,9 +126,9 @@ ${transcriptsText ? `סיכומי שיחות אחרונות:\n${transcriptsText}
       const errText = await geminiRes.text()
       return new Response(JSON.stringify({
         success: false,
-        error: `Gemini API error (${geminiRes.status}): ${errText}`,
+        error: `Gemini API error (${geminiRes.status}): ${errText.substring(0, 500)}`,
       }), {
-        status: 500,
+        status: 200, // Return 200 so frontend can read the error details
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
@@ -184,9 +183,9 @@ ${transcriptsText ? `סיכומי שיחות אחרונות:\n${transcriptsText}
       return new Response(JSON.stringify({
         success: false,
         error: 'Gemini לא הצליח ליצור הודעות. נסה שוב.',
-        debug: rawText.substring(0, 500),
+        debug: `parts=${parts.length}, rawLen=${rawText.length}, raw=${rawText.substring(0, 300)}`,
       }), {
-        status: 500,
+        status: 200, // Return 200 so frontend can read the error details
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
@@ -200,8 +199,11 @@ ${transcriptsText ? `סיכומי שיחות אחרונות:\n${transcriptsText}
     })
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
+    return new Response(JSON.stringify({
+      success: false,
+      error: `Internal server error: ${err instanceof Error ? err.message : String(err)}`,
+    }), {
+      status: 200, // Return 200 so frontend can read the error details
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }

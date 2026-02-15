@@ -289,7 +289,8 @@ const ClientProfile: React.FC = () => {
       if (result.success && result.messages) {
         setWaGeneratedMessages(result.messages);
       } else {
-        setWaError(result.error || 'שגיאה ביצירת הודעות');
+        const debugInfo = result.debug ? ` [debug: ${result.debug.substring(0, 100)}]` : '';
+        setWaError((result.error || 'שגיאה ביצירת הודעות') + debugInfo);
       }
     } catch {
       setWaError('שגיאת רשת - ודא שמפתח Gemini API מוגדר בהגדרות');
