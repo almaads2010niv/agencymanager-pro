@@ -117,6 +117,7 @@ ${transcriptsText ? `סיכומי שיחות אחרונות:\n${transcriptsText}
           generationConfig: {
             temperature: 0.8,
             maxOutputTokens: 1024,
+            responseMimeType: 'application/json',
           },
         }),
       }
@@ -143,27 +144,47 @@ ${transcriptsText ? `סיכומי שיחות אחרונות:\n${transcriptsText}
       }
     }
 
+    // If thinking filter yielded nothing, try all text parts as fallback
+    if (!rawText.trim()) {
+      for (const part of parts) {
+        if (part.text) {
+          rawText += part.text
+        }
+      }
+    }
+
     let messages: string[] = []
     try {
-      // Try to extract JSON array from response (handles markdown code fences too)
-      // Use greedy match to capture the full array
-      const jsonMatch = rawText.match(/\[[\s\S]*\]/)
-      if (jsonMatch) {
-        messages = JSON.parse(jsonMatch[0])
+      // With responseMimeType: 'application/json', response should be clean JSON
+      // Try direct parse first
+      const parsed = JSON.parse(rawText.trim())
+      if (Array.isArray(parsed)) {
+        messages = parsed
+      } else if (parsed && Array.isArray(parsed.messages)) {
+        messages = parsed.messages
       }
     } catch {
-      // Fallback: split by numbered lines
-      messages = rawText
-        .split(/\d+[.)]\s*/)
-        .map((s: string) => s.replace(/^["']|["']$/g, '').trim())
-        .filter((s: string) => s.length > 0)
-        .slice(0, 3)
+      try {
+        // Fallback: extract JSON array from response (handles markdown code fences)
+        const jsonMatch = rawText.match(/\[[\s\S]*\]/)
+        if (jsonMatch) {
+          messages = JSON.parse(jsonMatch[0])
+        }
+      } catch {
+        // Last resort: split by numbered lines
+        messages = rawText
+          .split(/\d+[.)]\s*/)
+          .map((s: string) => s.replace(/^["']|["']$/g, '').trim())
+          .filter((s: string) => s.length > 0)
+          .slice(0, 3)
+      }
     }
 
     if (!messages || messages.length === 0) {
       return new Response(JSON.stringify({
         success: false,
         error: 'Gemini לא הצליח ליצור הודעות. נסה שוב.',
+        debug: rawText.substring(0, 500),
       }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

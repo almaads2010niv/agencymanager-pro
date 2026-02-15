@@ -98,7 +98,7 @@ ${transcriptsText ? `תמלולי שיחות:\n${transcriptsText}` : 'אין ת�
 
     // 5. Call Gemini API
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${geminiApiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -123,8 +123,15 @@ ${transcriptsText ? `תמלולי שיחות:\n${transcriptsText}` : 'אין ת�
       })
     }
 
+    // Handle Gemini 3 thinking parts
     const geminiResult = await geminiRes.json()
-    const recommendation = geminiResult.candidates?.[0]?.content?.parts?.[0]?.text
+    const parts = geminiResult.candidates?.[0]?.content?.parts || []
+    let recommendation = ''
+    for (const part of parts) {
+      if (part.text && !part.thought) {
+        recommendation += part.text
+      }
+    }
 
     if (!recommendation) {
       return new Response(JSON.stringify({

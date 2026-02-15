@@ -234,7 +234,186 @@ CHANGES:
    Pushed to GitHub -> Vercel auto-deployed.
 
 ===============================================================================
-ARCHITECTURE NOTES
+SESSION 6 (2026-02-15) - Lead Management Upgrade + AI + Proposals
+===============================================================================
+
+WHAT HAPPENED:
+Major CRM expansion: full lead profile page, call transcripts system,
+AI-powered recommendations, and Canva proposal generation. Security
+hardening moved API keys to server-side only.
+
+CHANGES:
+
+1. LEAD PROFILE PAGE (LeadProfile.tsx)
+   - Full CRM view for leads (similar to ClientProfile)
+   - Route: /leads/:leadId
+   - Contact info, financial summary, notes history, transcripts,
+     AI recommendations, WhatsApp messages, proposals
+   - Lead assigned handler (assignedTo uuid)
+   - Lead notes history (lead_notes table)
+
+2. CALL TRANSCRIPTS SYSTEM
+   - New `call_transcripts` table (client_id, lead_id, call_date,
+     participants, transcript, summary, full_text, recording_url)
+   - Manual transcript entry from profile pages
+   - Audio upload -> Gemini transcription (see Session 7)
+
+3. AI RECOMMENDATIONS
+   - New Edge Function: ai-recommendations/index.ts
+   - Generates actionable advice based on notes + transcripts via Gemini API
+   - New `ai_recommendations` table (client_id, lead_id, recommendation)
+   - Expandable recommendation cards in profile
+   - Persistent storage with admin-only delete
+
+4. CANVA PROPOSAL GENERATION
+   - New Edge Function: generate-proposal/index.ts
+   - Uses Canva Connect API to autofill brand template with lead data
+   - Autofills: business name, client name, price, services, contact, date
+   - Exports to PDF (polling for completion)
+   - Returns: Canva design URL + PDF download URL
+
+5. API KEYS SERVER-SIDE ONLY
+   - Gemini API key + Canva API key stored in settings table
+   - Frontend only sees boolean flags (hasGeminiKey, hasCanvaKey)
+   - Edge Functions access keys via service_role client
+
+FILES MODIFIED:
+- types.ts (LeadNote, CallTranscript, AIRecommendation interfaces)
+- contexts/DataContext.tsx (new CRUD: call transcripts, AI recommendations, lead notes)
+- components/LeadProfile.tsx (NEW: full lead CRM profile)
+- components/Leads.tsx (click-to-view, handler column)
+- supabase/functions/ai-recommendations/index.ts (NEW)
+- supabase/functions/generate-proposal/index.ts (NEW)
+- components/Settings.tsx (API key management UI)
+
+Commits: 89a3947, fd2946a, 67f4fa4, 6d6edbb
+Pushed to GitHub -> Vercel auto-deployed.
+
+===============================================================================
+SESSION 7 (2026-02-15) - WhatsApp Messages + Audio Transcription
+===============================================================================
+
+WHAT HAPPENED:
+Added AI-powered WhatsApp message generation and audio transcription
+for call recordings.
+
+CHANGES:
+
+1. WHATSAPP OUTGOING MESSAGES
+   - New Edge Function: generate-whatsapp-messages/index.ts
+   - Generates 3 message variants via Gemini API:
+     Variant 1: formal-professional
+     Variant 2: friendly-warm
+     Variant 3: direct-purposeful
+   - MESSAGE_PURPOSES constant (follow_up, meeting_reminder, proposal_sent,
+     thank_you, check_in, intro, renewal, service_update, performance_report, custom)
+   - New `whatsapp_messages` table for message log
+   - wa.me deep link integration (formatPhoneForWhatsApp utility)
+   - UI: purpose dropdown, generate button, 3-variant cards with
+     "Edit" and "Send to WhatsApp" buttons, custom message textarea,
+     message history with expand/collapse
+
+2. AUDIO TRANSCRIPTION
+   - New Edge Function: transcribe-audio/index.ts
+   - Uploads audio to Supabase Storage (recordings bucket)
+   - Sends to Gemini API for Hebrew transcription
+   - Splits output into transcript + summary
+   - Hebrew-optimized prompt with speaker detection
+
+FILES MODIFIED:
+- types.ts (WhatsAppMessage interface)
+- constants.ts (MESSAGE_PURPOSES)
+- contexts/DataContext.tsx (WhatsApp CRUD, recording upload)
+- components/ClientProfile.tsx (WhatsApp section, audio upload)
+- components/LeadProfile.tsx (WhatsApp section, audio upload)
+- supabase/functions/generate-whatsapp-messages/index.ts (NEW)
+- supabase/functions/transcribe-audio/index.ts (NEW)
+
+Committed: e1e83c7
+Pushed to GitHub -> Vercel auto-deployed.
+
+===============================================================================
+SESSION 8 (2026-02-15) - Transcription Bug Fixes + Gemini Files API
+===============================================================================
+
+WHAT HAPPENED:
+Series of fixes for audio transcription reliability. Culminated in
+migrating to Gemini Files API to avoid Edge Function memory limits.
+
+ISSUES & FIXES:
+1. Improved transcription error messages with specific failure details
+2. Fixed audio upload MIME type handling for M4A/MP4 files
+3. Removed Hebrew characters from storage file paths (400 Bad Request)
+4. Improved transcription prompt with explicit ---SUMMARY_START--- separator
+5. Upgraded transcription model to gemini-2.5-flash for Hebrew quality
+6. Migrated to Gemini Files API (resumable upload) to avoid Edge Function
+   memory limit (error 546). Audio files now uploaded to Gemini's file
+   storage first, then referenced by file_uri in the generate request.
+
+FILES MODIFIED:
+- supabase/functions/transcribe-audio/index.ts (major rewrite: Gemini Files API)
+- components/ClientProfile.tsx (recording upload fixes)
+- components/LeadProfile.tsx (recording upload fixes)
+
+Commits: 5643ebc, c45cf30, d22e7bf, 83231d7, ef5a45c, de6cefd, f143444
+Pushed to GitHub -> Vercel auto-deployed.
+
+===============================================================================
+SESSION 9 (2026-02-15) - AI Summaries, Inline Editing, WhatsApp Fix, Gemini Upgrade
+===============================================================================
+
+WHAT HAPPENED:
+Four major items: AI Summary Notes system, inline profile editing,
+WhatsApp message parsing fix, and Gemini model upgrade.
+
+CHANGES:
+
+1. AI SUMMARY NOTES
+   - New Edge Function: generate-ai-summary/index.ts
+   - Three summary types (NoteType union in types.ts):
+     a) transcript_summary - structured CRM summary of call transcript
+     b) recommendation_summary - distilled action items from AI recommendations
+     c) proposal_focus - guidance for preparing price proposals
+        (services to offer, pain points, value prop, risks, tone)
+   - Summaries saved as notes with noteType + sourceId
+   - UI: buttons per type in AI Summaries section, expandable cards,
+     duplicate prevention (disabled if summary exists for source)
+   - note_type is TEXT column, no SQL migration needed
+
+2. INLINE PROFILE EDITING
+   - Added edit modal to ClientProfile (admin-only)
+   - Added edit modal to LeadProfile (admin-only)
+   - Edit button in profile header opens full form modal
+   - All fields editable: personal, business, services, handler, notes
+
+3. WHATSAPP MESSAGE FIX
+   - Problem: Messages displayed as raw JSON with markdown code fences
+   - Root cause: Edge function used gemini-2.0-flash, didn't filter
+     Gemini 2.5 thinking parts, non-greedy regex
+   - Fix: Upgraded model, added thinking-parts filter, greedy regex,
+     added responseMimeType: 'application/json' for clean JSON output,
+     improved multi-level fallback parsing
+
+4. GEMINI MODEL UPGRADE
+   - Strategy: gemini-3-pro-preview for quality, gemini-2.5-flash for speed
+   - ai-recommendations: 2.0-flash -> 3-pro-preview + added thinking filter
+   - generate-ai-summary: 2.5-flash -> 3-pro-preview
+   - generate-whatsapp-messages: stays on 2.5-flash (speed matters)
+   - transcribe-audio: stays on 2.5-flash (large token counts)
+
+FILES MODIFIED:
+- types.ts (NoteType extended with proposal_focus)
+- components/ClientProfile.tsx (edit modal, AI summary buttons, proposal focus)
+- components/LeadProfile.tsx (edit modal, AI summary buttons, proposal focus)
+- supabase/functions/generate-ai-summary/index.ts (NEW: 3 summary types)
+- supabase/functions/ai-recommendations/index.ts (model upgrade + thinking filter)
+- supabase/functions/generate-whatsapp-messages/index.ts (JSON fix + responseMimeType)
+
+Commits: 83c5840, c3080f8, + pending commit
+All Edge Functions redeployed.
+
+===============================================================================
+ARCHITECTURE NOTES (Updated 2026-02-15)
 ===============================================================================
 
 Data Flow:
@@ -246,6 +425,7 @@ Component Structure:
   App.tsx (router + auth)
     -> Layout.tsx (sidebar + main area)
       -> [Page Components] (Dashboard, Clients, Leads, etc.)
+        -> ClientProfile.tsx / LeadProfile.tsx (full CRM views)
         -> ui/ (Button, Card, Form, Modal, Badge, Table)
 
 State Management:
@@ -260,20 +440,35 @@ Auth:
   Page-level permissions (page_permissions JSON in user_roles)
   First user auto-becomes admin
   Admin creates accounts via Edge Function (no self-registration)
-  Edge Function: supabase/functions/create-user/index.ts
+
+AI / Gemini:
+  gemini-3-pro-preview -> ai-recommendations, generate-ai-summary (quality)
+  gemini-2.5-flash -> generate-whatsapp-messages, transcribe-audio (speed)
+  API key stored server-side only (settings.gemini_api_key)
+  All functions filter thinking parts: if (part.text && !part.thought)
+  Audio uses Gemini Files API (resumable upload -> file_uri)
+
+Edge Functions (6 total):
+  create-user -> Admin account creation
+  ai-recommendations -> AI advice via Gemini 3 Pro
+  generate-ai-summary -> 3 summary types via Gemini 3 Pro
+  generate-whatsapp-messages -> 3 message variants via Gemini 2.5 Flash
+  transcribe-audio -> Audio -> text via Gemini Files API (2.5 Flash)
+  generate-proposal -> PDF via Canva Connect API
 
 Supabase Tables:
   clients (+ assigned_to uuid)
-  leads (+ created_by uuid)
-  deals
-  expenses (+ is_recurring boolean)
-  payments
-  settings (+ employee_salary)
-  activity_log
-  retainer_changes
-  client_notes (id, client_id, content, created_by, created_by_name, created_at)
+  leads (+ created_by, assigned_to uuid)
+  deals, expenses (+ is_recurring), payments
+  settings (+ employee_salary, gemini_api_key, canva_api_key, canva_template_id)
+  activity_log, retainer_changes
+  client_notes (+ note_type, source_id)
+  lead_notes (+ note_type, source_id)
+  call_transcripts (client_id, lead_id, transcript, summary, recording_url)
+  ai_recommendations (client_id, lead_id, recommendation)
+  whatsapp_messages (client_id, lead_id, message_text, purpose, is_ai_generated)
   user_roles (user_id, email, role, display_name, page_permissions)
-  storage.buckets: contracts
+  storage.buckets: contracts, recordings
 
 Styling:
   Tailwind CSS via CDN (not PostCSS build)
@@ -293,6 +488,9 @@ Key Patterns:
   - allUsers from AuthContext for user dropdowns
   - is_admin() SECURITY DEFINER function for RLS
   - Edge Functions with service_role key for admin operations
+  - Gemini thinking-parts filter in all AI functions
+  - NoteType: 'manual' | 'transcript_summary' | 'recommendation_summary' | 'proposal_focus'
+  - MESSAGE_PURPOSES in constants.ts for WhatsApp purpose options
 
 GIT HISTORY (key commits):
   443c937 - Fix 19 audit issues
@@ -302,3 +500,17 @@ GIT HISTORY (key commits):
   6925a1a - Edge Function for admin user creation
   1085824 - Viewers can see all leads
   0c3cea1 - Enhanced client management (handler, notes, CRM view)
+  89a3947 - Lead management upgrade (handler, notes, profile page)
+  fd2946a - Call transcripts, AI recommendations, Canva proposals
+  67f4fa4 - API keys stored server-side only
+  6d6edbb - Persistent AI recommendations, expandable notes
+  e1e83c7 - WhatsApp outgoing messages + AI audio transcription
+  5643ebc - Improve transcription error messages
+  c45cf30 - Audio upload MIME type handling
+  83231d7 - Remove Hebrew chars from storage file paths
+  ef5a45c - Improve transcription prompt (separator + Hebrew)
+  de6cefd - Upgrade transcription to gemini-2.5-flash
+  f143444 - Gemini Files API to avoid memory limit
+  83c5840 - AI Summary Notes (3 types)
+  c3080f8 - Inline profile editing, proposal focus, WhatsApp fix
+  [pending] - Gemini model upgrade + MEMORY/PROJECT docs update
