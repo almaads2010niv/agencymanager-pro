@@ -103,14 +103,19 @@ Deno.serve(async (req) => {
     const contactName = entityName || 'הלקוח'
     const business = businessName || 'העסק'
 
-    const prompt = `תתמלל לי את השיחה הבאה, מילה במילה, דיוק של 100%, שהתנהלה בין ניב מ"עלמה?" סוכנות שיווק לבין "${contactName}", "${business}"
+    const prompt = `השיחה הבאה היא בעברית. תתמלל אותה בעברית בלבד.
+
+תתמלל לי את השיחה הבאה, מילה במילה, דיוק של 100%, שהתנהלה בין ניב מ"עלמה?" סוכנות שיווק לבין "${contactName}", "${business}"
 התמלול יראה כך:
 ניב: xxxx
 ${contactName}: yyyy
 
 רווח כפול בין כל דובר
 
-בתום התמלול, תסכם לי את השיחה שאתעד אותה במערכת ה CRM שלי
+חשוב מאוד: כשתסיים את התמלול, כתוב את המילה הבאה בשורה נפרדת:
+---SUMMARY_START---
+
+ואז תסכם לי את השיחה שאתעד אותה במערכת ה CRM שלי
 מה התיעוד אמור להראות?
 פרופיל הלקוח
 צרכי הלקוח
@@ -139,7 +144,7 @@ ${contactName}: yyyy
           }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 8192,
+            maxOutputTokens: 16384,
           },
         }),
       }
@@ -170,40 +175,42 @@ ${contactName}: yyyy
     }
 
     // 7. Split response into transcript and summary
-    // Look for the CRM summary section boundary
-    const summaryMarkers = [
-      'פרופיל הלקוח',
-      'תיעוד CRM',
-      'סיכום השיחה',
-      'תיעוד השיחה',
-      'סיכום לתיעוד',
-      'סיכום:',
-    ]
-
     let transcript = fullText
     let summary = ''
 
-    for (const marker of summaryMarkers) {
-      const markerIndex = fullText.indexOf(marker)
-      if (markerIndex > 0) {
-        // Look for a section header before the marker (line with ** or heading)
-        const beforeMarker = fullText.substring(0, markerIndex)
-        const lastNewline = beforeMarker.lastIndexOf('\n')
-        const splitIndex = lastNewline > 0 ? lastNewline : markerIndex
+    // First try: explicit separator we asked for
+    const separatorIndex = fullText.indexOf('---SUMMARY_START---')
+    if (separatorIndex > 0) {
+      transcript = fullText.substring(0, separatorIndex).trim()
+      summary = fullText.substring(separatorIndex + '---SUMMARY_START---'.length).trim()
+    } else {
+      // Fallback: Look for CRM summary section markers (with or without markdown formatting)
+      const summaryPatterns = [
+        /\n\s*\**\s*סיכום\s*(שיחה\s*)?(ל-?\s*)?CRM\s*[-:]*\s*\**/i,
+        /\n\s*\**\s*סיכום השיחה\s*[-:]*\s*\**/,
+        /\n\s*\**\s*תיעוד\s*(ה)?שיחה\s*[-:]*\s*\**/,
+        /\n\s*\**\s*סיכום לתיעוד\s*[-:]*\s*\**/,
+        /\n\s*\**\s*תיעוד CRM\s*[-:]*\s*\**/,
+        /\n\s*\**\s*פרופיל הלקוח\s*[-:]*\s*\**/,
+      ]
 
-        transcript = fullText.substring(0, splitIndex).trim()
-        summary = fullText.substring(splitIndex).trim()
-        break
+      for (const pattern of summaryPatterns) {
+        const match = fullText.match(pattern)
+        if (match && match.index !== undefined && match.index > 0) {
+          transcript = fullText.substring(0, match.index).trim()
+          summary = fullText.substring(match.index).trim()
+          break
+        }
       }
-    }
 
-    // If no summary was found, use the last 30% as summary
-    if (!summary && fullText.length > 200) {
-      const splitPoint = Math.floor(fullText.length * 0.7)
-      const nearestNewline = fullText.indexOf('\n', splitPoint)
-      if (nearestNewline > 0) {
-        transcript = fullText.substring(0, nearestNewline).trim()
-        summary = fullText.substring(nearestNewline).trim()
+      // Last resort: if no summary found and text is long enough, use last 30%
+      if (!summary && fullText.length > 500) {
+        const splitPoint = Math.floor(fullText.length * 0.7)
+        const nearestNewline = fullText.indexOf('\n', splitPoint)
+        if (nearestNewline > 0) {
+          transcript = fullText.substring(0, nearestNewline).trim()
+          summary = fullText.substring(nearestNewline).trim()
+        }
       }
     }
 
