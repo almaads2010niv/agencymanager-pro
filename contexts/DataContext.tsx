@@ -1163,7 +1163,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // --- Client File Upload (Supabase Storage) ---
   const uploadClientFile = async (clientId: string, file: File): Promise<string | null> => {
     try {
-      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._\-\u0590-\u05FF]/g, '_')}`;
+      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._\-]/g, '_')}`;
       const filePath = `${clientId}/${safeName}`;
 
       const { error } = await supabase.storage
@@ -1488,7 +1488,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // --- Audio Recording Upload ---
   const uploadRecording = async (entityType: 'client' | 'lead', entityId: string, file: File): Promise<{ signedUrl: string; storagePath: string; error?: string } | null> => {
     try {
-      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._\-\u0590-\u05FF]/g, '_')}`;
+      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._\-]/g, '_')}`;
       const storagePath = `${entityId}/${safeName}`;
 
       // Determine correct MIME type — browsers often report wrong type for audio files
