@@ -519,10 +519,12 @@ CREATE POLICY "whatsapp_messages_delete" ON whatsapp_messages FOR DELETE
   USING (is_admin());
 
 -- Audio recordings storage bucket (50MB limit, audio formats)
+-- NOTE: browsers report various MIME types for same format, so we allow all common variants
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES ('recordings', 'recordings', false, 52428800,
-  ARRAY['audio/mpeg','audio/mp4','audio/mp3','audio/m4a','audio/x-m4a','audio/wav','audio/webm','audio/ogg'])
-ON CONFLICT (id) DO NOTHING;
+  ARRAY['audio/mpeg','audio/mp4','audio/mp3','audio/m4a','audio/x-m4a','audio/wav','audio/webm','audio/ogg','audio/aac','audio/x-aac','video/mp4','audio/flac','audio/x-flac','application/octet-stream'])
+ON CONFLICT (id) DO UPDATE SET
+  allowed_mime_types = ARRAY['audio/mpeg','audio/mp4','audio/mp3','audio/m4a','audio/x-m4a','audio/wav','audio/webm','audio/ogg','audio/aac','audio/x-aac','video/mp4','audio/flac','audio/x-flac','application/octet-stream'];
 
 -- Storage policies for recordings bucket
 DROP POLICY IF EXISTS "recordings_select" ON storage.objects;

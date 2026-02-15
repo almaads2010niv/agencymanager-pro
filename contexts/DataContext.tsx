@@ -1491,9 +1491,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._\-\u0590-\u05FF]/g, '_')}`;
       const storagePath = `${entityId}/${safeName}`;
 
+      // Determine correct MIME type — browsers often report wrong type for audio files
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      const mimeMap: Record<string, string> = {
+        'mp3': 'audio/mpeg',
+        'm4a': 'audio/mp4',
+        'mp4': 'audio/mp4',
+        'wav': 'audio/wav',
+        'webm': 'audio/webm',
+        'ogg': 'audio/ogg',
+        'aac': 'audio/mp4',
+        'wma': 'audio/mpeg',
+        'flac': 'audio/wav',
+      };
+      const contentType = mimeMap[ext] || file.type || 'audio/mpeg';
+
       const { error } = await supabase.storage
         .from('recordings')
-        .upload(storagePath, file, { upsert: false });
+        .upload(storagePath, file, { upsert: false, contentType });
 
       if (error) {
         showError('שגיאה בהעלאת הקלטה: ' + error.message);
