@@ -3,7 +3,7 @@ import {
   AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service,
   AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel,
   ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript, AIRecommendation,
-  WhatsAppMessage
+  WhatsAppMessage, NoteType
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -39,6 +39,8 @@ interface ClientNoteRow {
   created_by: string;
   created_by_name: string;
   created_at: string;
+  note_type?: string;
+  source_id?: string | null;
 }
 
 interface LeadRow {
@@ -66,6 +68,8 @@ interface LeadNoteRow {
   created_by: string;
   created_by_name: string;
   created_at: string;
+  note_type?: string;
+  source_id?: string | null;
 }
 
 interface CallTranscriptRow {
@@ -199,10 +203,10 @@ export interface DataContextType extends AppData {
   listClientFiles: (clientId: string) => Promise<ClientFile[]>;
   deleteClientFile: (clientId: string, fileName: string) => Promise<void>;
 
-  addClientNote: (clientId: string, content: string, userId: string, userName: string) => Promise<void>;
+  addClientNote: (clientId: string, content: string, userId: string, userName: string, noteType?: NoteType, sourceId?: string) => Promise<void>;
   deleteClientNote: (noteId: string) => Promise<void>;
 
-  addLeadNote: (leadId: string, content: string, userId: string, userName: string) => Promise<void>;
+  addLeadNote: (leadId: string, content: string, userId: string, userName: string, noteType?: NoteType, sourceId?: string) => Promise<void>;
   deleteLeadNote: (noteId: string) => Promise<void>;
 
   addCallTranscript: (transcript: Omit<CallTranscript, 'id' | 'createdAt'>) => Promise<void>;
@@ -466,6 +470,8 @@ const transformClientNoteToDB = (note: ClientNote) => ({
   created_by: note.createdBy,
   created_by_name: note.createdByName,
   created_at: note.createdAt,
+  note_type: note.noteType || 'manual',
+  source_id: note.sourceId || null,
 });
 
 const transformClientNoteFromDB = (row: ClientNoteRow): ClientNote => ({
@@ -475,6 +481,8 @@ const transformClientNoteFromDB = (row: ClientNoteRow): ClientNote => ({
   createdBy: row.created_by,
   createdByName: row.created_by_name || '',
   createdAt: row.created_at,
+  noteType: (row.note_type as NoteType) || 'manual',
+  sourceId: row.source_id || undefined,
 });
 
 const transformLeadNoteToDB = (note: LeadNote) => ({
@@ -484,6 +492,8 @@ const transformLeadNoteToDB = (note: LeadNote) => ({
   created_by: note.createdBy,
   created_by_name: note.createdByName,
   created_at: note.createdAt,
+  note_type: note.noteType || 'manual',
+  source_id: note.sourceId || null,
 });
 
 const transformLeadNoteFromDB = (row: LeadNoteRow): LeadNote => ({
@@ -493,6 +503,8 @@ const transformLeadNoteFromDB = (row: LeadNoteRow): LeadNote => ({
   createdBy: row.created_by,
   createdByName: row.created_by_name || '',
   createdAt: row.created_at,
+  noteType: (row.note_type as NoteType) || 'manual',
+  sourceId: row.source_id || undefined,
 });
 
 const transformCallTranscriptToDB = (ct: CallTranscript) => ({
@@ -1236,7 +1248,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // --- Client Notes ---
-  const addClientNote = async (clientId: string, content: string, userId: string, userName: string) => {
+  const addClientNote = async (clientId: string, content: string, userId: string, userName: string, noteType: NoteType = 'manual', sourceId?: string) => {
     const note: ClientNote = {
       id: generateId(),
       clientId,
@@ -1244,6 +1256,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       createdBy: userId,
       createdByName: userName,
       createdAt: new Date().toISOString(),
+      noteType,
+      sourceId,
     };
 
     try {
@@ -1286,7 +1300,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // --- Lead Notes ---
-  const addLeadNote = async (leadId: string, content: string, userId: string, userName: string) => {
+  const addLeadNote = async (leadId: string, content: string, userId: string, userName: string, noteType: NoteType = 'manual', sourceId?: string) => {
     const note: LeadNote = {
       id: generateId(),
       leadId,
@@ -1294,6 +1308,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       createdBy: userId,
       createdByName: userName,
       createdAt: new Date().toISOString(),
+      noteType,
+      sourceId,
     };
 
     try {

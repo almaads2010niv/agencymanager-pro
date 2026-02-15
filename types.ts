@@ -171,6 +171,8 @@ export interface RetainerChange {
   notes: string;
 }
 
+export type NoteType = 'manual' | 'transcript_summary' | 'recommendation_summary';
+
 export interface ClientNote {
   id: string;
   clientId: string;
@@ -178,6 +180,8 @@ export interface ClientNote {
   createdBy: string;
   createdByName: string;
   createdAt: string;
+  noteType: NoteType;
+  sourceId?: string;
 }
 
 export interface LeadNote {
@@ -187,6 +191,8 @@ export interface LeadNote {
   createdBy: string;
   createdByName: string;
   createdAt: string;
+  noteType: NoteType;
+  sourceId?: string;
 }
 
 export interface CallTranscript {

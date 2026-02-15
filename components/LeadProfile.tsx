@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
-import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel } from '../types';
+import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, NoteType } from '../types';
 import { formatCurrency, formatDate, formatDateTime, formatPhoneForWhatsApp } from '../utils';
 import { MESSAGE_PURPOSES } from '../constants';
 import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3 } from 'lucide-react';
@@ -90,12 +90,20 @@ const LeadProfile: React.FC = () => {
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
+  // AI Summary state
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [expandedSummaryId, setExpandedSummaryId] = useState<string | null>(null);
+  const [confirmDeleteSummaryId, setConfirmDeleteSummaryId] = useState<string | null>(null);
+
   // Expand/collapse for long notes in contact info
   const [notesExpanded, setNotesExpanded] = useState(false);
   const NOTES_PREVIEW_LENGTH = 150;
 
-  // Filter notes for this lead
-  const leadNotesFiltered = leadNotes.filter(n => n.leadId === leadId);
+  // Filter notes for this lead — separate manual notes from AI summaries
+  const leadNotesAll = leadNotes.filter(n => n.leadId === leadId);
+  const leadNotesFiltered = leadNotesAll.filter(n => n.noteType === 'manual' || !n.noteType);
+  const leadAISummaries = leadNotesAll.filter(n => n.noteType && n.noteType !== 'manual');
 
   // Filter transcripts for this lead
   const leadTranscripts = callTranscripts.filter(ct => ct.leadId === leadId);
@@ -196,6 +204,7 @@ const LeadProfile: React.FC = () => {
       });
       const result = await res.json();
       if (result.success) {
+        const recId = crypto.randomUUID ? crypto.randomUUID() : `r_${Date.now()}`;
         // Auto-save recommendation to DB
         await addAIRecommendation({
           leadId: lead.leadId,
@@ -203,6 +212,24 @@ const LeadProfile: React.FC = () => {
           createdBy: user.id,
           createdByName: currentUserName,
         });
+        // Auto-generate recommendation summary note (fire and forget)
+        try {
+          const { data: { session: s2 } } = await supabase.auth.getSession();
+          const sRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-ai-summary`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${s2?.access_token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              summaryType: 'recommendation_summary',
+              recommendation: result.recommendation,
+              entityName: lead.businessName || lead.leadName,
+              additionalContext: `סטטוס: ${lead.status}, מקור: ${lead.sourceChannel}, הצעת מחיר: ₪${lead.quotedMonthlyValue}`,
+            }),
+          });
+          const sResult = await sRes.json();
+          if (sResult.success && sResult.summary) {
+            await addLeadNote(lead.leadId, sResult.summary, user.id, currentUserName, 'recommendation_summary', recId);
+          }
+        } catch { /* silent */ }
       } else {
         setAiError(result.error || 'שגיאה בקבלת המלצות');
       }
@@ -354,6 +381,7 @@ const LeadProfile: React.FC = () => {
         return;
       }
       // 3. Auto-save as CallTranscript
+      const transcriptId = crypto.randomUUID ? crypto.randomUUID() : `t_${Date.now()}`;
       await addCallTranscript({
         leadId: lead.leadId,
         callDate: new Date().toISOString().split('T')[0],
@@ -363,6 +391,28 @@ const LeadProfile: React.FC = () => {
         createdBy: user.id,
         createdByName: currentUserName,
       });
+      // 4. Auto-generate AI summary note from transcript (fire and forget)
+      if (result.summary || result.transcript) {
+        try {
+          const { data: { session: s2 } } = await supabase.auth.getSession();
+          const sBody: Record<string, string> = {
+            summaryType: 'transcript_summary',
+            entityName: lead.businessName || lead.leadName,
+            additionalContext: `סטטוס: ${lead.status}, מקור: ${lead.sourceChannel}, הצעת מחיר: ₪${lead.quotedMonthlyValue}`,
+          };
+          if (result.summary) sBody.transcriptSummary = result.summary;
+          sBody.transcript = result.transcript || '';
+          const sRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-ai-summary`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${s2?.access_token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(sBody),
+          });
+          const sResult = await sRes.json();
+          if (sResult.success && sResult.summary) {
+            await addLeadNote(lead.leadId, sResult.summary, user.id, currentUserName, 'transcript_summary', transcriptId);
+          }
+        } catch { /* silent — auto-gen failure shouldn't block the user */ }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       console.error('Transcription error:', err);
@@ -370,6 +420,47 @@ const LeadProfile: React.FC = () => {
     } finally {
       setIsTranscribing(false);
       if (audioInputRef.current) audioInputRef.current.value = '';
+    }
+  };
+
+  // AI Summary: Generate summary for a transcript or recommendation
+  const handleGenerateAISummary = async (summaryType: NoteType, sourceId: string, sourceText: string, existingSummary?: string) => {
+    if (!lead || !user) return;
+    // Check for duplicate
+    if (leadAISummaries.find(n => n.sourceId === sourceId)) return;
+    setIsGeneratingSummary(true);
+    setSummaryError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const body: Record<string, string> = {
+        summaryType,
+        entityName: lead.businessName || lead.leadName,
+        additionalContext: `סטטוס: ${lead.status}, מקור: ${lead.sourceChannel}, הצעת מחיר: ₪${lead.quotedMonthlyValue}`,
+      };
+      if (summaryType === 'transcript_summary') {
+        body.transcript = sourceText;
+        if (existingSummary) body.transcriptSummary = existingSummary;
+      } else {
+        body.recommendation = sourceText;
+      }
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-ai-summary`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      const result = await res.json();
+      if (result.success && result.summary) {
+        await addLeadNote(lead.leadId, result.summary, user.id, currentUserName, summaryType as NoteType, sourceId);
+      } else {
+        setSummaryError(result.error || 'שגיאה ביצירת סיכום AI');
+      }
+    } catch {
+      setSummaryError('שגיאת רשת - ודא שמפתח Gemini API מוגדר בהגדרות');
+    } finally {
+      setIsGeneratingSummary(false);
     }
   };
 
@@ -657,7 +748,7 @@ const LeadProfile: React.FC = () => {
         </Card>
       </div>
 
-      {/* Notes History */}
+      {/* Notes History (manual only — AI summaries shown in separate section) */}
       <Card id="lead-notes-section">
         <CardHeader title="הערות והיסטוריה" subtitle={`${leadNotesFiltered.length} הערות`} />
         {/* Add note form */}
@@ -862,6 +953,106 @@ const LeadProfile: React.FC = () => {
           <p className="text-gray-600 text-sm text-center py-6 italic">
             לחץ על &quot;קבל המלצות&quot; לקבלת ניתוח AI מבוסס הערות ותמלולי שיחות.
           </p>
+        )}
+      </Card>
+
+      {/* AI Summaries Section */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <CardHeader title="סיכומי AI" subtitle={leadAISummaries.length > 0 ? `${leadAISummaries.length} סיכומים` : 'סיכומים אוטומטיים'} />
+        </div>
+        {summaryError && (
+          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm mb-4">
+            {summaryError}
+          </div>
+        )}
+        {isGeneratingSummary && (
+          <div className="flex items-center justify-center py-4 gap-3 mb-4 bg-purple-500/5 border border-purple-500/20 rounded-xl">
+            <div className="w-5 h-5 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+            <span className="text-gray-400 text-sm">מייצר סיכום AI...</span>
+          </div>
+        )}
+        {leadAISummaries.length > 0 ? (
+          <div className="space-y-3">
+            {leadAISummaries.map(summary => {
+              const isExpanded = expandedSummaryId === summary.id;
+              const typeLabel = summary.noteType === 'transcript_summary' ? '📝 סיכום תמלול' : '💡 סיכום המלצות';
+              const preview = summary.content.length > 200 ? summary.content.substring(0, 200) + '...' : summary.content;
+              return (
+                <div key={summary.id} className="bg-[#0B1121] rounded-xl border border-purple-500/10 overflow-hidden">
+                  <button
+                    onClick={() => setExpandedSummaryId(isExpanded ? null : summary.id)}
+                    className="w-full text-start p-4 hover:bg-white/[0.02] transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">{typeLabel}</span>
+                        <span className="text-xs text-gray-400">{formatDateTime(summary.createdAt)}</span>
+                        <span className="text-xs text-gray-600">· {summary.createdByName}</span>
+                      </div>
+                      {isExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+                    </div>
+                    {!isExpanded && (
+                      <p className="text-gray-400 text-sm mt-1 line-clamp-2">{preview}</p>
+                    )}
+                  </button>
+                  {isExpanded && (
+                    <div>
+                      <div className="px-4 pb-4 max-h-96 overflow-y-auto custom-scrollbar">
+                        <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed">{summary.content}</p>
+                      </div>
+                      {isAdmin && (
+                        <div className="px-4 pb-3 border-t border-white/5 pt-2 flex justify-end">
+                          <button onClick={() => setConfirmDeleteSummaryId(summary.id)} className="text-red-400/60 hover:text-red-400 text-xs flex items-center gap-1">
+                            <Trash2 size={12} /> מחק
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-gray-600 text-sm text-center py-4 italic">
+            סיכומי AI ייווצרו אוטומטית לאחר תמלול הקלטה או יצירת המלצות.
+          </p>
+        )}
+        {/* Manual generate buttons */}
+        {settings.hasGeminiKey && (
+          <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-white/5">
+            {leadTranscripts.length > 0 && (
+              <Button
+                onClick={() => {
+                  const latestTranscript = leadTranscripts[0];
+                  if (latestTranscript) {
+                    handleGenerateAISummary('transcript_summary', latestTranscript.id, latestTranscript.transcript, latestTranscript.summary);
+                  }
+                }}
+                disabled={isGeneratingSummary || (leadTranscripts.length > 0 && !!leadAISummaries.find(n => n.sourceId === leadTranscripts[0]?.id))}
+                variant="ghost"
+                icon={<FileText size={14} />}
+              >
+                צור סיכום תמלול
+              </Button>
+            )}
+            {leadRecommendations.length > 0 && (
+              <Button
+                onClick={() => {
+                  const latestRec = leadRecommendations[0];
+                  if (latestRec) {
+                    handleGenerateAISummary('recommendation_summary', latestRec.id, latestRec.recommendation);
+                  }
+                }}
+                disabled={isGeneratingSummary || (leadRecommendations.length > 0 && !!leadAISummaries.find(n => n.sourceId === leadRecommendations[0]?.id))}
+                variant="ghost"
+                icon={<Sparkles size={14} />}
+              >
+                צור סיכום המלצות
+              </Button>
+            )}
+          </div>
         )}
       </Card>
 
@@ -1091,6 +1282,17 @@ const LeadProfile: React.FC = () => {
           <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
             <Button type="button" variant="ghost" onClick={() => setConfirmDeleteWAId(null)}>ביטול</Button>
             <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteWAId) { await deleteWhatsAppMessage(confirmDeleteWAId); setConfirmDeleteWAId(null); } }}>מחק</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Delete AI Summary Modal */}
+      <Modal isOpen={!!confirmDeleteSummaryId} onClose={() => setConfirmDeleteSummaryId(null)} title="מחיקת סיכום AI" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך למחוק את סיכום ה-AI?</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteSummaryId(null)}>ביטול</Button>
+            <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteSummaryId) { await deleteLeadNote(confirmDeleteSummaryId); setConfirmDeleteSummaryId(null); } }}>מחק</Button>
           </div>
         </div>
       </Modal>

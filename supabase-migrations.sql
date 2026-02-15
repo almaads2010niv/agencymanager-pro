@@ -543,5 +543,17 @@ CREATE POLICY "recordings_delete" ON storage.objects FOR DELETE
   USING (bucket_id = 'recordings' AND (SELECT is_admin()));
 
 -- ============================================================
+-- 10. AI SUMMARY NOTES — add note_type and source_id columns
+-- ============================================================
+
+-- Add note_type to client_notes (manual | transcript_summary | recommendation_summary)
+ALTER TABLE client_notes ADD COLUMN IF NOT EXISTS note_type text NOT NULL DEFAULT 'manual';
+ALTER TABLE client_notes ADD COLUMN IF NOT EXISTS source_id text DEFAULT NULL;
+
+-- Add note_type to lead_notes
+ALTER TABLE lead_notes ADD COLUMN IF NOT EXISTS note_type text NOT NULL DEFAULT 'manual';
+ALTER TABLE lead_notes ADD COLUMN IF NOT EXISTS source_id text DEFAULT NULL;
+
+-- ============================================================
 -- DONE! All migrations and RLS policies applied.
 -- ============================================================
