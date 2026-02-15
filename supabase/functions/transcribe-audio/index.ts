@@ -1,14 +1,82 @@
 // Supabase Edge Function: transcribe-audio
 // Transcribes audio recordings via Gemini API with the user's fixed prompt
-// Uses gemini-2.5-flash for high-quality Hebrew transcription
+// Uses Gemini Files API for large audio files (avoids memory limits)
 // Deploy: npx supabase functions deploy transcribe-audio --project-ref rxckkozbkrabpjdgyxqm
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { encode as base64Encode } from 'https://deno.land/std@0.208.0/encoding/base64.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+// Upload audio to Gemini Files API (resumable upload, no memory issues)
+async function uploadToGeminiFiles(
+  audioUrl: string,
+  mimeType: string,
+  geminiApiKey: string
+): Promise<string> {
+  // 1. Download audio from Supabase Storage as a buffer
+  const audioRes = await fetch(audioUrl)
+  if (!audioRes.ok) {
+    throw new Error(`Failed to download audio: ${audioRes.status}`)
+  }
+  const audioBytes = await audioRes.arrayBuffer()
+  const contentLength = audioBytes.byteLength
+
+  // 2. Initiate resumable upload to Gemini Files API
+  const initRes = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${geminiApiKey}`,
+    {
+      method: 'POST',
+      headers: {
+        'X-Goog-Upload-Protocol': 'resumable',
+        'X-Goog-Upload-Command': 'start',
+        'X-Goog-Upload-Header-Content-Length': String(contentLength),
+        'X-Goog-Upload-Header-Content-Type': mimeType,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        file: { display_name: `recording_${Date.now()}` },
+      }),
+    }
+  )
+
+  if (!initRes.ok) {
+    const errText = await initRes.text()
+    throw new Error(`Gemini Files API init failed (${initRes.status}): ${errText}`)
+  }
+
+  // 3. Get the upload URL from response headers
+  const uploadUrl = initRes.headers.get('x-goog-upload-url')
+  if (!uploadUrl) {
+    throw new Error('No upload URL returned from Gemini Files API')
+  }
+
+  // 4. Upload the actual audio bytes
+  const uploadRes = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Length': String(contentLength),
+      'X-Goog-Upload-Offset': '0',
+      'X-Goog-Upload-Command': 'upload, finalize',
+    },
+    body: audioBytes,
+  })
+
+  if (!uploadRes.ok) {
+    const errText = await uploadRes.text()
+    throw new Error(`Gemini file upload failed (${uploadRes.status}): ${errText}`)
+  }
+
+  // 5. Extract file URI from response
+  const fileInfo = await uploadRes.json()
+  const fileUri = fileInfo?.file?.uri
+  if (!fileUri) {
+    throw new Error('No file URI returned from Gemini Files API')
+  }
+
+  return fileUri
 }
 
 Deno.serve(async (req) => {
@@ -74,26 +142,21 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 4. Download audio from Supabase Storage
-    const audioRes = await fetch(audioUrl)
-    if (!audioRes.ok) {
+    // 4. Upload audio to Gemini Files API (avoids Edge Function memory limits)
+    const audioMimeType = mimeType || 'audio/mpeg'
+    let fileUri: string
+    try {
+      fileUri = await uploadToGeminiFiles(audioUrl, audioMimeType, geminiApiKey)
+    } catch (uploadErr) {
+      const msg = uploadErr instanceof Error ? uploadErr.message : 'Unknown upload error'
       return new Response(JSON.stringify({
         success: false,
-        error: `שגיאה בהורדת קובץ ההקלטה (${audioRes.status})`,
+        error: `שגיאה בהעלאת קובץ ל-Gemini: ${msg}`,
       }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
-
-    const audioBuffer = await audioRes.arrayBuffer()
-    const audioBytes = new Uint8Array(audioBuffer)
-
-    // Convert to base64 using Deno's standard library (reliable for large files)
-    const base64Audio = base64Encode(audioBytes)
-
-    // Determine mime type
-    const audioMimeType = mimeType || 'audio/mpeg'
 
     // 5. Build the user's exact transcription prompt
     const contactName = entityName || 'הלקוח'
@@ -120,7 +183,7 @@ ${contactName}: yyyy
 מה כדאי לעשות הלאה
 כותרת לכל קטגוריה בתיעוד`
 
-    // 6. Call Gemini API with audio — using gemini-2.5-flash for high quality Hebrew transcription
+    // 6. Call Gemini API with fileUri (no inline data = no memory pressure)
     const geminiRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
       {
@@ -130,9 +193,9 @@ ${contactName}: yyyy
           contents: [{
             parts: [
               {
-                inlineData: {
-                  mimeType: audioMimeType,
-                  data: base64Audio,
+                file_data: {
+                  mime_type: audioMimeType,
+                  file_uri: fileUri,
                 },
               },
               { text: prompt },
