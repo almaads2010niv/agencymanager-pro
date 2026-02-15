@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
     // 3. Parse request body
     const { summaryType, transcript, transcriptSummary, recommendation, entityName, additionalContext } = await req.json()
 
-    if (!summaryType || !['transcript_summary', 'recommendation_summary'].includes(summaryType)) {
+    if (!summaryType || !['transcript_summary', 'recommendation_summary', 'proposal_focus'].includes(summaryType)) {
       return new Response(JSON.stringify({
         success: false,
         error: 'סוג סיכום לא חוקי',
@@ -116,8 +116,7 @@ ${sourceText}
 (צעדים הבאים ספציפיים)
 
 ענה בעברית בלבד. היה תמציתי אך ספציפי.`
-    } else {
-      // recommendation_summary
+    } else if (summaryType === 'recommendation_summary') {
       if (!recommendation) {
         return new Response(JSON.stringify({
           success: false,
@@ -148,6 +147,56 @@ ${recommendation.substring(0, 5000)}
 (2-3 תובנות חשובות מההמלצה)
 
 ענה בעברית בלבד. היה תמציתי ומעשי.`
+    } else if (summaryType === 'proposal_focus') {
+      // proposal_focus: analyze transcript/recommendation to guide price proposal
+      if (!transcript && !transcriptSummary && !recommendation) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'חסר תמלול, סיכום או המלצה ליצירת מיקוד הצעת מחיר',
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      // Build source text from all available inputs
+      let sourceText = ''
+      if (transcriptSummary) {
+        sourceText += `סיכום שיחה:\n${transcriptSummary}\n\n`
+      }
+      if (transcript) {
+        sourceText += `תמלול שיחה (קטע):\n${(transcript || '').substring(0, 5000)}\n\n`
+      }
+      if (recommendation) {
+        sourceText += `המלצת AI:\n${(recommendation || '').substring(0, 3000)}\n\n`
+      }
+
+      prompt = `אתה מנהל חשבון בכיר בסוכנות שיווק דיגיטלי "עלמה?" בישראל.
+אתה מתכונן להגיש הצעת מחיר ללקוח/ליד.
+
+${entityName ? `שם הלקוח/ליד: "${entityName}"` : ''}
+${additionalContext ? `מידע נוסף: ${additionalContext}` : ''}
+
+${sourceText}
+
+בהתבסס על כל המידע הזמין, צור מסמך מיקוד להצעת מחיר בפורמט הבא:
+
+## שירותים מומלצים להציע
+(רשימת שירותים ספציפיים שכדאי לכלול בהצעה, עם הסבר קצר למה כל שירות רלוונטי)
+
+## נקודות כאב שזוהו
+(בעיות ואתגרים שהלקוח ציין או שניתן לזהות — אלו יהפכו לנקודות מכירה)
+
+## הצעת ערך — מה יגרום להם להגיד כן
+(מה הכי מהדהד עם הלקוח הזה, מה הערך המוסף שלנו, איזה תוצאות להדגיש)
+
+## מה לא להציע / סיכונים
+(שירותים או גישות שכדאי להימנע מהם, דגלים אדומים, ציפיות לא מציאותיות)
+
+## טון מומלץ להצעה
+(רשמי/ידידותי, טכני/פשוט, דחיפות/סבלנות — ותיאור קצר של הגישה)
+
+ענה בעברית בלבד. היה ספציפי ומעשי. כל סעיף צריך להיות ממוקד ללקוח הספציפי הזה.`
     }
 
     // 5. Call Gemini API

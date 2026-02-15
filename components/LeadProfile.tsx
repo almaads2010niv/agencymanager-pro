@@ -3,11 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, NoteType } from '../types';
+import type { Lead } from '../types';
 import { formatCurrency, formatDate, formatDateTime, formatPhoneForWhatsApp } from '../utils';
 import { MESSAGE_PURPOSES } from '../constants';
-import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3 } from 'lucide-react';
+import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import { Input, Textarea } from './ui/Form';
+import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -96,6 +97,10 @@ const LeadProfile: React.FC = () => {
   const [expandedSummaryId, setExpandedSummaryId] = useState<string | null>(null);
   const [confirmDeleteSummaryId, setConfirmDeleteSummaryId] = useState<string | null>(null);
 
+  // Edit modal state
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editFormData, setEditFormData] = useState<Partial<Lead> | null>(null);
+
   // Expand/collapse for long notes in contact info
   const [notesExpanded, setNotesExpanded] = useState(false);
   const NOTES_PREVIEW_LENGTH = 150;
@@ -165,6 +170,21 @@ const LeadProfile: React.FC = () => {
   const handleAssignedToChange = async (newAssigned: string) => {
     if (!lead) return;
     await updateLead({ ...lead, assignedTo: newAssigned || undefined });
+  };
+
+  // Edit modal handlers
+  const openEditModal = () => {
+    if (!lead) return;
+    setEditFormData({ ...lead });
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editFormData || !lead) return;
+    await updateLead({ ...lead, ...editFormData } as Lead);
+    setIsEditModalOpen(false);
+    setEditFormData(null);
   };
 
   const handleAddTranscript = async () => {
@@ -440,6 +460,12 @@ const LeadProfile: React.FC = () => {
       if (summaryType === 'transcript_summary') {
         body.transcript = sourceText;
         if (existingSummary) body.transcriptSummary = existingSummary;
+      } else if (summaryType === 'proposal_focus') {
+        body.transcript = sourceText;
+        if (existingSummary) body.transcriptSummary = existingSummary;
+        // Also include latest recommendation if available for richer context
+        const latestRec = leadRecommendations[0];
+        if (latestRec) body.recommendation = latestRec.recommendation;
       } else {
         body.recommendation = sourceText;
       }
@@ -548,6 +574,11 @@ const LeadProfile: React.FC = () => {
             icon={<CheckCircle size={16} />}
           >
             המר ללקוח
+          </Button>
+        )}
+        {isAdmin && (
+          <Button onClick={openEditModal} variant="ghost" icon={<Edit3 size={16} />}>
+            עריכת ליד
           </Button>
         )}
       </div>
@@ -976,7 +1007,7 @@ const LeadProfile: React.FC = () => {
           <div className="space-y-3">
             {leadAISummaries.map(summary => {
               const isExpanded = expandedSummaryId === summary.id;
-              const typeLabel = summary.noteType === 'transcript_summary' ? '📝 סיכום תמלול' : '💡 סיכום המלצות';
+              const typeLabel = summary.noteType === 'transcript_summary' ? '📝 סיכום תמלול' : summary.noteType === 'proposal_focus' ? '🎯 מיקוד להצעת מחיר' : '💡 סיכום המלצות';
               const preview = summary.content.length > 200 ? summary.content.substring(0, 200) + '...' : summary.content;
               return (
                 <div key={summary.id} className="bg-[#0B1121] rounded-xl border border-purple-500/10 overflow-hidden">
@@ -1050,6 +1081,21 @@ const LeadProfile: React.FC = () => {
                 icon={<Sparkles size={14} />}
               >
                 צור סיכום המלצות
+              </Button>
+            )}
+            {leadTranscripts.length > 0 && (
+              <Button
+                onClick={() => {
+                  const latestTranscript = leadTranscripts[0];
+                  if (latestTranscript) {
+                    handleGenerateAISummary('proposal_focus', `pf_${latestTranscript.id}`, latestTranscript.transcript, latestTranscript.summary);
+                  }
+                }}
+                disabled={isGeneratingSummary || (leadTranscripts.length > 0 && !!leadAISummaries.find(n => n.sourceId === `pf_${leadTranscripts[0]?.id}`))}
+                variant="ghost"
+                icon={<Target size={14} />}
+              >
+                צור מיקוד להצעת מחיר
               </Button>
             )}
           </div>
@@ -1295,6 +1341,62 @@ const LeadProfile: React.FC = () => {
             <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteSummaryId) { await deleteLeadNote(confirmDeleteSummaryId); setConfirmDeleteSummaryId(null); } }}>מחק</Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Edit Lead Modal */}
+      <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="עריכת ליד">
+        {editFormData && (
+          <form onSubmit={handleEditSubmit} className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="שם הליד" required value={editFormData.leadName || ''} onChange={e => setEditFormData({...editFormData, leadName: e.target.value})} />
+              <Input label="שם עסק" value={editFormData.businessName || ''} onChange={e => setEditFormData({...editFormData, businessName: e.target.value})} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="טלפון" value={editFormData.phone || ''} onChange={e => setEditFormData({...editFormData, phone: e.target.value})} />
+              <Input label="אימייל" type="email" value={editFormData.email || ''} onChange={e => setEditFormData({...editFormData, email: e.target.value})} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Select label="מקור" value={editFormData.sourceChannel || ''} onChange={e => setEditFormData({...editFormData, sourceChannel: e.target.value as SourceChannel})}>
+                {Object.values(SourceChannel).map(s => <option key={s} value={s}>{s}</option>)}
+              </Select>
+              <Input label="הצעת מחיר (₪)" type="number" value={editFormData.quotedMonthlyValue ?? ''} onChange={e => setEditFormData({...editFormData, quotedMonthlyValue: Number(e.target.value) || 0})} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="תאריך קשר הבא" type="date" value={editFormData.nextContactDate ? new Date(editFormData.nextContactDate).toISOString().split('T')[0] : ''} onChange={e => setEditFormData({...editFormData, nextContactDate: e.target.value})} />
+              <Select label="סטטוס" value={editFormData.status || ''} onChange={e => setEditFormData({...editFormData, status: e.target.value as LeadStatus})}>
+                {Object.values(LeadStatus).map(s => <option key={s} value={s}>{s}</option>)}
+              </Select>
+            </div>
+            <Select label="מטפל אחראי" value={editFormData.assignedTo || ''} onChange={e => setEditFormData({...editFormData, assignedTo: e.target.value || undefined})}>
+              <option value="">לא משויך</option>
+              {allUsers.map(u => (
+                <option key={u.user_id} value={u.user_id}>{u.display_name}</option>
+              ))}
+            </Select>
+            <div>
+              <label className="text-xs font-medium text-gray-400 uppercase tracking-wider block mb-2">שירותים מתעניינים</label>
+              <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-3 border border-white/10 rounded-lg bg-[#0B1121]">
+                {services.filter(s => s.isActive).map(service => (
+                  <Checkbox
+                    key={service.serviceKey}
+                    label={service.label}
+                    checked={editFormData.interestedServices?.includes(service.serviceKey) || false}
+                    onChange={(checked) => {
+                      const current = editFormData.interestedServices || [];
+                      if (checked) setEditFormData({...editFormData, interestedServices: [...current, service.serviceKey]});
+                      else setEditFormData({...editFormData, interestedServices: current.filter((k: string) => k !== service.serviceKey)});
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+            <Textarea label="הערות" value={editFormData.notes || ''} onChange={e => setEditFormData({...editFormData, notes: e.target.value})} />
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+              <Button type="button" variant="ghost" onClick={() => setIsEditModalOpen(false)}>ביטול</Button>
+              <Button type="submit">שמור</Button>
+            </div>
+          </form>
+        )}
       </Modal>
     </div>
   );

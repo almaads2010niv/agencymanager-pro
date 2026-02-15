@@ -108,7 +108,7 @@ ${transcriptsText ? `סיכומי שיחות אחרונות:\n${transcriptsText}
 
     // 6. Call Gemini API
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -133,14 +133,21 @@ ${transcriptsText ? `סיכומי שיחות אחרונות:\n${transcriptsText}
       })
     }
 
-    // 7. Parse response - extract JSON array
+    // 7. Parse response - handle Gemini 2.5 thinking parts
     const geminiResult = await geminiRes.json()
-    const rawText = geminiResult.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    const parts = geminiResult.candidates?.[0]?.content?.parts || []
+    let rawText = ''
+    for (const part of parts) {
+      if (part.text && !part.thought) {
+        rawText += part.text
+      }
+    }
 
     let messages: string[] = []
     try {
       // Try to extract JSON array from response (handles markdown code fences too)
-      const jsonMatch = rawText.match(/\[[\s\S]*?\]/)
+      // Use greedy match to capture the full array
+      const jsonMatch = rawText.match(/\[[\s\S]*\]/)
       if (jsonMatch) {
         messages = JSON.parse(jsonMatch[0])
       }

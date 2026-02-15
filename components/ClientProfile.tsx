@@ -3,12 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import type { ClientFile } from '../contexts/DataContext';
-import { ClientStatus, ClientRating, NoteType } from '../types';
+import { ClientStatus, ClientRating, EffortLevel, NoteType } from '../types';
+import type { Client } from '../types';
 import { formatCurrency, formatDate, formatDateTime, getMonthName, formatPhoneForWhatsApp } from '../utils';
-import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle, User, Send, Clock, ChevronDown, ChevronUp, Sparkles, Plus, Mic, Edit3 } from 'lucide-react';
+import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle, User, Send, Clock, ChevronDown, ChevronUp, Sparkles, Plus, Mic, Edit3, Target } from 'lucide-react';
 import { MESSAGE_PURPOSES } from '../constants';
 import { supabase } from '../lib/supabaseClient';
-import { Input, Textarea } from './ui/Form';
+import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -69,6 +70,10 @@ const ClientProfile: React.FC = () => {
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [expandedSummaryId, setExpandedSummaryId] = useState<string | null>(null);
   const [confirmDeleteSummaryId, setConfirmDeleteSummaryId] = useState<string | null>(null);
+
+  // Edit modal state
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editFormData, setEditFormData] = useState<Partial<Client> | null>(null);
 
   // Expand/collapse for long notes in contact info
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -165,6 +170,21 @@ const ClientProfile: React.FC = () => {
   const handleRatingChange = async (newRating: string) => {
     if (!client) return;
     await updateClient({ ...client, rating: newRating as ClientRating });
+  };
+
+  // Edit modal handlers
+  const openEditModal = () => {
+    if (!client) return;
+    setEditFormData({ ...client });
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editFormData || !client) return;
+    await updateClient({ ...client, ...editFormData } as Client);
+    setIsEditModalOpen(false);
+    setEditFormData(null);
   };
 
   const handleAddTranscript = async () => {
@@ -401,6 +421,12 @@ const ClientProfile: React.FC = () => {
       if (summaryType === 'transcript_summary') {
         body.transcript = sourceText;
         if (existingSummary) body.transcriptSummary = existingSummary;
+      } else if (summaryType === 'proposal_focus') {
+        body.transcript = sourceText;
+        if (existingSummary) body.transcriptSummary = existingSummary;
+        // Also include latest recommendation if available for richer context
+        const latestRec = clientRecommendations[0];
+        if (latestRec) body.recommendation = latestRec.recommendation;
       } else {
         body.recommendation = sourceText;
       }
@@ -485,6 +511,11 @@ const ClientProfile: React.FC = () => {
         >
           {Object.values(ClientRating).map(r => <option key={r} value={r}>{r}</option>)}
         </select>
+        {isAdmin && (
+          <Button onClick={openEditModal} variant="ghost" icon={<Edit3 size={16} />}>
+            עריכת לקוח
+          </Button>
+        )}
       </div>
 
       {/* Contact + Financial Summary */}
@@ -805,7 +836,7 @@ const ClientProfile: React.FC = () => {
           <div className="space-y-3">
             {clientAISummaries.map(summary => {
               const isExpanded = expandedSummaryId === summary.id;
-              const typeLabel = summary.noteType === 'transcript_summary' ? '📝 סיכום תמלול' : '💡 סיכום המלצות';
+              const typeLabel = summary.noteType === 'transcript_summary' ? '📝 סיכום תמלול' : summary.noteType === 'proposal_focus' ? '🎯 מיקוד להצעת מחיר' : '💡 סיכום המלצות';
               const preview = summary.content.length > 200 ? summary.content.substring(0, 200) + '...' : summary.content;
               return (
                 <div key={summary.id} className="bg-[#0B1121] rounded-xl border border-purple-500/10 overflow-hidden">
@@ -879,6 +910,21 @@ const ClientProfile: React.FC = () => {
                 icon={<Sparkles size={14} />}
               >
                 צור סיכום המלצות
+              </Button>
+            )}
+            {clientTranscripts.length > 0 && (
+              <Button
+                onClick={() => {
+                  const latestTranscript = clientTranscripts[0];
+                  if (latestTranscript) {
+                    handleGenerateAISummary('proposal_focus', `pf_${latestTranscript.id}`, latestTranscript.transcript, latestTranscript.summary);
+                  }
+                }}
+                disabled={isGeneratingSummary || (clientTranscripts.length > 0 && !!clientAISummaries.find(n => n.sourceId === `pf_${clientTranscripts[0]?.id}`))}
+                variant="ghost"
+                icon={<Target size={14} />}
+              >
+                צור מיקוד להצעת מחיר
               </Button>
             )}
           </div>
@@ -1299,6 +1345,84 @@ const ClientProfile: React.FC = () => {
             <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteSummaryId) { await deleteClientNote(confirmDeleteSummaryId); setConfirmDeleteSummaryId(null); } }}>מחק</Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Edit Client Modal */}
+      <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="עריכת לקוח" size="xl">
+        {editFormData && (
+          <form onSubmit={handleEditSubmit} className="space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Personal Details */}
+              <div className="space-y-6">
+                <h4 className="text-primary text-sm font-bold uppercase tracking-wider border-b border-white/10 pb-2">פרטים אישיים</h4>
+                <div className="space-y-4">
+                  <Input label="שם העסק" required value={editFormData.businessName || ''} onChange={e => setEditFormData({...editFormData, businessName: e.target.value})} />
+                  <Input label="שם מלא" required value={editFormData.clientName || ''} onChange={e => setEditFormData({...editFormData, clientName: e.target.value})} />
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input label="טלפון" required value={editFormData.phone || ''} onChange={e => setEditFormData({...editFormData, phone: e.target.value})} />
+                    <Input label="אימייל" type="email" value={editFormData.email || ''} onChange={e => setEditFormData({...editFormData, email: e.target.value})} />
+                  </div>
+                  <Input label="תעשייה" value={editFormData.industry || ''} onChange={e => setEditFormData({...editFormData, industry: e.target.value})} />
+                </div>
+              </div>
+              {/* Business Details */}
+              <div className="space-y-6">
+                <h4 className="text-primary text-sm font-bold uppercase tracking-wider border-b border-white/10 pb-2">פרטים עסקיים</h4>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <Select label="סטטוס" value={editFormData.status || ''} onChange={e => setEditFormData({...editFormData, status: e.target.value as ClientStatus})}>
+                      {Object.values(ClientStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                    </Select>
+                    <Select label="דירוג הלקוח" value={editFormData.rating || ''} onChange={e => setEditFormData({...editFormData, rating: e.target.value as ClientRating})}>
+                      {Object.values(ClientRating).map(r => <option key={r} value={r}>{r}</option>)}
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input label="ריטיינר חודשי (₪)" type="number" value={editFormData.monthlyRetainer ?? ''} onFocus={e => { if (e.target.value === '0') e.target.value = ''; }} onChange={e => setEditFormData({...editFormData, monthlyRetainer: Number(e.target.value) || 0})} />
+                    <Input label="עלות ספקים (₪)" type="number" value={editFormData.supplierCostMonthly ?? ''} onFocus={e => { if (e.target.value === '0') e.target.value = ''; }} onChange={e => setEditFormData({...editFormData, supplierCostMonthly: Number(e.target.value) || 0})} />
+                  </div>
+                  <Input label="תאריך הצטרפות" type="date" value={editFormData.joinDate ? new Date(editFormData.joinDate).toISOString().split('T')[0] : ''} onChange={e => setEditFormData({...editFormData, joinDate: e.target.value})} />
+                  <Input label="תאריך נטישה" type="date" value={editFormData.churnDate ? new Date(editFormData.churnDate).toISOString().split('T')[0] : ''} onChange={e => setEditFormData({...editFormData, churnDate: e.target.value || undefined})} />
+                  <div className="grid grid-cols-2 gap-4">
+                    <Select label="רמת מאמץ" value={editFormData.effortLevel || ''} onChange={e => setEditFormData({...editFormData, effortLevel: e.target.value as EffortLevel})}>
+                      {Object.values(EffortLevel).map(el => <option key={el} value={el}>{el}</option>)}
+                    </Select>
+                    <Input label="יום חיוב" type="number" min={1} max={31} value={editFormData.billingDay ?? 1} onChange={e => setEditFormData({...editFormData, billingDay: Number(e.target.value) || 1})} />
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Services & Handler */}
+            <div className="space-y-6">
+              <h4 className="text-primary text-sm font-bold uppercase tracking-wider border-b border-white/10 pb-2">שירותים ומטפל</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {services.filter(s => s.isActive).map(service => (
+                  <Checkbox
+                    key={service.serviceKey}
+                    label={service.label}
+                    checked={editFormData.services?.includes(service.serviceKey) || false}
+                    onChange={(checked) => {
+                      const current = editFormData.services || [];
+                      if (checked) setEditFormData({...editFormData, services: [...current, service.serviceKey]});
+                      else setEditFormData({...editFormData, services: current.filter((k: string) => k !== service.serviceKey)});
+                    }}
+                  />
+                ))}
+              </div>
+              <Select label="מטפל אחראי" value={editFormData.assignedTo || ''} onChange={e => setEditFormData({...editFormData, assignedTo: e.target.value || undefined})}>
+                <option value="">לא משויך</option>
+                {allUsers.map(u => (
+                  <option key={u.user_id} value={u.user_id}>{u.display_name} ({u.role === 'admin' ? 'מנהל' : 'צופה'})</option>
+                ))}
+              </Select>
+              <Textarea label="הערות" value={editFormData.notes || ''} onChange={e => setEditFormData({...editFormData, notes: e.target.value})} />
+            </div>
+            <div className="pt-6 border-t border-white/10 flex justify-end gap-3">
+              <Button type="button" variant="ghost" onClick={() => setIsEditModalOpen(false)}>ביטול</Button>
+              <Button type="submit">שמור לקוח</Button>
+            </div>
+          </form>
+        )}
       </Modal>
     </div>
   );

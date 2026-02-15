@@ -171,7 +171,7 @@ export interface RetainerChange {
   notes: string;
 }
 
-export type NoteType = 'manual' | 'transcript_summary' | 'recommendation_summary';
+export type NoteType = 'manual' | 'transcript_summary' | 'recommendation_summary' | 'proposal_focus';
 
 export interface ClientNote {
   id: string;
