@@ -318,14 +318,21 @@ const LeadProfile: React.FC = () => {
     try {
       // 1. Upload to storage
       const uploadResult = await uploadRecording('lead', lead.leadId, file);
-      if (!uploadResult) throw new Error('Upload failed');
+      if (!uploadResult) {
+        setTranscribeError('שגיאה בהעלאת הקובץ לאחסון. בדוק שהקובץ תקין ונסה שוב.');
+        return;
+      }
 
       // 2. Call transcribe Edge Function
       const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setTranscribeError('שגיאת אימות - נסה להתחבר מחדש.');
+        return;
+      }
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/transcribe-audio`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session?.access_token}`,
+          'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -335,23 +342,31 @@ const LeadProfile: React.FC = () => {
           mimeType: file.type || 'audio/mpeg',
         }),
       });
-      const result = await res.json();
-      if (result.success) {
-        // 3. Auto-save as CallTranscript
-        await addCallTranscript({
-          leadId: lead.leadId,
-          callDate: new Date().toISOString().split('T')[0],
-          participants: `ניב, ${lead.leadName}`,
-          transcript: result.transcript,
-          summary: result.summary,
-          createdBy: user.id,
-          createdByName: currentUserName,
-        });
-      } else {
-        setTranscribeError(result.error || 'שגיאה בתמלול ההקלטה');
+      let result;
+      try {
+        result = await res.json();
+      } catch {
+        setTranscribeError(`שגיאת שרת (${res.status}). נסה שוב.`);
+        return;
       }
-    } catch {
-      setTranscribeError('שגיאה בהעלאה או בתמלול ההקלטה');
+      if (!res.ok || !result.success) {
+        setTranscribeError(result.error || `שגיאה בתמלול ההקלטה (${res.status})`);
+        return;
+      }
+      // 3. Auto-save as CallTranscript
+      await addCallTranscript({
+        leadId: lead.leadId,
+        callDate: new Date().toISOString().split('T')[0],
+        participants: `ניב, ${lead.leadName}`,
+        transcript: result.transcript,
+        summary: result.summary,
+        createdBy: user.id,
+        createdByName: currentUserName,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Transcription error:', err);
+      setTranscribeError(`שגיאה בהעלאה או בתמלול ההקלטה: ${msg}`);
     } finally {
       setIsTranscribing(false);
       if (audioInputRef.current) audioInputRef.current.value = '';
