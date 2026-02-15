@@ -1,6 +1,6 @@
 ===============================================================================
                     AgencyManager Pro - Project Story
-                    Last Updated: 2026-02-14
+                    Last Updated: 2026-02-15
 ===============================================================================
 
 OVERVIEW
@@ -386,30 +386,48 @@ CHANGES:
    - Edit button in profile header opens full form modal
    - All fields editable: personal, business, services, handler, notes
 
-3. WHATSAPP MESSAGE FIX
-   - Problem: Messages displayed as raw JSON with markdown code fences
-   - Root cause: Edge function used gemini-2.0-flash, didn't filter
-     Gemini 2.5 thinking parts, non-greedy regex
-   - Fix: Upgraded model, added thinking-parts filter, greedy regex,
-     added responseMimeType: 'application/json' for clean JSON output,
-     improved multi-level fallback parsing
-
-4. GEMINI MODEL UPGRADE
-   - Strategy: gemini-3-pro-preview for quality, gemini-2.5-flash for speed
-   - ai-recommendations: 2.0-flash -> 3-pro-preview + added thinking filter
-   - generate-ai-summary: 2.5-flash -> 3-pro-preview
-   - generate-whatsapp-messages: stays on 2.5-flash (speed matters)
+3. GEMINI MODEL UPGRADE
+   - Audited all 4 Gemini Edge Functions for model versions
+   - Strategy chosen: gemini-3-pro-preview for quality, gemini-2.5-flash for speed
+   - ai-recommendations: 2.0-flash -> 3-pro-preview + ADDED thinking-parts filter
+     (was missing entirely — only read parts?.[0]?.text)
+   - generate-ai-summary: 2.5-flash -> 3-pro-preview (filter already existed)
+   - generate-whatsapp-messages: kept on 2.5-flash initially (speed matters)
    - transcribe-audio: stays on 2.5-flash (large token counts)
+
+4. WHATSAPP MESSAGE FIX (4 debugging iterations)
+   - Problem: "Gemini לא הצליח ליצור הודעות" error with 500 status
+   - Root cause: gemini-2.5-flash thinking mode wraps ALL content in thinking
+     parts for simple JSON tasks, leaving rawText empty after !part.thought filter
+
+   Iteration 1: Added responseMimeType: 'application/json' + thinkingConfig
+   -> FAILED: "Invalid JSON payload. Unknown name thinkingConfig: Cannot find field"
+   Learning: responseMimeType/thinkingConfig/responseSchema NOT supported in
+   gemini-2.5-flash REST API (generativelanguage.googleapis.com/v1beta)
+
+   Iteration 2: Removed unsupported fields, kept simple config
+   -> FAILED: Still empty rawText after thinking-parts filter
+
+   Iteration 3: Changed all error responses to status 200 (so frontend can read
+   JSON body), added debug field to error responses
+   -> Partially helped: confirmed rawText was indeed empty (parts=X, rawLen=0)
+
+   Iteration 4 (FINAL FIX): Switched model to gemini-2.0-flash-lite
+   -> SUCCESS: No thinking parts, simple reliable JSON output
+   - Also added multi-level JSON parsing fallback:
+     1) Direct JSON.parse
+     2) Regex extract JSON array from response
+     3) Split by numbered lines as last resort
 
 FILES MODIFIED:
 - types.ts (NoteType extended with proposal_focus)
-- components/ClientProfile.tsx (edit modal, AI summary buttons, proposal focus)
+- components/ClientProfile.tsx (edit modal, AI summary buttons, proposal focus, WhatsApp debug)
 - components/LeadProfile.tsx (edit modal, AI summary buttons, proposal focus)
 - supabase/functions/generate-ai-summary/index.ts (NEW: 3 summary types)
 - supabase/functions/ai-recommendations/index.ts (model upgrade + thinking filter)
-- supabase/functions/generate-whatsapp-messages/index.ts (JSON fix + responseMimeType)
+- supabase/functions/generate-whatsapp-messages/index.ts (4 iterations: model -> 2.0-flash-lite + parsing)
 
-Commits: 83c5840, c3080f8, + pending commit
+Commits: 83c5840, c3080f8, c14c9b3, 9b73c62, 5c4b723
 All Edge Functions redeployed.
 
 ===============================================================================
@@ -443,16 +461,19 @@ Auth:
 
 AI / Gemini:
   gemini-3-pro-preview -> ai-recommendations, generate-ai-summary (quality)
-  gemini-2.5-flash -> generate-whatsapp-messages, transcribe-audio (speed)
+  gemini-2.5-flash -> transcribe-audio (speed, large token counts)
+  gemini-2.0-flash-lite -> generate-whatsapp-messages (no thinking parts, reliable JSON)
   API key stored server-side only (settings.gemini_api_key)
-  All functions filter thinking parts: if (part.text && !part.thought)
+  Thinking parts filter: if (part.text && !part.thought) — needed for 2.5+ and 3.x
+  gemini-2.0-flash-lite has NO thinking parts (simpler, ideal for JSON generation)
+  WARNING: responseMimeType/thinkingConfig/responseSchema NOT supported in 2.5-flash REST API
   Audio uses Gemini Files API (resumable upload -> file_uri)
 
 Edge Functions (6 total):
   create-user -> Admin account creation
   ai-recommendations -> AI advice via Gemini 3 Pro
   generate-ai-summary -> 3 summary types via Gemini 3 Pro
-  generate-whatsapp-messages -> 3 message variants via Gemini 2.5 Flash
+  generate-whatsapp-messages -> 3 message variants via Gemini 2.0 Flash-Lite
   transcribe-audio -> Audio -> text via Gemini Files API (2.5 Flash)
   generate-proposal -> PDF via Canva Connect API
 
@@ -488,7 +509,9 @@ Key Patterns:
   - allUsers from AuthContext for user dropdowns
   - is_admin() SECURITY DEFINER function for RLS
   - Edge Functions with service_role key for admin operations
-  - Gemini thinking-parts filter in all AI functions
+  - Gemini thinking-parts filter in all AI functions (except 2.0-flash-lite which has none)
+  - gemini-2.5-flash REST API does NOT support responseMimeType/thinkingConfig/responseSchema
+  - For simple JSON generation, use gemini-2.0-flash-lite (no thinking overhead)
   - NoteType: 'manual' | 'transcript_summary' | 'recommendation_summary' | 'proposal_focus'
   - MESSAGE_PURPOSES in constants.ts for WhatsApp purpose options
 
@@ -513,4 +536,6 @@ GIT HISTORY (key commits):
   f143444 - Gemini Files API to avoid memory limit
   83c5840 - AI Summary Notes (3 types)
   c3080f8 - Inline profile editing, proposal focus, WhatsApp fix
-  [pending] - Gemini model upgrade + MEMORY/PROJECT docs update
+  c14c9b3 - Gemini model upgrade + MEMORY/PROJECT docs update
+  9b73c62 - Debug: detailed error logging for WhatsApp generation
+  5c4b723 - Fix: switch WhatsApp to gemini-2.0-flash-lite for reliability
