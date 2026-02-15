@@ -1486,7 +1486,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // --- Audio Recording Upload ---
-  const uploadRecording = async (entityType: 'client' | 'lead', entityId: string, file: File): Promise<{ signedUrl: string; storagePath: string } | null> => {
+  const uploadRecording = async (entityType: 'client' | 'lead', entityId: string, file: File): Promise<{ signedUrl: string; storagePath: string; error?: string } | null> => {
     try {
       const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._\-\u0590-\u05FF]/g, '_')}`;
       const storagePath = `${entityId}/${safeName}`;
@@ -1505,21 +1505,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         'flac': 'audio/wav',
       };
       const contentType = mimeMap[ext] || file.type || 'audio/mpeg';
+      console.log('Upload recording:', { fileName: file.name, fileSize: file.size, fileType: file.type, ext, contentType, storagePath });
 
       const { error } = await supabase.storage
         .from('recordings')
         .upload(storagePath, file, { upsert: false, contentType });
 
       if (error) {
+        console.error('Storage upload error:', error);
         showError('שגיאה בהעלאת הקלטה: ' + error.message);
         return null;
       }
 
-      const { data: urlData } = await supabase.storage
+      const { data: urlData, error: urlError } = await supabase.storage
         .from('recordings')
         .createSignedUrl(storagePath, 3600); // 1 hour expiry
 
-      if (!urlData?.signedUrl) {
+      if (urlError || !urlData?.signedUrl) {
+        console.error('Signed URL error:', urlError);
         showError('שגיאה ביצירת קישור להקלטה');
         return null;
       }
@@ -1531,7 +1534,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return { signedUrl: urlData.signedUrl, storagePath };
     } catch (err) {
-      showError('שגיאה בהעלאת הקלטה');
+      console.error('Upload recording exception:', err);
+      showError('שגיאה בהעלאת הקלטה: ' + (err instanceof Error ? err.message : 'Unknown'));
       return null;
     }
   };
