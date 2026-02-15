@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import {
   AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service,
   AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel,
-  ActivityEntry, RetainerChange, ClientNote, LeadNote
+  ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -67,6 +67,19 @@ interface LeadNoteRow {
   created_at: string;
 }
 
+interface CallTranscriptRow {
+  id: string;
+  client_id: string | null;
+  lead_id: string | null;
+  call_date: string;
+  participants: string;
+  transcript: string;
+  summary: string;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+}
+
 interface DealRow {
   deal_id: string;
   client_id: string;
@@ -109,6 +122,9 @@ interface SettingsRow {
   target_monthly_revenue: number;
   target_monthly_gross_profit: number;
   employee_salary: number;
+  canva_api_key?: string | null;
+  canva_template_id?: string | null;
+  gemini_api_key?: string | null;
 }
 
 interface RetainerChangeRow {
@@ -164,6 +180,9 @@ export interface DataContextType extends AppData {
 
   addLeadNote: (leadId: string, content: string, userId: string, userName: string) => Promise<void>;
   deleteLeadNote: (noteId: string) => Promise<void>;
+
+  addCallTranscript: (transcript: Omit<CallTranscript, 'id' | 'createdAt'>) => Promise<void>;
+  deleteCallTranscript: (id: string) => Promise<void>;
 
   updateServices: (services: Service[]) => void;
   updateSettings: (settings: AgencySettings) => Promise<void>;
@@ -370,6 +389,9 @@ const transformSettingsToDB = (settings: AgencySettings) => ({
   target_monthly_revenue: settings.targetMonthlyRevenue,
   target_monthly_gross_profit: settings.targetMonthlyGrossProfit,
   employee_salary: settings.employeeSalary || 0,
+  canva_api_key: settings.canvaApiKey || null,
+  canva_template_id: settings.canvaTemplateId || null,
+  gemini_api_key: settings.geminiApiKey || null,
 });
 
 const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
@@ -378,6 +400,9 @@ const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
   targetMonthlyRevenue: row.target_monthly_revenue,
   targetMonthlyGrossProfit: row.target_monthly_gross_profit,
   employeeSalary: row.employee_salary || 0,
+  canvaApiKey: row.canva_api_key || undefined,
+  canvaTemplateId: row.canva_template_id || undefined,
+  geminiApiKey: row.gemini_api_key || undefined,
 });
 
 const transformRetainerChangeToDB = (rc: RetainerChange) => ({
@@ -438,6 +463,32 @@ const transformLeadNoteFromDB = (row: LeadNoteRow): LeadNote => ({
   createdAt: row.created_at,
 });
 
+const transformCallTranscriptToDB = (ct: CallTranscript) => ({
+  id: ct.id,
+  client_id: ct.clientId || null,
+  lead_id: ct.leadId || null,
+  call_date: ct.callDate,
+  participants: ct.participants,
+  transcript: ct.transcript,
+  summary: ct.summary,
+  created_by: ct.createdBy,
+  created_by_name: ct.createdByName,
+  created_at: ct.createdAt,
+});
+
+const transformCallTranscriptFromDB = (row: CallTranscriptRow): CallTranscript => ({
+  id: row.id,
+  clientId: row.client_id || undefined,
+  leadId: row.lead_id || undefined,
+  callDate: row.call_date,
+  participants: row.participants || '',
+  transcript: row.transcript || '',
+  summary: row.summary || '',
+  createdBy: row.created_by,
+  createdByName: row.created_by_name || '',
+  createdAt: row.created_at,
+});
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [data, setData] = useState<AppData>({
     clients: [],
@@ -451,6 +502,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     retainerHistory: [],
     clientNotes: [],
     leadNotes: [],
+    callTranscripts: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -500,7 +552,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
@@ -511,6 +563,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('retainer_changes').select('*').order('changed_at', { ascending: false }),
           supabase.from('client_notes').select('*').order('created_at', { ascending: false }),
           supabase.from('lead_notes').select('*').order('created_at', { ascending: false }),
+          supabase.from('call_transcripts').select('*').order('call_date', { ascending: false }),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -535,6 +588,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const retainerHistory: RetainerChange[] = (retainerChangesRes.data || []).map((row: RetainerChangeRow) => transformRetainerChangeFromDB(row));
         const clientNotes: ClientNote[] = (clientNotesRes.data || []).map((row: ClientNoteRow) => transformClientNoteFromDB(row));
         const leadNotes: LeadNote[] = (leadNotesRes.data || []).map((row: LeadNoteRow) => transformLeadNoteFromDB(row));
+        const callTranscripts: CallTranscript[] = (callTranscriptsRes.data || []).map((row: CallTranscriptRow) => transformCallTranscriptFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
         if (settingsRes.data && !settingsRes.error) {
@@ -556,6 +610,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           retainerHistory,
           clientNotes,
           leadNotes,
+          callTranscripts,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -1194,6 +1249,56 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // --- Call Transcripts ---
+  const addCallTranscript = async (ct: Omit<CallTranscript, 'id' | 'createdAt'>) => {
+    const newCT: CallTranscript = {
+      ...ct,
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const { error } = await supabase
+        .from('call_transcripts')
+        .insert(transformCallTranscriptToDB(newCT));
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        callTranscripts: [newCT, ...prev.callTranscripts],
+      }));
+
+      const entityName = ct.clientId
+        ? data.clients.find(c => c.clientId === ct.clientId)?.businessName
+        : data.leads.find(l => l.leadId === ct.leadId)?.leadName;
+      logActivity('transcript_added', ct.clientId ? 'client' : 'lead',
+        `תמלול שיחה חדש: ${entityName || ''}`, ct.clientId || ct.leadId);
+    } catch (err) {
+      showError('שגיאה בהוספת תמלול שיחה');
+      throw err;
+    }
+  };
+
+  const deleteCallTranscript = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('call_transcripts')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        callTranscripts: prev.callTranscripts.filter(ct => ct.id !== id),
+      }));
+    } catch (err) {
+      showError('שגיאה במחיקת תמלול');
+      throw err;
+    }
+  };
+
   const updateServices = (services: Service[]) => {
     setData(prev => ({ ...prev, services }));
   };
@@ -1232,6 +1337,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         retainerHistory: parsed.retainerHistory || [],
         clientNotes: parsed.clientNotes || [],
         leadNotes: parsed.leadNotes || [],
+        callTranscripts: parsed.callTranscripts || [],
       });
       return true;
     } catch (e) {
@@ -1258,6 +1364,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       uploadClientFile, listClientFiles, deleteClientFile,
       addClientNote, deleteClientNote,
       addLeadNote, deleteLeadNote,
+      addCallTranscript, deleteCallTranscript,
       updateServices, updateSettings,
       importData, exportData
     }}>

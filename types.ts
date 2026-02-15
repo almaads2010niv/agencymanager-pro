@@ -145,6 +145,9 @@ export interface AgencySettings {
   targetMonthlyRevenue: number;
   targetMonthlyGrossProfit: number;
   employeeSalary: number;
+  canvaApiKey?: string;
+  canvaTemplateId?: string;
+  geminiApiKey?: string;
 }
 
 export interface ActivityEntry {
@@ -185,6 +188,19 @@ export interface LeadNote {
   createdAt: string;
 }
 
+export interface CallTranscript {
+  id: string;
+  clientId?: string;
+  leadId?: string;
+  callDate: string;
+  participants: string;
+  transcript: string;
+  summary: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface AppData {
   clients: Client[];
   leads: Lead[];
@@ -197,4 +213,5 @@ export interface AppData {
   retainerHistory: RetainerChange[];
   clientNotes: ClientNote[];
   leadNotes: LeadNote[];
+  callTranscripts: CallTranscript[];
 }

@@ -11,6 +11,14 @@ export const formatDate = (dateStr: string) => {
   return new Date(dateStr).toLocaleDateString('he-IL');
 };
 
+export const formatDateTime = (dateStr: string) => {
+  if (!dateStr) return '-';
+  const date = new Date(dateStr);
+  const datePart = date.toLocaleDateString('he-IL');
+  const timePart = date.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${datePart} ${timePart}`;
+};
+
 export const getMonthKey = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');

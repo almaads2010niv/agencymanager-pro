@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
 import { useAuth, ALL_PAGES, PagePermission } from '../contexts/AuthContext';
-import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown, KeyRound } from 'lucide-react';
+import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown, KeyRound, Sparkles, Palette } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select } from './ui/Form';
@@ -337,6 +337,54 @@ const Settings: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* External Integrations - Admin only */}
+      {isAdmin && (
+        <Card>
+          <CardHeader title="אינטגרציות חיצוניות" />
+          <div className="space-y-6">
+            {/* Canva */}
+            <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5 space-y-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Palette size={18} className="text-violet-400" />
+                <span className="text-white font-bold text-sm">Canva — הצעות מחיר</span>
+              </div>
+              <Input
+                label="Canva API Key"
+                type="password"
+                value={localSettings.canvaApiKey || ''}
+                onChange={e => setLocalSettings({ ...localSettings, canvaApiKey: e.target.value })}
+                placeholder="cnv_..."
+              />
+              <Input
+                label="Canva Template ID"
+                value={localSettings.canvaTemplateId || ''}
+                onChange={e => setLocalSettings({ ...localSettings, canvaTemplateId: e.target.value })}
+                placeholder="DAG..."
+              />
+            </div>
+
+            {/* Gemini */}
+            <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5 space-y-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles size={18} className="text-amber-400" />
+                <span className="text-white font-bold text-sm">Gemini Pro — המלצות AI</span>
+              </div>
+              <Input
+                label="Gemini API Key"
+                type="password"
+                value={localSettings.geminiApiKey || ''}
+                onChange={e => setLocalSettings({ ...localSettings, geminiApiKey: e.target.value })}
+                placeholder="AI..."
+              />
+            </div>
+
+            <div className="flex justify-end pt-4 border-t border-white/5">
+              <Button onClick={handleSaveSettings} icon={<Save size={18} />}>שמור שינויים</Button>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card>
         <CardHeader title="גיבוי ושחזור" />

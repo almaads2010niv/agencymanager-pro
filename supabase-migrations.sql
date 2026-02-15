@@ -396,5 +396,58 @@ CREATE POLICY "lead_notes_delete" ON lead_notes FOR DELETE
   USING (is_admin()); -- Only admins can delete notes
 
 -- ============================================================
+-- 6. CALL TRANSCRIPTS TABLE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS call_transcripts (
+  id text PRIMARY KEY,
+  client_id text DEFAULT NULL,
+  lead_id text DEFAULT NULL,
+  call_date timestamptz NOT NULL DEFAULT now(),
+  participants text NOT NULL DEFAULT '',
+  transcript text NOT NULL DEFAULT '',
+  summary text NOT NULL DEFAULT '',
+  created_by text NOT NULL,
+  created_by_name text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT fk_ct_client FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE CASCADE,
+  CONSTRAINT fk_ct_lead FOREIGN KEY (lead_id) REFERENCES leads(lead_id) ON DELETE CASCADE
+);
+
+ALTER TABLE call_transcripts ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "call_transcripts_select" ON call_transcripts;
+CREATE POLICY "call_transcripts_select" ON call_transcripts FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "call_transcripts_insert" ON call_transcripts;
+CREATE POLICY "call_transcripts_insert" ON call_transcripts FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "call_transcripts_delete" ON call_transcripts;
+CREATE POLICY "call_transcripts_delete" ON call_transcripts FOR DELETE
+  TO authenticated
+  USING (is_admin());
+
+-- ============================================================
+-- 7. SETTINGS: API KEYS FOR INTEGRATIONS
+-- ============================================================
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'settings' AND column_name = 'canva_api_key') THEN
+    ALTER TABLE settings ADD COLUMN canva_api_key text DEFAULT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'settings' AND column_name = 'canva_template_id') THEN
+    ALTER TABLE settings ADD COLUMN canva_template_id text DEFAULT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'settings' AND column_name = 'gemini_api_key') THEN
+    ALTER TABLE settings ADD COLUMN gemini_api_key text DEFAULT NULL;
+  END IF;
+END $$;
+
+-- ============================================================
 -- DONE! All migrations and RLS policies applied.
 -- ============================================================

@@ -78,7 +78,7 @@ const Leads: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Partial<Lead> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<string>('open');
   const [filterSource, setFilterSource] = useState<string>('all');
   const [convertingLead, setConvertingLead] = useState<Lead | null>(null);
   const [sortField, setSortField] = useState<SortField>(null);
@@ -93,7 +93,10 @@ const Leads: React.FC = () => {
         l.leadName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (l.businessName && l.businessName.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (l.phone && l.phone.includes(searchTerm));
-      const matchesStatus = filterStatus === 'all' || l.status === filterStatus;
+      const matchesStatus =
+        filterStatus === 'all' ||
+        (filterStatus === 'open' && OPEN_STATUSES.includes(l.status)) ||
+        l.status === filterStatus;
       const matchesSource = filterSource === 'all' || l.sourceChannel === filterSource;
       return matchesSearch && matchesStatus && matchesSource;
     });
@@ -229,6 +232,7 @@ const Leads: React.FC = () => {
       </div>
       <div className="w-full md:w-48">
         <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+          <option value="open">לידים פתוחים</option>
           <option value="all">כל הסטטוסים</option>
           {Object.values(LeadStatus).map(s => <option key={s} value={s}>{s}</option>)}
         </Select>
