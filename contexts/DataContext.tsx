@@ -186,6 +186,7 @@ export interface DataContextType extends AppData {
 
   updateServices: (services: Service[]) => void;
   updateSettings: (settings: AgencySettings) => Promise<void>;
+  saveApiKeys: (keys: { canvaApiKey?: string; canvaTemplateId?: string; geminiApiKey?: string }) => Promise<void>;
 
   importData: (json: string) => boolean;
   exportData: () => string;
@@ -389,9 +390,7 @@ const transformSettingsToDB = (settings: AgencySettings) => ({
   target_monthly_revenue: settings.targetMonthlyRevenue,
   target_monthly_gross_profit: settings.targetMonthlyGrossProfit,
   employee_salary: settings.employeeSalary || 0,
-  canva_api_key: settings.canvaApiKey || null,
-  canva_template_id: settings.canvaTemplateId || null,
-  gemini_api_key: settings.geminiApiKey || null,
+  // Note: API keys are NOT included here — they are saved via saveApiKeys() directly
 });
 
 const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
@@ -400,9 +399,10 @@ const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
   targetMonthlyRevenue: row.target_monthly_revenue,
   targetMonthlyGrossProfit: row.target_monthly_gross_profit,
   employeeSalary: row.employee_salary || 0,
-  canvaApiKey: row.canva_api_key || undefined,
+  // Security: only send boolean flags to frontend, never actual keys
+  hasCanvaKey: !!(row.canva_api_key && row.canva_api_key.length > 0),
+  hasGeminiKey: !!(row.gemini_api_key && row.gemini_api_key.length > 0),
   canvaTemplateId: row.canva_template_id || undefined,
-  geminiApiKey: row.gemini_api_key || undefined,
 });
 
 const transformRetainerChangeToDB = (rc: RetainerChange) => ({
@@ -1318,6 +1318,37 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Save API keys directly to DB without exposing them in React state
+  const saveApiKeys = async (keys: { canvaApiKey?: string; canvaTemplateId?: string; geminiApiKey?: string }) => {
+    try {
+      const updatePayload: Record<string, string | null> = {};
+      if (keys.canvaApiKey !== undefined) updatePayload.canva_api_key = keys.canvaApiKey || null;
+      if (keys.canvaTemplateId !== undefined) updatePayload.canva_template_id = keys.canvaTemplateId || null;
+      if (keys.geminiApiKey !== undefined) updatePayload.gemini_api_key = keys.geminiApiKey || null;
+
+      const { error } = await supabase
+        .from('settings')
+        .update(updatePayload)
+        .eq('id', 1);
+
+      if (error) throw error;
+
+      // Update only the boolean flags in local state (never the actual keys)
+      setData(prev => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          hasCanvaKey: !!(keys.canvaApiKey ?? (prev.settings.hasCanvaKey ? 'exists' : '')),
+          hasGeminiKey: !!(keys.geminiApiKey ?? (prev.settings.hasGeminiKey ? 'exists' : '')),
+          canvaTemplateId: keys.canvaTemplateId !== undefined ? (keys.canvaTemplateId || undefined) : prev.settings.canvaTemplateId,
+        },
+      }));
+    } catch (err) {
+      showError('שגיאה בשמירת מפתחות API');
+      throw err;
+    }
+  };
+
   const importData = (json: string): boolean => {
     try {
       const parsed = JSON.parse(json);
@@ -1365,7 +1396,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addClientNote, deleteClientNote,
       addLeadNote, deleteLeadNote,
       addCallTranscript, deleteCallTranscript,
-      updateServices, updateSettings,
+      updateServices, updateSettings, saveApiKeys,
       importData, exportData
     }}>
       {children}

@@ -9,7 +9,7 @@ import { Badge } from './ui/Badge';
 import { Modal } from './ui/Modal';
 
 const Settings: React.FC = () => {
-  const { settings, services, updateSettings, updateServices, exportData, importData } = useData();
+  const { settings, services, updateSettings, updateServices, exportData, importData, saveApiKeys } = useData();
   const { isAdmin, user, allUsers, refreshUsers, addViewer, removeUser, updateUserRole, updateUserPermissions, updateUserDisplayName } = useAuth();
   const [localSettings, setLocalSettings] = useState(settings);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -23,6 +23,12 @@ const Settings: React.FC = () => {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editNameValue, setEditNameValue] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // API keys — separate local state, never loaded from settings to keep them off the frontend
+  const [apiCanvaKey, setApiCanvaKey] = useState('');
+  const [apiCanvaTemplateId, setApiCanvaTemplateId] = useState(settings.canvaTemplateId || '');
+  const [apiGeminiKey, setApiGeminiKey] = useState('');
+  const [apiKeysSaved, setApiKeysSaved] = useState(false);
 
   const showActionError = (msg: string | null) => {
     if (!msg) return;
@@ -345,42 +351,67 @@ const Settings: React.FC = () => {
           <div className="space-y-6">
             {/* Canva */}
             <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5 space-y-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Palette size={18} className="text-violet-400" />
-                <span className="text-white font-bold text-sm">Canva — הצעות מחיר</span>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Palette size={18} className="text-violet-400" />
+                  <span className="text-white font-bold text-sm">Canva — הצעות מחיר</span>
+                </div>
+                {settings.hasCanvaKey && <span className="text-emerald-400 text-xs">✓ מפתח מוגדר</span>}
               </div>
               <Input
                 label="Canva API Key"
                 type="password"
-                value={localSettings.canvaApiKey || ''}
-                onChange={e => setLocalSettings({ ...localSettings, canvaApiKey: e.target.value })}
-                placeholder="cnv_..."
+                value={apiCanvaKey}
+                onChange={e => { setApiCanvaKey(e.target.value); setApiKeysSaved(false); }}
+                placeholder={settings.hasCanvaKey ? '••••••• (מפתח קיים — הזן חדש לעדכון)' : 'cnv_...'}
               />
               <Input
                 label="Canva Template ID"
-                value={localSettings.canvaTemplateId || ''}
-                onChange={e => setLocalSettings({ ...localSettings, canvaTemplateId: e.target.value })}
+                value={apiCanvaTemplateId}
+                onChange={e => { setApiCanvaTemplateId(e.target.value); setApiKeysSaved(false); }}
                 placeholder="DAG..."
               />
             </div>
 
             {/* Gemini */}
             <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5 space-y-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles size={18} className="text-amber-400" />
-                <span className="text-white font-bold text-sm">Gemini Pro — המלצות AI</span>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={18} className="text-amber-400" />
+                  <span className="text-white font-bold text-sm">Gemini Pro — המלצות AI</span>
+                </div>
+                {settings.hasGeminiKey && <span className="text-emerald-400 text-xs">✓ מפתח מוגדר</span>}
               </div>
               <Input
                 label="Gemini API Key"
                 type="password"
-                value={localSettings.geminiApiKey || ''}
-                onChange={e => setLocalSettings({ ...localSettings, geminiApiKey: e.target.value })}
-                placeholder="AI..."
+                value={apiGeminiKey}
+                onChange={e => { setApiGeminiKey(e.target.value); setApiKeysSaved(false); }}
+                placeholder={settings.hasGeminiKey ? '••••••• (מפתח קיים — הזן חדש לעדכון)' : 'AI...'}
               />
             </div>
 
+            <div className="text-xs text-gray-500 p-3 bg-white/[0.02] rounded-lg">
+              🔒 המפתחות נשמרים בצד השרת בלבד ולא נטענים לדפדפן. רק Edge Functions ניגשים אליהם.
+            </div>
+
+            {apiKeysSaved && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-sm">
+                מפתחות API נשמרו בהצלחה ✓
+              </div>
+            )}
+
             <div className="flex justify-end pt-4 border-t border-white/5">
-              <Button onClick={handleSaveSettings} icon={<Save size={18} />}>שמור שינויים</Button>
+              <Button onClick={async () => {
+                const keys: { canvaApiKey?: string; canvaTemplateId?: string; geminiApiKey?: string } = {};
+                if (apiCanvaKey) keys.canvaApiKey = apiCanvaKey;
+                keys.canvaTemplateId = apiCanvaTemplateId;
+                if (apiGeminiKey) keys.geminiApiKey = apiGeminiKey;
+                await saveApiKeys(keys);
+                setApiKeysSaved(true);
+                setApiCanvaKey('');
+                setApiGeminiKey('');
+              }} icon={<Save size={18} />}>שמור מפתחות</Button>
             </div>
           </div>
         </Card>

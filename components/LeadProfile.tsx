@@ -285,7 +285,7 @@ const LeadProfile: React.FC = () => {
         >
           {Object.values(LeadStatus).map(s => <option key={s} value={s}>{s}</option>)}
         </select>
-        {settings.canvaApiKey && (
+        {settings.hasCanvaKey && (
           <Button
             onClick={handleGenerateProposal}
             disabled={isGeneratingProposal}

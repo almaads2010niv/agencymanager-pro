@@ -145,9 +145,10 @@ export interface AgencySettings {
   targetMonthlyRevenue: number;
   targetMonthlyGrossProfit: number;
   employeeSalary: number;
-  canvaApiKey?: string;
+  // Security: only boolean flags reach the frontend — actual keys stay server-side
+  hasCanvaKey: boolean;
+  hasGeminiKey: boolean;
   canvaTemplateId?: string;
-  geminiApiKey?: string;
 }
 
 export interface ActivityEntry {
