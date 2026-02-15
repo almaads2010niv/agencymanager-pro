@@ -108,7 +108,7 @@ ${transcriptsText ? `סיכומי שיחות אחרונות:\n${transcriptsText}
 
     // 6. Call Gemini API
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiApiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -133,22 +133,13 @@ ${transcriptsText ? `סיכומי שיחות אחרונות:\n${transcriptsText}
       })
     }
 
-    // 7. Parse response - handle Gemini 2.5 thinking parts
+    // 7. Parse response (gemini-2.0-flash-lite: simple text, no thinking parts)
     const geminiResult = await geminiRes.json()
     const parts = geminiResult.candidates?.[0]?.content?.parts || []
     let rawText = ''
     for (const part of parts) {
-      if (part.text && !part.thought) {
+      if (part.text) {
         rawText += part.text
-      }
-    }
-
-    // If thinking filter yielded nothing, try all text parts as fallback
-    if (!rawText.trim()) {
-      for (const part of parts) {
-        if (part.text) {
-          rawText += part.text
-        }
       }
     }
 
