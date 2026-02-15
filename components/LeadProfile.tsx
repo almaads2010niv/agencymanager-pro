@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel } from '../types';
 import { formatCurrency, formatDate, formatDateTime, formatPhoneForWhatsApp } from '../utils';
-import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText } from 'lucide-react';
+import { MESSAGE_PURPOSES } from '../constants';
+import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { Input, Textarea } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
@@ -50,6 +51,7 @@ const LeadProfile: React.FC = () => {
     updateLead, convertLeadToClient,
     callTranscripts, addCallTranscript, deleteCallTranscript,
     aiRecommendations, addAIRecommendation, deleteAIRecommendation,
+    whatsappMessages, addWhatsAppMessage, deleteWhatsAppMessage, uploadRecording,
   } = useData();
 
   // Notes state
@@ -74,6 +76,20 @@ const LeadProfile: React.FC = () => {
   const [isGeneratingProposal, setIsGeneratingProposal] = useState(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
 
+  // WhatsApp state
+  const [waMessagePurpose, setWaMessagePurpose] = useState('follow_up');
+  const [waGeneratedMessages, setWaGeneratedMessages] = useState<string[]>([]);
+  const [isGeneratingWA, setIsGeneratingWA] = useState(false);
+  const [waError, setWaError] = useState<string | null>(null);
+  const [waCustomMessage, setWaCustomMessage] = useState('');
+  const [expandedWAHistoryId, setExpandedWAHistoryId] = useState<string | null>(null);
+  const [confirmDeleteWAId, setConfirmDeleteWAId] = useState<string | null>(null);
+
+  // Audio transcription state
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+
   // Expand/collapse for long notes in contact info
   const [notesExpanded, setNotesExpanded] = useState(false);
   const NOTES_PREVIEW_LENGTH = 150;
@@ -86,6 +102,9 @@ const LeadProfile: React.FC = () => {
 
   // Filter AI recommendations for this lead
   const leadRecommendations = aiRecommendations.filter(r => r.leadId === leadId);
+
+  // Filter WhatsApp messages for this lead
+  const leadWAMessages = whatsappMessages.filter(m => m.leadId === leadId);
 
   // Filter activities for this lead
   const leadActivities = activities.filter(a => a.entityId === leadId).slice(0, 20);
@@ -230,6 +249,112 @@ const LeadProfile: React.FC = () => {
       setProposalError('שגיאת רשת - ודא שמפתח Canva API מוגדר בהגדרות');
     } finally {
       setIsGeneratingProposal(false);
+    }
+  };
+
+  // WhatsApp: Generate AI messages
+  const handleGenerateWAMessages = async () => {
+    if (!lead || !user) return;
+    setIsGeneratingWA(true);
+    setWaError(null);
+    setWaGeneratedMessages([]);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const purposeObj = MESSAGE_PURPOSES.find(p => p.key === waMessagePurpose);
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-whatsapp-messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          entityType: 'lead',
+          entityName: lead.businessName || lead.leadName,
+          purpose: waMessagePurpose,
+          purposeLabel: purposeObj?.label || waMessagePurpose,
+          notes: leadNotesFiltered.map(n => ({ content: n.content, createdByName: n.createdByName, createdAt: n.createdAt })),
+          transcripts: leadTranscripts.map(ct => ({ summary: ct.summary, callDate: ct.callDate })),
+          additionalContext: `סטטוס: ${lead.status}, מקור: ${lead.sourceChannel}, הצעת מחיר: ₪${lead.quotedMonthlyValue}`,
+        }),
+      });
+      const result = await res.json();
+      if (result.success && result.messages) {
+        setWaGeneratedMessages(result.messages);
+      } else {
+        setWaError(result.error || 'שגיאה ביצירת הודעות');
+      }
+    } catch {
+      setWaError('שגיאת רשת - ודא שמפתח Gemini API מוגדר בהגדרות');
+    } finally {
+      setIsGeneratingWA(false);
+    }
+  };
+
+  // WhatsApp: Send message
+  const handleSendWA = async (messageText: string, isAiGenerated: boolean) => {
+    if (!lead?.phone || !user) return;
+    const phone = formatPhoneForWhatsApp(lead.phone).replace('+', '');
+    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(messageText)}`;
+    window.open(waUrl, '_blank');
+
+    const purposeObj = MESSAGE_PURPOSES.find(p => p.key === waMessagePurpose);
+    await addWhatsAppMessage({
+      leadId: lead.leadId,
+      messageText,
+      messagePurpose: purposeObj?.label || waMessagePurpose,
+      phoneNumber: lead.phone,
+      sentBy: user.id,
+      sentByName: currentUserName,
+      isAiGenerated,
+    });
+  };
+
+  // Audio: Upload recording for transcription
+  const handleUploadRecording = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !lead || !user) return;
+    setIsTranscribing(true);
+    setTranscribeError(null);
+    try {
+      // 1. Upload to storage
+      const uploadResult = await uploadRecording('lead', lead.leadId, file);
+      if (!uploadResult) throw new Error('Upload failed');
+
+      // 2. Call transcribe Edge Function
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/transcribe-audio`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          audioUrl: uploadResult.signedUrl,
+          entityName: lead.leadName,
+          businessName: lead.businessName || lead.leadName,
+          mimeType: file.type || 'audio/mpeg',
+        }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        // 3. Auto-save as CallTranscript
+        await addCallTranscript({
+          leadId: lead.leadId,
+          callDate: new Date().toISOString().split('T')[0],
+          participants: `ניב, ${lead.leadName}`,
+          transcript: result.transcript,
+          summary: result.summary,
+          createdBy: user.id,
+          createdByName: currentUserName,
+        });
+      } else {
+        setTranscribeError(result.error || 'שגיאה בתמלול ההקלטה');
+      }
+    } catch {
+      setTranscribeError('שגיאה בהעלאה או בתמלול ההקלטה');
+    } finally {
+      setIsTranscribing(false);
+      if (audioInputRef.current) audioInputRef.current.value = '';
     }
   };
 
@@ -476,6 +601,17 @@ const LeadProfile: React.FC = () => {
                 </span>
               </div>
             </button>
+            <button
+              onClick={() => document.getElementById('lead-whatsapp-section')?.scrollIntoView({ behavior: 'smooth' })}
+              className={`p-3 rounded-xl border text-start transition-all hover:bg-white/[0.03] ${leadWAMessages.length > 0 ? 'bg-[#0B1121] border-emerald-500/20' : 'bg-[#0B1121] border-white/5'}`}
+            >
+              <div className="flex items-center gap-2">
+                <MessageCircle size={14} className={leadWAMessages.length > 0 ? 'text-emerald-400' : 'text-gray-600'} />
+                <span className={`text-sm font-medium ${leadWAMessages.length > 0 ? 'text-gray-200' : 'text-gray-500'}`}>
+                  {leadWAMessages.length} הודעות WA
+                </span>
+              </div>
+            </button>
           </div>
 
           {/* Services */}
@@ -565,8 +701,29 @@ const LeadProfile: React.FC = () => {
       <Card id="lead-transcripts-section">
         <div className="flex items-center justify-between mb-4">
           <CardHeader title="תמלולי שיחות" subtitle={`${leadTranscripts.length} תמלולים`} />
-          <Button onClick={() => setShowAddTranscript(true)} icon={<Plus size={16} />}>הוסף תמלול</Button>
+          <div className="flex items-center gap-2">
+            {settings.hasGeminiKey && (
+              <>
+                <input ref={audioInputRef} type="file" accept="audio/*" onChange={handleUploadRecording} className="hidden" />
+                <Button onClick={() => audioInputRef.current?.click()} disabled={isTranscribing} variant="ghost" icon={<Mic size={16} />}>
+                  {isTranscribing ? 'מתמלל...' : 'העלה הקלטה'}
+                </Button>
+              </>
+            )}
+            <Button onClick={() => setShowAddTranscript(true)} icon={<Plus size={16} />}>הוסף תמלול</Button>
+          </div>
         </div>
+        {isTranscribing && (
+          <div className="flex items-center justify-center py-4 gap-3 mb-4 bg-primary/5 border border-primary/20 rounded-xl">
+            <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <span className="text-gray-400 text-sm">מתמלל הקלטה... (זה יכול לקחת דקה-שתיים)</span>
+          </div>
+        )}
+        {transcribeError && (
+          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm mb-4">
+            {transcribeError}
+          </div>
+        )}
 
         {leadTranscripts.length === 0 ? (
           <p className="text-gray-600 text-sm text-center py-6 italic">אין תמלולי שיחות עדיין.</p>
@@ -693,6 +850,145 @@ const LeadProfile: React.FC = () => {
         )}
       </Card>
 
+      {/* WhatsApp Messages */}
+      <Card id="lead-whatsapp-section">
+        <div className="flex items-center justify-between mb-4">
+          <CardHeader
+            title="הודעות WhatsApp"
+            subtitle={leadWAMessages.length > 0 ? `${leadWAMessages.length} הודעות${leadWAMessages[0] ? ` · אחרונה: ${formatDate(leadWAMessages[0].sentAt)}` : ''}` : 'שלח הודעות לליד'}
+          />
+        </div>
+
+        {!lead?.phone ? (
+          <p className="text-gray-600 text-sm text-center py-6 italic">לא ניתן לשלוח הודעות - לא הוזן מספר טלפון</p>
+        ) : (
+          <div className="space-y-4">
+            {/* Purpose selector + Generate button */}
+            <div className="flex items-center gap-3">
+              <select
+                value={waMessagePurpose}
+                onChange={e => setWaMessagePurpose(e.target.value)}
+                className="flex-1 bg-[#0B1121] border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-primary/50"
+              >
+                {MESSAGE_PURPOSES.map(p => (
+                  <option key={p.key} value={p.key}>{p.label}</option>
+                ))}
+              </select>
+              <Button onClick={handleGenerateWAMessages} disabled={isGeneratingWA || !settings.hasGeminiKey} icon={<Sparkles size={16} />}>
+                {isGeneratingWA ? 'יוצר...' : 'צור הודעות'}
+              </Button>
+            </div>
+
+            {waError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">{waError}</div>
+            )}
+            {isGeneratingWA && (
+              <div className="flex items-center justify-center py-6 gap-3">
+                <div className="w-5 h-5 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+                <span className="text-gray-400 text-sm">מייצר הודעות...</span>
+              </div>
+            )}
+
+            {/* AI Generated Messages */}
+            {waGeneratedMessages.length > 0 && (
+              <div className="space-y-2">
+                {waGeneratedMessages.map((msg, idx) => (
+                  <div key={idx} className="bg-[#0B1121] border border-emerald-500/10 rounded-xl p-3">
+                    <p className="text-gray-300 text-sm mb-2 whitespace-pre-wrap">{msg}</p>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => setWaCustomMessage(msg)}
+                        className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 transition-colors"
+                      >
+                        <Edit3 size={12} /> עריכה
+                      </button>
+                      <button
+                        onClick={() => handleSendWA(msg, true)}
+                        className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                      >
+                        <Send size={12} /> שלח בוואטסאפ
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Custom / Edit message textarea */}
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wider">{waCustomMessage ? 'עריכת הודעה' : 'הודעה חופשית'}</p>
+              <textarea
+                value={waCustomMessage}
+                onChange={e => setWaCustomMessage(e.target.value)}
+                placeholder="כתוב הודעה חופשית או ערוך הודעת AI..."
+                rows={3}
+                className="w-full bg-[#0B1121] border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-emerald-500/50 resize-none"
+                dir="rtl"
+              />
+              {waCustomMessage.trim() && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => { handleSendWA(waCustomMessage, false); setWaCustomMessage(''); }}
+                    className="text-sm text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                  >
+                    <Send size={14} /> שלח בוואטסאפ
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Message History */}
+            {leadWAMessages.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-white/5">
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">היסטוריית הודעות ({leadWAMessages.length})</p>
+                {leadWAMessages.map(msg => {
+                  const isExpanded = expandedWAHistoryId === msg.id;
+                  return (
+                    <div key={msg.id} className="bg-[#0B1121] rounded-xl border border-white/5 overflow-hidden">
+                      <button
+                        onClick={() => setExpandedWAHistoryId(isExpanded ? null : msg.id)}
+                        className="w-full text-start p-3 hover:bg-white/[0.02] transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-gray-400">{formatDateTime(msg.sentAt)}</span>
+                            <span className="text-gray-600">· {msg.sentByName}</span>
+                            <Badge variant={msg.isAiGenerated ? 'info' : 'neutral'}>{msg.messagePurpose}</Badge>
+                            {msg.isAiGenerated && <span className="text-amber-400/60 text-[10px]">AI</span>}
+                          </div>
+                          {isExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                        </div>
+                        {!isExpanded && (
+                          <p className="text-gray-500 text-xs mt-1 line-clamp-1">{msg.messageText}</p>
+                        )}
+                      </button>
+                      {isExpanded && (
+                        <div className="px-3 pb-3">
+                          <p className="text-gray-300 text-sm whitespace-pre-wrap mb-2">{msg.messageText}</p>
+                          <div className="flex justify-between items-center pt-2 border-t border-white/5">
+                            <button
+                              onClick={() => handleSendWA(msg.messageText, msg.isAiGenerated)}
+                              className="text-xs text-emerald-400/60 hover:text-emerald-400 flex items-center gap-1"
+                            >
+                              <Send size={11} /> שלח שוב
+                            </button>
+                            {isAdmin && (
+                              <button onClick={() => setConfirmDeleteWAId(msg.id)} className="text-red-400/60 hover:text-red-400 text-xs flex items-center gap-1">
+                                <Trash2 size={11} /> מחק
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
       {/* Activity Timeline */}
       {leadActivities.length > 0 && (
         <Card>
@@ -769,6 +1065,17 @@ const LeadProfile: React.FC = () => {
           <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
             <Button type="button" variant="ghost" onClick={() => setConfirmDeleteRecommendationId(null)}>ביטול</Button>
             <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteRecommendationId) { await deleteAIRecommendation(confirmDeleteRecommendationId); setConfirmDeleteRecommendationId(null); } }}>מחק</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Delete WhatsApp Message Modal */}
+      <Modal isOpen={!!confirmDeleteWAId} onClose={() => setConfirmDeleteWAId(null)} title="מחיקת הודעה" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך למחוק את ההודעה מההיסטוריה?</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteWAId(null)}>ביטול</Button>
+            <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteWAId) { await deleteWhatsAppMessage(confirmDeleteWAId); setConfirmDeleteWAId(null); } }}>מחק</Button>
           </div>
         </div>
       </Modal>

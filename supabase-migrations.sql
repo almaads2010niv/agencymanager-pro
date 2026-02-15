@@ -482,5 +482,64 @@ CREATE POLICY "ai_recommendations_delete" ON ai_recommendations FOR DELETE
   USING (is_admin());
 
 -- ============================================================
+-- 9. WHATSAPP MESSAGES + AUDIO RECORDINGS
+-- ============================================================
+
+-- WhatsApp outgoing messages history
+CREATE TABLE IF NOT EXISTS whatsapp_messages (
+  id text PRIMARY KEY,
+  client_id text DEFAULT NULL,
+  lead_id text DEFAULT NULL,
+  message_text text NOT NULL DEFAULT '',
+  message_purpose text NOT NULL DEFAULT '',
+  phone_number text NOT NULL DEFAULT '',
+  sent_by text NOT NULL,
+  sent_by_name text NOT NULL DEFAULT '',
+  is_ai_generated boolean NOT NULL DEFAULT false,
+  sent_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT fk_wamsg_client FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE CASCADE,
+  CONSTRAINT fk_wamsg_lead FOREIGN KEY (lead_id) REFERENCES leads(lead_id) ON DELETE CASCADE
+);
+
+ALTER TABLE whatsapp_messages ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "whatsapp_messages_select" ON whatsapp_messages;
+CREATE POLICY "whatsapp_messages_select" ON whatsapp_messages FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "whatsapp_messages_insert" ON whatsapp_messages;
+CREATE POLICY "whatsapp_messages_insert" ON whatsapp_messages FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "whatsapp_messages_delete" ON whatsapp_messages;
+CREATE POLICY "whatsapp_messages_delete" ON whatsapp_messages FOR DELETE
+  TO authenticated
+  USING (is_admin());
+
+-- Audio recordings storage bucket (50MB limit, audio formats)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('recordings', 'recordings', false, 52428800,
+  ARRAY['audio/mpeg','audio/mp4','audio/mp3','audio/m4a','audio/x-m4a','audio/wav','audio/webm','audio/ogg'])
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage policies for recordings bucket
+DROP POLICY IF EXISTS "recordings_select" ON storage.objects;
+CREATE POLICY "recordings_select" ON storage.objects FOR SELECT
+  TO authenticated
+  USING (bucket_id = 'recordings');
+
+DROP POLICY IF EXISTS "recordings_insert" ON storage.objects;
+CREATE POLICY "recordings_insert" ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (bucket_id = 'recordings');
+
+DROP POLICY IF EXISTS "recordings_delete" ON storage.objects;
+CREATE POLICY "recordings_delete" ON storage.objects FOR DELETE
+  TO authenticated
+  USING (bucket_id = 'recordings' AND (SELECT is_admin()));
+
+-- ============================================================
 -- DONE! All migrations and RLS policies applied.
 -- ============================================================

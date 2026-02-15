@@ -1,0 +1,180 @@
+// Supabase Edge Function: generate-whatsapp-messages
+// Generates 3 WhatsApp message variants via Gemini API
+// Deploy: npx supabase functions deploy generate-whatsapp-messages --project-ref rxckkozbkrabpjdgyxqm
+
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  try {
+    // 1. Verify authenticated user
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Missing authorization' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
+
+    const callerClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    })
+
+    const { data: { user }, error: authError } = await callerClient.auth.getUser()
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: 'Invalid token' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // 2. Get Gemini API key from settings (via service role)
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey)
+    const { data: settings } = await adminClient
+      .from('settings')
+      .select('gemini_api_key')
+      .single()
+
+    if (!settings?.gemini_api_key) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'מפתח Gemini API לא מוגדר. הגדר אותו בעמוד ההגדרות.',
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    const geminiApiKey = settings.gemini_api_key
+
+    // 3. Parse request body
+    const { entityType, entityName, purpose, purposeLabel, notes, transcripts, additionalContext } = await req.json()
+
+    // 4. Build context from notes and transcripts
+    const notesText = (notes || [])
+      .slice(0, 5) // Last 5 notes for context
+      .map((n: { content: string; createdByName: string; createdAt: string }) =>
+        `[${n.createdAt}] ${n.createdByName}: ${n.content}`
+      )
+      .join('\n')
+
+    const transcriptsText = (transcripts || [])
+      .slice(0, 3) // Last 3 transcripts
+      .map((ct: { summary: string; callDate: string }) =>
+        `שיחה מתאריך ${ct.callDate}: ${ct.summary || 'ללא סיכום'}`
+      )
+      .join('\n')
+
+    const entityLabel = entityType === 'client' ? 'לקוח' : 'ליד'
+
+    // 5. Build prompt for WhatsApp message generation
+    const prompt = `אתה מנהל חשבון בסוכנות שיווק דיגיטלי בישראל בשם "עלמה?".
+צריך לכתוב 3 וריאנטים של הודעת WhatsApp קצרה ומקצועית עבור ${entityLabel}: "${entityName}".
+
+מטרת ההודעה: ${purposeLabel || purpose}
+
+${additionalContext ? `הקשר נוסף: ${additionalContext}` : ''}
+
+${notesText ? `הערות אחרונות:\n${notesText}` : ''}
+
+${transcriptsText ? `סיכומי שיחות אחרונות:\n${transcriptsText}` : ''}
+
+דרישות:
+- כל הודעה 1-3 משפטים בלבד (קצרה, מתאימה לוואטסאפ)
+- טון מקצועי אך ידידותי וחם
+- בעברית
+- וריאנט 1: סגנון רשמי-מקצועי
+- וריאנט 2: סגנון ידידותי וחם
+- וריאנט 3: סגנון ישיר ותכליתי
+- פנה בשם: ${entityName}
+- אל תכלול אמוג'ים מיותרים
+
+החזר בדיוק בפורמט JSON הבא (מערך של 3 מחרוזות):
+["הודעה 1", "הודעה 2", "הודעה 3"]
+
+החזר רק את ה-JSON, בלי טקסט נוסף, בלי markdown, בלי backticks.`
+
+    // 6. Call Gemini API
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.8,
+            maxOutputTokens: 1024,
+          },
+        }),
+      }
+    )
+
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text()
+      return new Response(JSON.stringify({
+        success: false,
+        error: `Gemini API error (${geminiRes.status}): ${errText}`,
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // 7. Parse response - extract JSON array
+    const geminiResult = await geminiRes.json()
+    const rawText = geminiResult.candidates?.[0]?.content?.parts?.[0]?.text || ''
+
+    let messages: string[] = []
+    try {
+      // Try to extract JSON array from response (handles markdown code fences too)
+      const jsonMatch = rawText.match(/\[[\s\S]*?\]/)
+      if (jsonMatch) {
+        messages = JSON.parse(jsonMatch[0])
+      }
+    } catch {
+      // Fallback: split by numbered lines
+      messages = rawText
+        .split(/\d+[.)]\s*/)
+        .map((s: string) => s.replace(/^["']|["']$/g, '').trim())
+        .filter((s: string) => s.length > 0)
+        .slice(0, 3)
+    }
+
+    if (!messages || messages.length === 0) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Gemini לא הצליח ליצור הודעות. נסה שוב.',
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      messages: messages.slice(0, 3), // Ensure max 3
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+})

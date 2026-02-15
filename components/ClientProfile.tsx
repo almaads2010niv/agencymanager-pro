@@ -5,7 +5,8 @@ import { useAuth } from '../contexts/AuthContext';
 import type { ClientFile } from '../contexts/DataContext';
 import { ClientStatus, ClientRating } from '../types';
 import { formatCurrency, formatDate, formatDateTime, getMonthName, formatPhoneForWhatsApp } from '../utils';
-import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle, User, Send, Clock, ChevronDown, ChevronUp, Sparkles, Plus } from 'lucide-react';
+import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle, User, Send, Clock, ChevronDown, ChevronUp, Sparkles, Plus, Mic, Edit3 } from 'lucide-react';
+import { MESSAGE_PURPOSES } from '../constants';
 import { supabase } from '../lib/supabaseClient';
 import { Input, Textarea } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
@@ -23,7 +24,8 @@ const ClientProfile: React.FC = () => {
     uploadClientFile, listClientFiles, deleteClientFile,
     clientNotes, addClientNote, deleteClientNote, updateClient, activities,
     callTranscripts, addCallTranscript, deleteCallTranscript,
-    aiRecommendations, addAIRecommendation, deleteAIRecommendation, settings
+    aiRecommendations, addAIRecommendation, deleteAIRecommendation, settings,
+    whatsappMessages, addWhatsAppMessage, deleteWhatsAppMessage, uploadRecording
   } = useData();
 
   const [clientFiles, setClientFiles] = useState<ClientFile[]>([]);
@@ -48,6 +50,20 @@ const ClientProfile: React.FC = () => {
   const [expandedRecommendationId, setExpandedRecommendationId] = useState<string | null>(null);
   const [confirmDeleteRecommendationId, setConfirmDeleteRecommendationId] = useState<string | null>(null);
 
+  // WhatsApp state
+  const [waMessagePurpose, setWaMessagePurpose] = useState('follow_up');
+  const [waGeneratedMessages, setWaGeneratedMessages] = useState<string[]>([]);
+  const [isGeneratingWA, setIsGeneratingWA] = useState(false);
+  const [waError, setWaError] = useState<string | null>(null);
+  const [waCustomMessage, setWaCustomMessage] = useState('');
+  const [expandedWAHistoryId, setExpandedWAHistoryId] = useState<string | null>(null);
+  const [confirmDeleteWAId, setConfirmDeleteWAId] = useState<string | null>(null);
+
+  // Audio transcription state
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+
   // Expand/collapse for long notes in contact info
   const [notesExpanded, setNotesExpanded] = useState(false);
   const NOTES_PREVIEW_LENGTH = 150;
@@ -60,6 +76,9 @@ const ClientProfile: React.FC = () => {
 
   // Filter AI recommendations for this client
   const clientRecommendations = aiRecommendations.filter(r => r.clientId === clientId);
+
+  // Filter WhatsApp messages for this client
+  const clientWAMessages = whatsappMessages.filter(m => m.clientId === clientId);
 
   // Filter activities for this client
   const clientActivities = activities.filter(a => a.entityId === clientId).slice(0, 20);
@@ -191,6 +210,112 @@ const ClientProfile: React.FC = () => {
       setAiError('שגיאת רשת - ודא שמפתח Gemini API מוגדר בהגדרות');
     } finally {
       setIsLoadingAI(false);
+    }
+  };
+
+  // WhatsApp: Generate AI messages
+  const handleGenerateWAMessages = async () => {
+    if (!client || !user) return;
+    setIsGeneratingWA(true);
+    setWaError(null);
+    setWaGeneratedMessages([]);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const purposeObj = MESSAGE_PURPOSES.find(p => p.key === waMessagePurpose);
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-whatsapp-messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          entityType: 'client',
+          entityName: client.businessName || client.clientName,
+          purpose: waMessagePurpose,
+          purposeLabel: purposeObj?.label || waMessagePurpose,
+          notes: clientNotesFiltered.map(n => ({ content: n.content, createdByName: n.createdByName, createdAt: n.createdAt })),
+          transcripts: clientTranscripts.map(ct => ({ summary: ct.summary, callDate: ct.callDate })),
+          additionalContext: `סטטוס: ${client.status}, ריטיינר: ₪${client.monthlyRetainer}, דירוג: ${client.rating}`,
+        }),
+      });
+      const result = await res.json();
+      if (result.success && result.messages) {
+        setWaGeneratedMessages(result.messages);
+      } else {
+        setWaError(result.error || 'שגיאה ביצירת הודעות');
+      }
+    } catch {
+      setWaError('שגיאת רשת - ודא שמפתח Gemini API מוגדר בהגדרות');
+    } finally {
+      setIsGeneratingWA(false);
+    }
+  };
+
+  // WhatsApp: Send message
+  const handleSendWA = async (messageText: string, isAiGenerated: boolean) => {
+    if (!client?.phone || !user) return;
+    const phone = formatPhoneForWhatsApp(client.phone).replace('+', '');
+    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(messageText)}`;
+    window.open(waUrl, '_blank');
+
+    const purposeObj = MESSAGE_PURPOSES.find(p => p.key === waMessagePurpose);
+    await addWhatsAppMessage({
+      clientId: client.clientId,
+      messageText,
+      messagePurpose: purposeObj?.label || waMessagePurpose,
+      phoneNumber: client.phone,
+      sentBy: user.id,
+      sentByName: currentUserName,
+      isAiGenerated,
+    });
+  };
+
+  // Audio: Upload recording for transcription
+  const handleUploadRecording = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !client || !user) return;
+    setIsTranscribing(true);
+    setTranscribeError(null);
+    try {
+      // 1. Upload to storage
+      const uploadResult = await uploadRecording('client', client.clientId, file);
+      if (!uploadResult) throw new Error('Upload failed');
+
+      // 2. Call transcribe Edge Function
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/transcribe-audio`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          audioUrl: uploadResult.signedUrl,
+          entityName: client.clientName,
+          businessName: client.businessName,
+          mimeType: file.type || 'audio/mpeg',
+        }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        // 3. Auto-save as CallTranscript
+        await addCallTranscript({
+          clientId: client.clientId,
+          callDate: new Date().toISOString().split('T')[0],
+          participants: `ניב, ${client.clientName}`,
+          transcript: result.transcript,
+          summary: result.summary,
+          createdBy: user.id,
+          createdByName: currentUserName,
+        });
+      } else {
+        setTranscribeError(result.error || 'שגיאה בתמלול ההקלטה');
+      }
+    } catch {
+      setTranscribeError('שגיאה בהעלאה או בתמלול ההקלטה');
+    } finally {
+      setIsTranscribing(false);
+      if (audioInputRef.current) audioInputRef.current.value = '';
     }
   };
 
@@ -405,8 +530,29 @@ const ClientProfile: React.FC = () => {
       <Card>
         <div className="flex items-center justify-between mb-4">
           <CardHeader title="תמלולי שיחות" subtitle={`${clientTranscripts.length} תמלולים`} />
-          <Button onClick={() => setShowAddTranscript(true)} icon={<Plus size={16} />}>הוסף תמלול</Button>
+          <div className="flex items-center gap-2">
+            {settings.hasGeminiKey && (
+              <>
+                <input ref={audioInputRef} type="file" accept="audio/*" onChange={handleUploadRecording} className="hidden" />
+                <Button onClick={() => audioInputRef.current?.click()} disabled={isTranscribing} variant="ghost" icon={<Mic size={16} />}>
+                  {isTranscribing ? 'מתמלל...' : 'העלה הקלטה'}
+                </Button>
+              </>
+            )}
+            <Button onClick={() => setShowAddTranscript(true)} icon={<Plus size={16} />}>הוסף תמלול</Button>
+          </div>
         </div>
+        {isTranscribing && (
+          <div className="flex items-center justify-center py-4 gap-3 mb-4 bg-primary/5 border border-primary/20 rounded-xl">
+            <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <span className="text-gray-400 text-sm">מתמלל הקלטה... (זה יכול לקחת דקה-שתיים)</span>
+          </div>
+        )}
+        {transcribeError && (
+          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm mb-4">
+            {transcribeError}
+          </div>
+        )}
 
         {clientTranscripts.length === 0 ? (
           <p className="text-gray-600 text-sm text-center py-6 italic">אין תמלולי שיחות עדיין.</p>
@@ -530,6 +676,145 @@ const ClientProfile: React.FC = () => {
           <p className="text-gray-600 text-sm text-center py-6 italic">
             לחץ על &quot;קבל המלצות&quot; לקבלת ניתוח AI מבוסס הערות ותמלולי שיחות.
           </p>
+        )}
+      </Card>
+
+      {/* WhatsApp Messages */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <CardHeader
+            title="הודעות WhatsApp"
+            subtitle={clientWAMessages.length > 0 ? `${clientWAMessages.length} הודעות${clientWAMessages[0] ? ` · אחרונה: ${formatDate(clientWAMessages[0].sentAt)}` : ''}` : 'שלח הודעות ללקוח'}
+          />
+        </div>
+
+        {!client?.phone ? (
+          <p className="text-gray-600 text-sm text-center py-6 italic">לא ניתן לשלוח הודעות - לא הוזן מספר טלפון</p>
+        ) : (
+          <div className="space-y-4">
+            {/* Purpose selector + Generate button */}
+            <div className="flex items-center gap-3">
+              <select
+                value={waMessagePurpose}
+                onChange={e => setWaMessagePurpose(e.target.value)}
+                className="flex-1 bg-[#0B1121] border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-primary/50"
+              >
+                {MESSAGE_PURPOSES.map(p => (
+                  <option key={p.key} value={p.key}>{p.label}</option>
+                ))}
+              </select>
+              <Button onClick={handleGenerateWAMessages} disabled={isGeneratingWA || !settings.hasGeminiKey} icon={<Sparkles size={16} />}>
+                {isGeneratingWA ? 'יוצר...' : 'צור הודעות'}
+              </Button>
+            </div>
+
+            {waError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">{waError}</div>
+            )}
+            {isGeneratingWA && (
+              <div className="flex items-center justify-center py-6 gap-3">
+                <div className="w-5 h-5 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+                <span className="text-gray-400 text-sm">מייצר הודעות...</span>
+              </div>
+            )}
+
+            {/* AI Generated Messages */}
+            {waGeneratedMessages.length > 0 && (
+              <div className="space-y-2">
+                {waGeneratedMessages.map((msg, idx) => (
+                  <div key={idx} className="bg-[#0B1121] border border-emerald-500/10 rounded-xl p-3">
+                    <p className="text-gray-300 text-sm mb-2 whitespace-pre-wrap">{msg}</p>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => setWaCustomMessage(msg)}
+                        className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 transition-colors"
+                      >
+                        <Edit3 size={12} /> עריכה
+                      </button>
+                      <button
+                        onClick={() => handleSendWA(msg, true)}
+                        className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                      >
+                        <Send size={12} /> שלח בוואטסאפ
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Custom / Edit message textarea */}
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wider">{waCustomMessage ? 'עריכת הודעה' : 'הודעה חופשית'}</p>
+              <textarea
+                value={waCustomMessage}
+                onChange={e => setWaCustomMessage(e.target.value)}
+                placeholder="כתוב הודעה חופשית או ערוך הודעת AI..."
+                rows={3}
+                className="w-full bg-[#0B1121] border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-emerald-500/50 resize-none"
+                dir="rtl"
+              />
+              {waCustomMessage.trim() && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => { handleSendWA(waCustomMessage, false); setWaCustomMessage(''); }}
+                    className="text-sm text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                  >
+                    <Send size={14} /> שלח בוואטסאפ
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Message History */}
+            {clientWAMessages.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-white/5">
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">היסטוריית הודעות ({clientWAMessages.length})</p>
+                {clientWAMessages.map(msg => {
+                  const isExpanded = expandedWAHistoryId === msg.id;
+                  return (
+                    <div key={msg.id} className="bg-[#0B1121] rounded-xl border border-white/5 overflow-hidden">
+                      <button
+                        onClick={() => setExpandedWAHistoryId(isExpanded ? null : msg.id)}
+                        className="w-full text-start p-3 hover:bg-white/[0.02] transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-gray-400">{formatDateTime(msg.sentAt)}</span>
+                            <span className="text-gray-600">· {msg.sentByName}</span>
+                            <Badge variant={msg.isAiGenerated ? 'info' : 'default'}>{msg.messagePurpose}</Badge>
+                            {msg.isAiGenerated && <span className="text-amber-400/60 text-[10px]">AI</span>}
+                          </div>
+                          {isExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                        </div>
+                        {!isExpanded && (
+                          <p className="text-gray-500 text-xs mt-1 line-clamp-1">{msg.messageText}</p>
+                        )}
+                      </button>
+                      {isExpanded && (
+                        <div className="px-3 pb-3">
+                          <p className="text-gray-300 text-sm whitespace-pre-wrap mb-2">{msg.messageText}</p>
+                          <div className="flex justify-between items-center pt-2 border-t border-white/5">
+                            <button
+                              onClick={() => handleSendWA(msg.messageText, msg.isAiGenerated)}
+                              className="text-xs text-emerald-400/60 hover:text-emerald-400 flex items-center gap-1"
+                            >
+                              <Send size={11} /> שלח שוב
+                            </button>
+                            {isAdmin && (
+                              <button onClick={() => setConfirmDeleteWAId(msg.id)} className="text-red-400/60 hover:text-red-400 text-xs flex items-center gap-1">
+                                <Trash2 size={11} /> מחק
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
       </Card>
 
@@ -784,6 +1069,17 @@ const ClientProfile: React.FC = () => {
           <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
             <Button type="button" variant="ghost" onClick={() => setConfirmDeleteRecommendationId(null)}>ביטול</Button>
             <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteRecommendationId) { await deleteAIRecommendation(confirmDeleteRecommendationId); setConfirmDeleteRecommendationId(null); } }}>מחק</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Delete WhatsApp Message Modal */}
+      <Modal isOpen={!!confirmDeleteWAId} onClose={() => setConfirmDeleteWAId(null)} title="מחיקת הודעה" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך למחוק את ההודעה מההיסטוריה?</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteWAId(null)}>ביטול</Button>
+            <Button type="button" variant="danger" onClick={async () => { if (confirmDeleteWAId) { await deleteWhatsAppMessage(confirmDeleteWAId); setConfirmDeleteWAId(null); } }}>מחק</Button>
           </div>
         </div>
       </Modal>

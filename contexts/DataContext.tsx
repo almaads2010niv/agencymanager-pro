@@ -2,7 +2,8 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import {
   AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service,
   AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel,
-  ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript, AIRecommendation
+  ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript, AIRecommendation,
+  WhatsAppMessage
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -88,6 +89,19 @@ interface AIRecommendationRow {
   created_by: string;
   created_by_name: string;
   created_at: string;
+}
+
+interface WhatsAppMessageRow {
+  id: string;
+  client_id: string | null;
+  lead_id: string | null;
+  message_text: string;
+  message_purpose: string;
+  phone_number: string;
+  sent_by: string;
+  sent_by_name: string;
+  is_ai_generated: boolean;
+  sent_at: string;
 }
 
 interface DealRow {
@@ -196,6 +210,11 @@ export interface DataContextType extends AppData {
 
   addAIRecommendation: (rec: Omit<AIRecommendation, 'id' | 'createdAt'>) => Promise<void>;
   deleteAIRecommendation: (id: string) => Promise<void>;
+
+  addWhatsAppMessage: (msg: Omit<WhatsAppMessage, 'id' | 'sentAt'>) => Promise<void>;
+  deleteWhatsAppMessage: (id: string) => Promise<void>;
+
+  uploadRecording: (entityType: 'client' | 'lead', entityId: string, file: File) => Promise<{ signedUrl: string; storagePath: string } | null>;
 
   updateServices: (services: Service[]) => void;
   updateSettings: (settings: AgencySettings) => Promise<void>;
@@ -522,6 +541,32 @@ const transformAIRecommendationFromDB = (row: AIRecommendationRow): AIRecommenda
   createdAt: row.created_at,
 });
 
+const transformWhatsAppMessageToDB = (msg: WhatsAppMessage) => ({
+  id: msg.id,
+  client_id: msg.clientId || null,
+  lead_id: msg.leadId || null,
+  message_text: msg.messageText,
+  message_purpose: msg.messagePurpose,
+  phone_number: msg.phoneNumber,
+  sent_by: msg.sentBy,
+  sent_by_name: msg.sentByName,
+  is_ai_generated: msg.isAiGenerated,
+  sent_at: msg.sentAt,
+});
+
+const transformWhatsAppMessageFromDB = (row: WhatsAppMessageRow): WhatsAppMessage => ({
+  id: row.id,
+  clientId: row.client_id || undefined,
+  leadId: row.lead_id || undefined,
+  messageText: row.message_text || '',
+  messagePurpose: row.message_purpose || '',
+  phoneNumber: row.phone_number || '',
+  sentBy: row.sent_by,
+  sentByName: row.sent_by_name || '',
+  isAiGenerated: row.is_ai_generated ?? false,
+  sentAt: row.sent_at,
+});
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [data, setData] = useState<AppData>({
     clients: [],
@@ -537,6 +582,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     leadNotes: [],
     callTranscripts: [],
     aiRecommendations: [],
+    whatsappMessages: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -586,7 +632,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
@@ -599,6 +645,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('lead_notes').select('*').order('created_at', { ascending: false }),
           supabase.from('call_transcripts').select('*').order('call_date', { ascending: false }),
           supabase.from('ai_recommendations').select('*').order('created_at', { ascending: false }),
+          supabase.from('whatsapp_messages').select('*').order('sent_at', { ascending: false }),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -625,6 +672,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const leadNotes: LeadNote[] = (leadNotesRes.data || []).map((row: LeadNoteRow) => transformLeadNoteFromDB(row));
         const callTranscripts: CallTranscript[] = (callTranscriptsRes.data || []).map((row: CallTranscriptRow) => transformCallTranscriptFromDB(row));
         const aiRecommendations: AIRecommendation[] = (aiRecommendationsRes.data || []).map((row: AIRecommendationRow) => transformAIRecommendationFromDB(row));
+        const whatsappMessages: WhatsAppMessage[] = (whatsappMessagesRes.data || []).map((row: WhatsAppMessageRow) => transformWhatsAppMessageFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
         if (settingsRes.data && !settingsRes.error) {
@@ -648,6 +696,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           leadNotes,
           callTranscripts,
           aiRecommendations,
+          whatsappMessages,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -1386,6 +1435,92 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // --- WhatsApp Messages ---
+  const addWhatsAppMessage = async (msg: Omit<WhatsAppMessage, 'id' | 'sentAt'>) => {
+    const newMsg: WhatsAppMessage = {
+      ...msg,
+      id: generateId(),
+      sentAt: new Date().toISOString(),
+    };
+
+    try {
+      const { error } = await supabase
+        .from('whatsapp_messages')
+        .insert(transformWhatsAppMessageToDB(newMsg));
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        whatsappMessages: [newMsg, ...prev.whatsappMessages],
+      }));
+
+      const entityName = msg.clientId
+        ? data.clients.find(c => c.clientId === msg.clientId)?.businessName
+        : data.leads.find(l => l.leadId === msg.leadId)?.leadName;
+      logActivity('whatsapp_sent', msg.clientId ? 'client' : 'lead',
+        `הודעת WhatsApp נשלחה (${msg.messagePurpose}): ${entityName || ''}`, msg.clientId || msg.leadId);
+    } catch (err) {
+      showError('שגיאה בשמירת הודעת WhatsApp');
+      throw err;
+    }
+  };
+
+  const deleteWhatsAppMessage = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('whatsapp_messages')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        whatsappMessages: prev.whatsappMessages.filter(m => m.id !== id),
+      }));
+    } catch (err) {
+      showError('שגיאה במחיקת הודעת WhatsApp');
+      throw err;
+    }
+  };
+
+  // --- Audio Recording Upload ---
+  const uploadRecording = async (entityType: 'client' | 'lead', entityId: string, file: File): Promise<{ signedUrl: string; storagePath: string } | null> => {
+    try {
+      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._\-\u0590-\u05FF]/g, '_')}`;
+      const storagePath = `${entityId}/${safeName}`;
+
+      const { error } = await supabase.storage
+        .from('recordings')
+        .upload(storagePath, file, { upsert: false });
+
+      if (error) {
+        showError('שגיאה בהעלאת הקלטה: ' + error.message);
+        return null;
+      }
+
+      const { data: urlData } = await supabase.storage
+        .from('recordings')
+        .createSignedUrl(storagePath, 3600); // 1 hour expiry
+
+      if (!urlData?.signedUrl) {
+        showError('שגיאה ביצירת קישור להקלטה');
+        return null;
+      }
+
+      const entityName = entityType === 'client'
+        ? data.clients.find(c => c.clientId === entityId)?.businessName || entityId
+        : data.leads.find(l => l.leadId === entityId)?.leadName || entityId;
+      logActivity('recording_uploaded', entityType, `הועלתה הקלטה "${file.name}" עבור ${entityName}`, entityId);
+
+      return { signedUrl: urlData.signedUrl, storagePath };
+    } catch (err) {
+      showError('שגיאה בהעלאת הקלטה');
+      return null;
+    }
+  };
+
   const updateServices = (services: Service[]) => {
     setData(prev => ({ ...prev, services }));
   };
@@ -1457,6 +1592,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         leadNotes: parsed.leadNotes || [],
         callTranscripts: parsed.callTranscripts || [],
         aiRecommendations: parsed.aiRecommendations || [],
+        whatsappMessages: parsed.whatsappMessages || [],
       });
       return true;
     } catch (e) {
@@ -1485,6 +1621,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addLeadNote, deleteLeadNote,
       addCallTranscript, deleteCallTranscript,
       addAIRecommendation, deleteAIRecommendation,
+      addWhatsAppMessage, deleteWhatsAppMessage,
+      uploadRecording,
       updateServices, updateSettings, saveApiKeys,
       importData, exportData
     }}>

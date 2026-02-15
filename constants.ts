@@ -24,3 +24,16 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   hasCanvaKey: false,
   hasGeminiKey: false,
 };
+
+export const MESSAGE_PURPOSES = [
+  { key: 'follow_up', label: 'מעקב' },
+  { key: 'meeting_reminder', label: 'תזכורת פגישה' },
+  { key: 'proposal_sent', label: 'הצעת מחיר' },
+  { key: 'thank_you', label: 'תודה' },
+  { key: 'check_in', label: 'בדיקת סטטוס' },
+  { key: 'intro', label: 'הכרות ראשונית' },
+  { key: 'renewal', label: 'חידוש חוזה' },
+  { key: 'service_update', label: 'עדכון שירות' },
+  { key: 'performance_report', label: 'דוח ביצועים' },
+  { key: 'custom', label: 'אחר' },
+] as const;

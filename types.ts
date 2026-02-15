@@ -212,6 +212,19 @@ export interface AIRecommendation {
   createdAt: string;
 }
 
+export interface WhatsAppMessage {
+  id: string;
+  clientId?: string;
+  leadId?: string;
+  messageText: string;
+  messagePurpose: string;
+  phoneNumber: string;
+  sentBy: string;
+  sentByName: string;
+  isAiGenerated: boolean;
+  sentAt: string;
+}
+
 export interface AppData {
   clients: Client[];
   leads: Lead[];
@@ -226,4 +239,5 @@ export interface AppData {
   leadNotes: LeadNote[];
   callTranscripts: CallTranscript[];
   aiRecommendations: AIRecommendation[];
+  whatsappMessages: WhatsAppMessage[];
 }
