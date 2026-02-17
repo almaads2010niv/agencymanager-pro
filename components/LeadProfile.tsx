@@ -139,6 +139,8 @@ const LeadProfile: React.FC = () => {
   const signalsPdfRef = useRef<HTMLInputElement>(null);
   // Track if auto-recommendation was already triggered for this personality
   const [autoRecTriggered, setAutoRecTriggered] = useState(false);
+  const [signalsMessageEditing, setSignalsMessageEditing] = useState(false);
+  const [signalsMessageText, setSignalsMessageText] = useState('');
 
   // Edit modal state
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -945,7 +947,7 @@ const LeadProfile: React.FC = () => {
             {(() => {
               const questionnaireUrl = `https://signals-os.alma-ads.co.il/widget?questionnaire=v3-biz-owner${lead.email ? `&subject_email=${encodeURIComponent(lead.email)}` : ''}${lead.leadName ? `&subject_name=${encodeURIComponent(lead.leadName)}` : ''}${lead.phone ? `&subject_phone=${encodeURIComponent(lead.phone)}` : ''}&external_id=${encodeURIComponent(lead.leadId)}&source_id=agencymanager-pro`;
 
-              const waMessage = `יש לנו כלי אבחון שאנחנו בדרך כלל נותנים ללקוחות בתשלום,
+              const defaultMessage = `יש לנו כלי אבחון שאנחנו בדרך כלל נותנים ללקוחות בתשלום,
 אבל אני רוצה להראות לך את יכולת החשיבה שלנו לעסק שלך -
 אז אני נותן לך את זה ללא תשלום.
 זה שאלון קצר (3 דקות) שנותן לך דוח מפורט על:
@@ -961,12 +963,65 @@ ${questionnaireUrl}
 
 ואם בא לך, תשלח לי מה יצא - מעניין לראות`;
 
+              // Initialize message text with default on first render
+              const waMessage = signalsMessageText || defaultMessage;
+
               const waUrl = lead.phone
                 ? `https://wa.me/${formatPhoneForWhatsApp(lead.phone)}?text=${encodeURIComponent(waMessage)}`
                 : null;
 
               return (
                 <div className="space-y-4">
+                  {/* Editable message */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">הודעת שליחת שאלון</span>
+                      <button
+                        onClick={() => {
+                          if (!signalsMessageEditing) {
+                            if (!signalsMessageText) setSignalsMessageText(defaultMessage);
+                            setSignalsMessageEditing(true);
+                          } else {
+                            setSignalsMessageEditing(false);
+                          }
+                        }}
+                        className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1 transition-colors"
+                      >
+                        <Edit3 size={12} />
+                        {signalsMessageEditing ? 'סיים עריכה' : 'ערוך הודעה'}
+                      </button>
+                    </div>
+
+                    {signalsMessageEditing ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={signalsMessageText || defaultMessage}
+                          onChange={e => setSignalsMessageText(e.target.value)}
+                          className="w-full bg-[#0B1121] border border-violet-500/30 rounded-xl px-3 py-2.5 text-sm text-gray-300 focus:outline-none focus:border-violet-500/60 resize-y custom-scrollbar"
+                          rows={10}
+                          dir="rtl"
+                        />
+                        <button
+                          onClick={() => { setSignalsMessageText(''); setSignalsMessageEditing(false); }}
+                          className="text-xs text-gray-500 hover:text-gray-400 transition-colors"
+                        >
+                          ↩ חזור לטקסט ברירת מחדל
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() => {
+                          if (!signalsMessageText) setSignalsMessageText(defaultMessage);
+                          setSignalsMessageEditing(true);
+                        }}
+                        className="p-3 rounded-xl bg-white/[0.02] border border-white/5 text-xs text-gray-400 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto custom-scrollbar cursor-pointer hover:border-violet-500/20 transition-colors"
+                        dir="rtl"
+                      >
+                        {waMessage}
+                      </div>
+                    )}
+                  </div>
+
                   {/* WhatsApp send button */}
                   {waUrl ? (
                     <a
@@ -996,17 +1051,6 @@ ${questionnaireUrl}
                   >
                     🔗 העתק לינק לשאלון
                   </button>
-
-                  {/* Preview of the message */}
-                  <details className="group">
-                    <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-400 flex items-center gap-1.5">
-                      <ChevronDown size={12} className="group-open:rotate-180 transition-transform" />
-                      תצוגה מקדימה של ההודעה
-                    </summary>
-                    <div className="mt-2 p-3 rounded-xl bg-white/[0.02] border border-white/5 text-xs text-gray-400 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto custom-scrollbar" dir="rtl">
-                      {waMessage}
-                    </div>
-                  </details>
 
                   {/* Divider */}
                   <div className="flex items-center gap-3 pt-2">
