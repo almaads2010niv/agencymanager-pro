@@ -2,15 +2,28 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
-import { Lead, LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel } from '../types';
+import { Lead, LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, Archetype } from '../types';
 import { formatCurrency, formatPhoneForWhatsApp } from '../utils';
-import { Plus, Search, CheckCircle, XCircle, List, LayoutGrid, Phone, MessageCircle, ArrowUpDown, Calendar, User } from 'lucide-react';
+import { Plus, Search, CheckCircle, XCircle, List, LayoutGrid, Phone, MessageCircle, ArrowUpDown, Calendar, User, GripVertical, Brain } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select, Textarea, Checkbox } from './ui/Form';
 import { Modal } from './ui/Modal';
 import { Badge } from './ui/Badge';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from './ui/Table';
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { useDroppable } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 type ViewMode = 'table' | 'kanban';
 type SortField = 'nextContactDate' | 'quotedMonthlyValue' | null;
@@ -397,108 +410,263 @@ const Leads: React.FC = () => {
     </Card>
   );
 
-  // --- Kanban View ---
+  // --- Kanban View (Drag & Drop) ---
 
-  const KanbanView = () => {
-    const kanbanLeads = filteredLeads.filter(l => KANBAN_STATUSES.includes(l.status));
+  const ARCHETYPE_COLORS: Record<Archetype, string> = {
+    WINNER: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+    STAR: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
+    DREAMER: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    HEART: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
+    ANCHOR: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
+  };
+
+  const ARCHETYPE_LABELS: Record<Archetype, string> = {
+    WINNER: 'מנצח', STAR: 'כוכב', DREAMER: 'חולם', HEART: 'לב', ANCHOR: 'עוגן',
+  };
+
+  // --- Sortable Card ---
+  const SortableLeadCard: React.FC<{ lead: Lead; personalityArchetype?: Archetype }> = ({ lead, personalityArchetype }) => {
+    const {
+      attributes,
+      listeners,
+      setNodeRef,
+      transform,
+      transition,
+      isDragging,
+    } = useSortable({ id: lead.leadId });
+
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      opacity: isDragging ? 0.4 : 1,
+    };
+
+    const overdue = isOverdue(lead.nextContactDate);
+    const handlerName = getUserName(lead.assignedTo);
 
     return (
-      <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar" style={{ minHeight: '400px' }}>
-        {KANBAN_STATUSES.map(status => {
-          const columnLeads = kanbanLeads.filter(l => l.status === status);
-          const totalValue = columnLeads.reduce((sum, l) => sum + l.quotedMonthlyValue, 0);
-
-          return (
-            <div
-              key={status}
-              className="flex-shrink-0 w-72 flex flex-col bg-white/[0.02] border border-white/5 rounded-xl"
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`
+          p-4 rounded-xl border cursor-grab active:cursor-grabbing transition-all duration-200
+          hover:border-white/20 hover:bg-white/[0.04] hover:shadow-lg hover:shadow-black/20
+          ${overdue
+            ? 'border-red-500/20 bg-red-500/[0.04]'
+            : 'border-white/5 bg-surface/40'
+          }
+          ${isDragging ? 'shadow-2xl shadow-primary/20 border-primary/30 scale-[1.02]' : ''}
+        `}
+      >
+        {/* Drag handle + name + WhatsApp */}
+        <div className="flex items-start gap-2 mb-2">
+          <div {...attributes} {...listeners} className="mt-0.5 text-gray-600 hover:text-gray-400 flex-shrink-0 touch-none">
+            <GripVertical size={16} />
+          </div>
+          <div className="flex-1 min-w-0" onClick={() => navigate(`/leads/${lead.leadId}`)}>
+            <h4 className="text-sm font-bold text-white leading-tight truncate">{lead.leadName}</h4>
+          </div>
+          {lead.phone && (
+            <a
+              href={`https://wa.me/${formatPhoneForWhatsApp(lead.phone).replace('+', '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-colors flex-shrink-0"
+              title="WhatsApp"
             >
-              {/* Column header */}
-              <div className="p-4 border-b border-white/5">
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="text-sm font-bold text-white">{status}</h3>
-                  <span className="text-xs font-mono text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">
-                    {columnLeads.length}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-500 font-mono">{formatCurrency(totalValue)}</p>
+              <MessageCircle size={14} />
+            </a>
+          )}
+        </div>
+
+        {/* Business name */}
+        {lead.businessName && (
+          <p className="text-xs text-gray-500 mb-2 mr-6 truncate">{lead.businessName}</p>
+        )}
+
+        {/* Phone */}
+        {lead.phone && (
+          <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2 mr-6">
+            <Phone size={11} />
+            <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()} className="hover:text-white transition-colors">
+              {lead.phone}
+            </a>
+          </div>
+        )}
+
+        {/* Value + source */}
+        <div className="flex items-center justify-between mb-2 mr-6">
+          <span className="text-sm font-mono font-bold text-secondary">
+            {formatCurrency(lead.quotedMonthlyValue)}
+          </span>
+          <Badge variant={getSourceBadgeVariant(lead.sourceChannel)} className="text-[10px] px-1.5 py-0.5">
+            {lead.sourceChannel}
+          </Badge>
+        </div>
+
+        {/* Next contact date */}
+        <div className="flex items-center justify-between mr-6">
+          <div className={`flex items-center gap-1.5 text-xs ${overdue ? 'text-red-400 font-semibold' : 'text-gray-500'}`}>
+            <Calendar size={12} />
+            {new Date(lead.nextContactDate).toLocaleDateString('he-IL')}
+          </div>
+          {handlerName && (
+            <div className="flex items-center gap-1">
+              <div className="w-5 h-5 rounded-full bg-violet-500/20 flex items-center justify-center">
+                <User size={10} className="text-violet-400" />
               </div>
+              <span className="text-[10px] text-gray-500 truncate max-w-[70px]">{handlerName}</span>
+            </div>
+          )}
+        </div>
 
-              {/* Column cards */}
-              <div className="flex-1 p-3 space-y-3 overflow-y-auto custom-scrollbar" style={{ maxHeight: '60vh' }}>
-                {columnLeads.length === 0 ? (
-                  <div className="text-center py-8 text-gray-600 text-xs">אין לידים</div>
-                ) : (
-                  columnLeads.map(lead => {
-                    const overdue = isOverdue(lead.nextContactDate);
-                    const handlerName = getUserName(lead.assignedTo);
+        {/* Signals personality badge */}
+        {personalityArchetype && (
+          <div className={`mt-2 mr-6 inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold ${ARCHETYPE_COLORS[personalityArchetype]}`}>
+            <Brain size={10} />
+            {ARCHETYPE_LABELS[personalityArchetype]}
+          </div>
+        )}
+      </div>
+    );
+  };
 
-                    return (
-                      <div
-                        key={lead.leadId}
-                        onClick={() => navigate(`/leads/${lead.leadId}`)}
+  // --- Droppable Column ---
+  const KanbanColumn: React.FC<{ status: LeadStatus; leads: Lead[]; personalityMap: Map<string, Archetype> }> = ({ status, leads: columnLeads, personalityMap }) => {
+    const { setNodeRef, isOver } = useDroppable({ id: status });
+    const totalValue = columnLeads.reduce((sum, l) => sum + l.quotedMonthlyValue, 0);
 
-                        className={`
-                          p-3 rounded-lg border cursor-pointer transition-all duration-200
-                          hover:border-white/20 hover:bg-white/[0.04]
-                          ${overdue
-                            ? 'border-red-500/20 bg-red-500/[0.04]'
-                            : 'border-white/5 bg-surface/40'
-                          }
-                        `}
-                      >
-                        <div className="flex items-start justify-between mb-2">
-                          <h4 className="text-sm font-semibold text-white leading-tight">{lead.leadName}</h4>
-                          {lead.phone && (
-                            <a
-                              href={`https://wa.me/${formatPhoneForWhatsApp(lead.phone).replace('+', '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center justify-center w-6 h-6 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-colors flex-shrink-0 ms-2"
-                              title="WhatsApp"
-                            >
-                              <MessageCircle size={12} />
-                            </a>
-                          )}
-                        </div>
+    return (
+      <div
+        ref={setNodeRef}
+        className={`flex flex-col bg-white/[0.02] border rounded-xl min-h-[400px] transition-colors duration-200
+          ${isOver ? 'border-primary/40 bg-primary/[0.03]' : 'border-white/5'}
+        `}
+      >
+        {/* Column header */}
+        <div className="p-4 border-b border-white/5">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-bold text-white">{status}</h3>
+            <span className="text-xs font-mono text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">
+              {columnLeads.length}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 font-mono">{formatCurrency(totalValue)}</p>
+        </div>
 
-                        {lead.businessName && (
-                          <p className="text-xs text-gray-500 mb-2">{lead.businessName}</p>
-                        )}
+        {/* Column cards */}
+        <SortableContext items={columnLeads.map(l => l.leadId)} strategy={verticalListSortingStrategy}>
+          <div className="flex-1 p-3 space-y-3 overflow-y-auto custom-scrollbar" style={{ maxHeight: '65vh' }}>
+            {columnLeads.length === 0 ? (
+              <div className={`text-center py-8 text-xs rounded-lg border border-dashed transition-colors ${isOver ? 'text-primary/60 border-primary/30' : 'text-gray-600 border-transparent'}`}>
+                {isOver ? 'שחרר כאן' : 'אין לידים'}
+              </div>
+            ) : (
+              columnLeads.map(lead => (
+                <SortableLeadCard
+                  key={lead.leadId}
+                  lead={lead}
+                  personalityArchetype={personalityMap.get(lead.leadId)}
+                />
+              ))
+            )}
+          </div>
+        </SortableContext>
+      </div>
+    );
+  };
 
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-mono font-bold text-secondary">
-                            {formatCurrency(lead.quotedMonthlyValue)}
-                          </span>
-                          <Badge variant={getSourceBadgeVariant(lead.sourceChannel)} className="text-[10px] px-1.5 py-0.5">
-                            {lead.sourceChannel}
-                          </Badge>
-                        </div>
+  const KanbanView = () => {
+    const [activeDragId, setActiveDragId] = useState<string | null>(null);
+    const { signalsPersonalities } = useData();
 
-                        <div className="flex items-center justify-between">
-                          <div className={`flex items-center gap-1.5 text-xs ${overdue ? 'text-red-400 font-semibold' : 'text-gray-500'}`}>
-                            <Calendar size={12} />
-                            {new Date(lead.nextContactDate).toLocaleDateString('he-IL')}
-                          </div>
-                          {handlerName && (
-                            <div className="flex items-center gap-1">
-                              <div className="w-5 h-5 rounded-full bg-violet-500/20 flex items-center justify-center">
-                                <User size={10} className="text-violet-400" />
-                              </div>
-                              <span className="text-[10px] text-gray-500 truncate max-w-[60px]">{handlerName}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
+    const sensors = useSensors(
+      useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    );
+
+    const kanbanLeads = filteredLeads.filter(l => KANBAN_STATUSES.includes(l.status));
+
+    // Build personality lookup map
+    const personalityMap = useMemo(() => {
+      const map = new Map<string, Archetype>();
+      signalsPersonalities.forEach(p => {
+        if (p.leadId) map.set(p.leadId, p.primaryArchetype);
+      });
+      return map;
+    }, [signalsPersonalities]);
+
+    const activeLead = activeDragId ? kanbanLeads.find(l => l.leadId === activeDragId) : null;
+
+    const handleDragStart = (event: DragStartEvent) => {
+      setActiveDragId(event.active.id as string);
+    };
+
+    const handleDragEnd = (event: DragEndEvent) => {
+      setActiveDragId(null);
+      const { active, over } = event;
+      if (!over) return;
+
+      const leadId = active.id as string;
+      const lead = kanbanLeads.find(l => l.leadId === leadId);
+      if (!lead) return;
+
+      // Determine target status — "over" could be a column (status) or another card
+      let targetStatus: LeadStatus | undefined;
+      if (KANBAN_STATUSES.includes(over.id as LeadStatus)) {
+        targetStatus = over.id as LeadStatus;
+      } else {
+        // Dropped on another card — find that card's status
+        const targetLead = kanbanLeads.find(l => l.leadId === over.id);
+        if (targetLead) targetStatus = targetLead.status;
+      }
+
+      if (targetStatus && targetStatus !== lead.status) {
+        updateLead({ ...lead, status: targetStatus });
+      }
+    };
+
+    return (
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4" style={{ minHeight: '400px' }}>
+          {KANBAN_STATUSES.map(status => (
+            <KanbanColumn
+              key={status}
+              status={status}
+              leads={kanbanLeads.filter(l => l.status === status)}
+              personalityMap={personalityMap}
+            />
+          ))}
+        </div>
+
+        {/* Drag overlay — ghost card */}
+        <DragOverlay>
+          {activeLead ? (
+            <div className="p-4 rounded-xl border border-primary/30 bg-surface shadow-2xl shadow-primary/20 w-72 opacity-90">
+              <div className="flex items-start gap-2 mb-2">
+                <GripVertical size={16} className="text-primary mt-0.5" />
+                <h4 className="text-sm font-bold text-white leading-tight truncate flex-1">{activeLead.leadName}</h4>
+              </div>
+              {activeLead.businessName && (
+                <p className="text-xs text-gray-500 mb-2 mr-6">{activeLead.businessName}</p>
+              )}
+              <div className="flex items-center justify-between mr-6">
+                <span className="text-sm font-mono font-bold text-secondary">
+                  {formatCurrency(activeLead.quotedMonthlyValue)}
+                </span>
+                <Badge variant={getSourceBadgeVariant(activeLead.sourceChannel)} className="text-[10px] px-1.5 py-0.5">
+                  {activeLead.sourceChannel}
+                </Badge>
               </div>
             </div>
-          );
-        })}
-      </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     );
   };
 

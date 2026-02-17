@@ -14,6 +14,7 @@ export type PagePermission =
   | 'debts'
   | 'profit_loss'
   | 'tax_calculator'
+  | 'calendar'
   | 'settings';
 
 export const ALL_PAGES: { key: PagePermission; label: string; path: string }[] = [
@@ -25,6 +26,7 @@ export const ALL_PAGES: { key: PagePermission; label: string; path: string }[] =
   { key: 'debts', label: '\u05D7\u05D5\u05D1\u05D5\u05EA \u05DC\u05E7\u05D5\u05D7\u05D5\u05EA', path: '/debts' },
   { key: 'profit_loss', label: '\u05D3\u05D5\u05D7 \u05E8\u05D5\u05D5\u05D7 \u05D5\u05D4\u05E4\u05E1\u05D3', path: '/profit-loss' },
   { key: 'tax_calculator', label: '\u05DE\u05D7\u05E9\u05D1\u05D5\u05DF \u05DE\u05E1', path: '/tax-calculator' },
+  { key: 'calendar', label: '\u05DC\u05D5\u05D7 \u05E9\u05E0\u05D4', path: '/calendar' },
   { key: 'settings', label: '\u05D4\u05D2\u05D3\u05E8\u05D5\u05EA', path: '/settings' },
 ];
 

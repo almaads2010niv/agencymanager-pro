@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Settings, Briefcase, CreditCard, Calculator, Search, LogOut, Shield, Eye, Sun, Moon, BarChart3 } from 'lucide-react';
+import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Settings, Briefcase, CreditCard, Calculator, Search, LogOut, Shield, Eye, Sun, Moon, BarChart3, CalendarDays } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -108,6 +108,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             {hasPageAccess('debts') && <SidebarItem to="/debts" icon={CreditCard} label="חובות לקוחות" isActive={location.pathname === '/debts'} onClick={closeSidebar} badge={unpaidDebts} />}
             {hasPageAccess('profit_loss') && <SidebarItem to="/profit-loss" icon={BarChart3} label="דוח רווח והפסד" isActive={location.pathname === '/profit-loss'} onClick={closeSidebar} />}
             {hasPageAccess('tax_calculator') && <SidebarItem to="/tax-calculator" icon={Calculator} label="מחשבון מס" isActive={location.pathname === '/tax-calculator'} onClick={closeSidebar} />}
+            {hasPageAccess('calendar') && <SidebarItem to="/calendar" icon={CalendarDays} label="לוח שנה" isActive={location.pathname === '/calendar'} onClick={closeSidebar} />}
             {hasPageAccess('settings') && <SidebarItem to="/settings" icon={Settings} label="הגדרות" isActive={location.pathname === '/settings'} onClick={closeSidebar} />}
 
             {/* Search shortcut - admin only */}
@@ -178,8 +179,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </header>
 
         {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-auto p-4 lg:p-10 relative z-10">
-          <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className={`flex-1 overflow-auto p-4 ${['/leads', '/calendar'].includes(location.pathname) ? 'lg:p-6' : 'lg:p-10'} relative z-10`}>
+          <div className={`${['/leads', '/calendar'].includes(location.pathname) ? '' : 'max-w-7xl'} mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
             {children}
           </div>
         </div>

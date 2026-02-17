@@ -431,7 +431,114 @@ Commits: 83c5840, c3080f8, c14c9b3, 9b73c62, 5c4b723
 All Edge Functions redeployed.
 
 ===============================================================================
-ARCHITECTURE NOTES (Updated 2026-02-15)
+SESSION 10 (2026-02-16) - Signals OS Integration
+===============================================================================
+
+WHAT HAPPENED:
+Integrated Signals OS personality intelligence system into AgencyManager Pro.
+Signals OS is a separate project that analyzes behavioral/personality archetypes
+using AI questionnaires, deployed at signals-os-deploy.
+
+CHANGES:
+
+1. WEBHOOK INTEGRATION
+   - Signals OS sends webhook to Supabase Edge Function on questionnaire completion
+   - Edge Function: receives personality data, matches lead by email, updates lead record
+   - New columns on leads table: archetype, archetype_description
+   - Embeddable link generation for leads (pre-filled email in questionnaire URL)
+
+2. PERSONALITY DISPLAY
+   - LeadProfile.tsx: full personality card with archetype name + description
+   - Leads.tsx Kanban cards: personality badge (Brain icon + archetype name)
+   - AI recommendations incorporate personality data for better advice
+
+3. SIGNALS OS DEPLOY PROJECT
+   - Deployed to Vercel from signals-os-deploy directory
+   - Webhook URL configured in Signals OS settings
+   - Supabase Edge Function deployed for webhook processing
+
+FILES MODIFIED:
+- types.ts (archetype, archetypeDescription on Lead)
+- contexts/DataContext.tsx (archetype fields in transforms)
+- components/LeadProfile.tsx (personality display card)
+- components/Leads.tsx (archetype badge in Kanban cards)
+
+Committed: f6b39ba
+Pushed to GitHub -> Vercel auto-deployed.
+
+===============================================================================
+SESSION 11 (2026-02-17) - Kanban Upgrade + Calendar + AI Receipt Scanning
+===============================================================================
+
+WHAT HAPPENED:
+Three major feature additions: (1) Kanban board with drag & drop,
+(2) Full calendar with events, (3) AI-powered receipt scanning.
+
+CHANGES:
+
+1. KANBAN DRAG & DROP UPGRADE
+   - Installed @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities
+   - Full-width layout for /leads and /calendar routes (removed max-w-7xl)
+   - Rewrote KanbanView with DndContext, useDroppable columns, useSortable cards
+   - DragOverlay ghost card during drag, closestCorners collision detection
+   - Enriched cards: name, WhatsApp, business, phone, value, source, handler,
+     next contact date (overdue highlight), Signals OS personality badge
+   - Grid layout: responsive grid-cols-1/2/3/5
+
+2. CALENDAR SYSTEM
+   - New table: calendar_events (id, title, event_type, start_time, end_time,
+     all_day, description, client_id, lead_id, created_by, created_by_name)
+   - react-big-calendar + date-fns Hebrew locale (dateFnsLocalizer)
+   - 5 event types: call (cyan), meeting (violet), zoom (blue), task (emerald), reminder (amber)
+   - Month/Week/Day views with type legend
+   - Virtual events from leads.nextContactDate (dashed border style)
+   - Create/edit/delete modals with client/lead linking
+   - RTL + dark/light theme CSS overrides for react-big-calendar
+   - Page permission: 'calendar' added to role system
+
+3. AI RECEIPT SCANNING
+   - New Edge Function: process-receipt/index.ts
+   - Gemini 2.0 Flash Vision API extracts: supplier, amount, date, category, description
+   - Hebrew prompt for Israeli receipt/invoice parsing
+   - receipt_url column added to expenses table
+   - Storage bucket 'receipts' (10MB, images + PDF)
+   - Two-phase modal UI: upload (drag & drop + preview) → review (editable fields
+     + confidence indicator) → save as expense
+   - Confidence color coding: green (>0.8), yellow (>0.5), red (<0.5)
+
+SQL MIGRATIONS TO RUN:
+  1. supabase-calendar-migration.sql — calendar_events table + indexes + RLS + realtime
+  2. supabase-receipts-migration.sql — expenses.receipt_url + storage bucket + policies
+
+EDGE FUNCTION TO DEPLOY:
+  npx supabase functions deploy process-receipt --project-ref rxckkozbkrabpjdgyxqm
+
+NEW DEPENDENCIES:
+  @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities
+  react-big-calendar, date-fns, @types/react-big-calendar
+
+FILES MODIFIED:
+- package.json (new dependencies)
+- types.ts (CalendarEvent, CalendarEventType, receiptUrl, calendarEvents in AppData)
+- contexts/DataContext.tsx (calendar CRUD, receipt upload/URL, calendar row transforms)
+- contexts/AuthContext.tsx ('calendar' page permission)
+- components/Layout.tsx (calendar sidebar item, full-width routes, CalendarDays icon)
+- components/Leads.tsx (full Kanban rewrite with @dnd-kit, enriched cards)
+- components/Expenses.tsx (receipt scanning modal, processing flow)
+- App.tsx (calendar route)
+- index.html (react-big-calendar CSS CDN + RTL/dark/light overrides)
+
+NEW FILES:
+- components/Calendar.tsx (full calendar page component)
+- supabase/functions/process-receipt/index.ts (Gemini Vision receipt OCR)
+- supabase-calendar-migration.sql
+- supabase-receipts-migration.sql
+
+TypeScript check passed (no new errors in modified files).
+Pending: commit + push + SQL migrations + Edge Function deploy.
+
+===============================================================================
+ARCHITECTURE NOTES (Updated 2026-02-17)
 ===============================================================================
 
 Data Flow:
@@ -463,19 +570,21 @@ AI / Gemini:
   gemini-3-pro-preview -> ai-recommendations, generate-ai-summary (quality)
   gemini-2.5-flash -> transcribe-audio (speed, large token counts)
   gemini-2.0-flash-lite -> generate-whatsapp-messages (no thinking parts, reliable JSON)
+  gemini-2.0-flash -> process-receipt (Vision API, receipt OCR, temperature 0.1)
   API key stored server-side only (settings.gemini_api_key)
   Thinking parts filter: if (part.text && !part.thought) — needed for 2.5+ and 3.x
   gemini-2.0-flash-lite has NO thinking parts (simpler, ideal for JSON generation)
   WARNING: responseMimeType/thinkingConfig/responseSchema NOT supported in 2.5-flash REST API
   Audio uses Gemini Files API (resumable upload -> file_uri)
 
-Edge Functions (6 total):
+Edge Functions (7 total):
   create-user -> Admin account creation
   ai-recommendations -> AI advice via Gemini 3 Pro
   generate-ai-summary -> 3 summary types via Gemini 3 Pro
   generate-whatsapp-messages -> 3 message variants via Gemini 2.0 Flash-Lite
   transcribe-audio -> Audio -> text via Gemini Files API (2.5 Flash)
   generate-proposal -> PDF via Canva Connect API
+  process-receipt -> Receipt OCR via Gemini 2.0 Flash Vision
 
 Supabase Tables:
   clients (+ assigned_to uuid)
@@ -488,8 +597,9 @@ Supabase Tables:
   call_transcripts (client_id, lead_id, transcript, summary, recording_url)
   ai_recommendations (client_id, lead_id, recommendation)
   whatsapp_messages (client_id, lead_id, message_text, purpose, is_ai_generated)
+  calendar_events (id, title, event_type, start_time, end_time, all_day, description, client_id, lead_id)
   user_roles (user_id, email, role, display_name, page_permissions)
-  storage.buckets: contracts, recordings
+  storage.buckets: contracts, recordings, receipts
 
 Styling:
   Tailwind CSS via CDN (not PostCSS build)
@@ -497,6 +607,11 @@ Styling:
   Dark theme: background #0B1121, surface #151e32
   Glass morphism effects throughout
   RTL: use logical properties (ms-/me- not ml-/mr-)
+
+Libraries:
+  @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities -> Kanban drag & drop
+  react-big-calendar + date-fns -> Calendar with Hebrew locale
+  Tailwind CSS via CDN (not PostCSS build)
 
 Key Patterns:
   - Modal z-index: z-[60] (above sidebar z-50)
@@ -539,3 +654,6 @@ GIT HISTORY (key commits):
   c14c9b3 - Gemini model upgrade + MEMORY/PROJECT docs update
   9b73c62 - Debug: detailed error logging for WhatsApp generation
   5c4b723 - Fix: switch WhatsApp to gemini-2.0-flash-lite for reliability
+  5f6783d - Docs: project story update
+  f6b39ba - Signals OS personality intelligence integration
+  [pending] - Kanban drag & drop + Calendar + AI Receipt scanning

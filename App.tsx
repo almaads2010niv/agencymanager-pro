@@ -19,6 +19,7 @@ import TaxCalculator from './components/TaxCalculator'
 import ClientProfile from './components/ClientProfile'
 import LeadProfile from './components/LeadProfile'
 import ProfitLoss from './components/ProfitLoss'
+import CalendarPage from './components/Calendar'
 import Login from './components/Login'
 
 // Inner component that waits for role to load before rendering
@@ -51,6 +52,7 @@ function AppContent() {
             <Route path="/debts" element={<Debts />} />
             <Route path="/tax-calculator" element={<TaxCalculator />} />
             <Route path="/profit-loss" element={<ProfitLoss />} />
+            <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </Layout>

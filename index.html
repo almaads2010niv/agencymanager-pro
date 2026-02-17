@@ -6,6 +6,7 @@
     <title>AgencyManager Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/react-big-calendar@1.16.3/lib/css/react-big-calendar.min.css" rel="stylesheet">
     <script>
       tailwind.config = {
         darkMode: 'class',
@@ -130,6 +131,92 @@
       html.light .bg-primary\/5 { background-color: rgba(6, 182, 212, 0.08) !important; }
       html.light .bg-primary\/10 { background-color: rgba(6, 182, 212, 0.12) !important; }
       html.light .bg-primary\/20 { background-color: rgba(6, 182, 212, 0.15) !important; }
+
+      /* ===== REACT-BIG-CALENDAR DARK THEME + RTL ===== */
+      .rbc-calendar {
+        font-family: 'Heebo', sans-serif;
+        direction: rtl;
+        color: #e2e8f0;
+      }
+      .rbc-toolbar {
+        flex-direction: row-reverse;
+        margin-bottom: 16px;
+        gap: 8px;
+      }
+      .rbc-toolbar button {
+        color: #94a3b8;
+        border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(255,255,255,0.03);
+        border-radius: 8px;
+        padding: 6px 14px;
+        font-size: 13px;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+      .rbc-toolbar button:hover {
+        background: rgba(6, 182, 212, 0.1);
+        color: #06b6d4;
+        border-color: rgba(6, 182, 212, 0.3);
+      }
+      .rbc-toolbar button.rbc-active {
+        background: rgba(6, 182, 212, 0.15);
+        color: #06b6d4;
+        border-color: rgba(6, 182, 212, 0.4);
+      }
+      .rbc-toolbar-label {
+        font-size: 18px;
+        font-weight: 700;
+        color: #f1f5f9;
+      }
+      .rbc-header {
+        background: rgba(255,255,255,0.03);
+        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+        padding: 8px 4px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #94a3b8;
+      }
+      .rbc-header + .rbc-header { border-right: 1px solid rgba(255,255,255,0.05) !important; border-left: none !important; }
+      .rbc-month-view, .rbc-time-view { border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; overflow: hidden; }
+      .rbc-month-row + .rbc-month-row { border-top: 1px solid rgba(255,255,255,0.05); }
+      .rbc-day-bg + .rbc-day-bg { border-right: 1px solid rgba(255,255,255,0.05) !important; border-left: none !important; }
+      .rbc-day-bg { background: transparent; }
+      .rbc-off-range-bg { background: rgba(0,0,0,0.15) !important; }
+      .rbc-today { background: rgba(6, 182, 212, 0.06) !important; }
+      .rbc-date-cell { text-align: right; padding: 4px 8px; font-size: 12px; color: #94a3b8; }
+      .rbc-date-cell.rbc-now { font-weight: 700; color: #06b6d4; }
+      .rbc-event {
+        border-radius: 6px !important;
+        border: none !important;
+        padding: 2px 6px !important;
+        font-size: 11px !important;
+        font-weight: 500;
+      }
+      .rbc-event.rbc-selected { outline: 2px solid #06b6d4; outline-offset: 1px; }
+      .rbc-event-label { display: none; }
+      .rbc-show-more { color: #06b6d4; font-size: 11px; font-weight: 600; }
+      .rbc-time-header-content { border-right: 1px solid rgba(255,255,255,0.05) !important; border-left: none !important; }
+      .rbc-time-content { border-top: 1px solid rgba(255,255,255,0.08); }
+      .rbc-time-content > * + * > * { border-right: 1px solid rgba(255,255,255,0.05) !important; border-left: none !important; }
+      .rbc-timeslot-group { border-bottom: 1px solid rgba(255,255,255,0.05); min-height: 48px; }
+      .rbc-time-slot .rbc-label { font-size: 11px; color: #64748b; }
+      .rbc-current-time-indicator { background: #06b6d4; height: 2px; }
+      .rbc-allday-cell { display: none; }
+
+      /* Light mode calendar overrides */
+      html.light .rbc-calendar { color: #334155; }
+      html.light .rbc-toolbar button { color: #64748b; border-color: rgba(0,0,0,0.1); background: rgba(0,0,0,0.02); }
+      html.light .rbc-toolbar button:hover { background: rgba(6,182,212,0.08); }
+      html.light .rbc-toolbar button.rbc-active { background: rgba(6,182,212,0.1); }
+      html.light .rbc-toolbar-label { color: #1e293b; }
+      html.light .rbc-header { background: rgba(0,0,0,0.02); border-bottom-color: rgba(0,0,0,0.08) !important; color: #64748b; }
+      html.light .rbc-header + .rbc-header { border-right-color: rgba(0,0,0,0.06) !important; }
+      html.light .rbc-month-view, html.light .rbc-time-view { border-color: rgba(0,0,0,0.08); }
+      html.light .rbc-month-row + .rbc-month-row { border-top-color: rgba(0,0,0,0.06); }
+      html.light .rbc-day-bg + .rbc-day-bg { border-right-color: rgba(0,0,0,0.06) !important; }
+      html.light .rbc-off-range-bg { background: rgba(0,0,0,0.03) !important; }
+      html.light .rbc-today { background: rgba(6,182,212,0.06) !important; }
+      html.light .rbc-date-cell { color: #64748b; }
     </style>
   <script type="importmap">
 {

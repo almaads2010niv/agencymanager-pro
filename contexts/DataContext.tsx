@@ -3,7 +3,8 @@ import {
   AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service,
   AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel,
   ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript, AIRecommendation,
-  WhatsAppMessage, NoteType, SignalsPersonality, Archetype, ConfidenceLevel, ChurnRisk
+  WhatsAppMessage, NoteType, SignalsPersonality, Archetype, ConfidenceLevel, ChurnRisk,
+  CalendarEvent, CalendarEventType
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -130,6 +131,7 @@ interface ExpenseRow {
   amount: number;
   notes: string;
   is_recurring: boolean;
+  receipt_url: string | null;
 }
 
 interface PaymentRow {
@@ -220,6 +222,13 @@ export interface DataContextType extends AppData {
   deleteWhatsAppMessage: (id: string) => Promise<void>;
 
   uploadRecording: (entityType: 'client' | 'lead', entityId: string, file: File) => Promise<{ signedUrl: string; storagePath: string } | null>;
+
+  addCalendarEvent: (event: Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateCalendarEvent: (event: CalendarEvent) => Promise<void>;
+  deleteCalendarEvent: (id: string) => Promise<void>;
+
+  uploadReceiptImage: (file: File) => Promise<string | null>;
+  getReceiptUrl: (path: string) => Promise<string | null>;
 
   updateServices: (services: Service[]) => void;
   updateSettings: (settings: AgencySettings) => Promise<void>;
@@ -385,6 +394,7 @@ const transformExpenseToDB = (expense: SupplierExpense) => ({
   amount: expense.amount,
   notes: expense.notes,
   is_recurring: expense.isRecurring,
+  receipt_url: expense.receiptUrl || null,
 });
 
 const transformExpenseFromDB = (row: ExpenseRow): SupplierExpense => ({
@@ -397,6 +407,7 @@ const transformExpenseFromDB = (row: ExpenseRow): SupplierExpense => ({
   amount: row.amount,
   notes: row.notes || '',
   isRecurring: row.is_recurring ?? false,
+  receiptUrl: row.receipt_url || undefined,
 });
 
 const transformPaymentToDB = (payment: Payment) => ({
@@ -609,6 +620,55 @@ interface SignalsPersonalityRow {
   updated_at: string;
 }
 
+// --- Calendar Events ---
+interface CalendarEventRow {
+  id: string;
+  title: string;
+  event_type: string;
+  start_time: string;
+  end_time: string | null;
+  all_day: boolean;
+  description: string;
+  client_id: string | null;
+  lead_id: string | null;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const transformCalendarEventToDB = (event: CalendarEvent) => ({
+  id: event.id,
+  title: event.title,
+  event_type: event.eventType,
+  start_time: event.startTime,
+  end_time: event.endTime || null,
+  all_day: event.allDay,
+  description: event.description || '',
+  client_id: event.clientId || null,
+  lead_id: event.leadId || null,
+  created_by: event.createdBy,
+  created_by_name: event.createdByName,
+  created_at: event.createdAt,
+  updated_at: event.updatedAt,
+});
+
+const transformCalendarEventFromDB = (row: CalendarEventRow): CalendarEvent => ({
+  id: row.id,
+  title: row.title,
+  eventType: row.event_type as CalendarEventType,
+  startTime: row.start_time,
+  endTime: row.end_time || undefined,
+  allDay: row.all_day ?? false,
+  description: row.description || '',
+  clientId: row.client_id || undefined,
+  leadId: row.lead_id || undefined,
+  createdBy: row.created_by,
+  createdByName: row.created_by_name || '',
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
 const transformSignalsPersonalityFromDB = (row: SignalsPersonalityRow): SignalsPersonality => ({
   id: row.id,
   leadId: row.lead_id || '',
@@ -652,6 +712,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     aiRecommendations: [],
     whatsappMessages: [],
     signalsPersonalities: [],
+    calendarEvents: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -701,7 +762,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes, signalsPersonalitiesRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes, signalsPersonalitiesRes, calendarEventsRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
@@ -716,6 +777,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('ai_recommendations').select('*').order('created_at', { ascending: false }),
           supabase.from('whatsapp_messages').select('*').order('sent_at', { ascending: false }),
           supabase.from('signals_personality').select('*').order('received_at', { ascending: false }),
+          supabase.from('calendar_events').select('*').order('start_time', { ascending: true }),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -744,6 +806,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const aiRecommendations: AIRecommendation[] = (aiRecommendationsRes.data || []).map((row: AIRecommendationRow) => transformAIRecommendationFromDB(row));
         const whatsappMessages: WhatsAppMessage[] = (whatsappMessagesRes.data || []).map((row: WhatsAppMessageRow) => transformWhatsAppMessageFromDB(row));
         const signalsPersonalities: SignalsPersonality[] = (signalsPersonalitiesRes.data || []).map((row: SignalsPersonalityRow) => transformSignalsPersonalityFromDB(row));
+        const calendarEvents: CalendarEvent[] = (calendarEventsRes.data || []).map((row: CalendarEventRow) => transformCalendarEventFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
         if (settingsRes.data && !settingsRes.error) {
@@ -769,6 +832,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           aiRecommendations,
           whatsappMessages,
           signalsPersonalities,
+          calendarEvents,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -1671,6 +1735,107 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // --- Calendar Events ---
+  const addCalendarEvent = async (event: Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const now = new Date().toISOString();
+    const newEvent: CalendarEvent = {
+      ...event,
+      id: generateId(),
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    try {
+      const { error } = await supabase
+        .from('calendar_events')
+        .insert(transformCalendarEventToDB(newEvent));
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        calendarEvents: [...prev.calendarEvents, newEvent],
+      }));
+      logActivity('event_added', 'calendar', `אירוע חדש: ${event.title}`, newEvent.id);
+    } catch (err) {
+      showError('שגיאה בהוספת אירוע');
+      throw err;
+    }
+  };
+
+  const updateCalendarEvent = async (event: CalendarEvent) => {
+    const updated = { ...event, updatedAt: new Date().toISOString() };
+    try {
+      const { error } = await supabase
+        .from('calendar_events')
+        .update(transformCalendarEventToDB(updated))
+        .eq('id', event.id);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        calendarEvents: prev.calendarEvents.map(e => e.id === event.id ? updated : e),
+      }));
+      logActivity('event_updated', 'calendar', `עודכן אירוע: ${event.title}`, event.id);
+    } catch (err) {
+      showError('שגיאה בעדכון אירוע');
+      throw err;
+    }
+  };
+
+  const deleteCalendarEvent = async (id: string) => {
+    const eventTitle = data.calendarEvents.find(e => e.id === id)?.title || id;
+    try {
+      const { error } = await supabase
+        .from('calendar_events')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        calendarEvents: prev.calendarEvents.filter(e => e.id !== id),
+      }));
+      logActivity('event_deleted', 'calendar', `נמחק אירוע: ${eventTitle}`, id);
+    } catch (err) {
+      showError('שגיאה במחיקת אירוע');
+      throw err;
+    }
+  };
+
+  // --- Receipt Image Upload ---
+  const uploadReceiptImage = async (file: File): Promise<string | null> => {
+    try {
+      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._\-]/g, '_')}`;
+      const { error } = await supabase.storage
+        .from('receipts')
+        .upload(safeName, file, { upsert: false });
+
+      if (error) {
+        showError('שגיאה בהעלאת קבלה: ' + error.message);
+        return null;
+      }
+
+      return safeName;
+    } catch (err) {
+      showError('שגיאה בהעלאת קבלה');
+      return null;
+    }
+  };
+
+  const getReceiptUrl = async (path: string): Promise<string | null> => {
+    try {
+      const { data: urlData } = await supabase.storage
+        .from('receipts')
+        .createSignedUrl(path, 3600);
+      return urlData?.signedUrl || null;
+    } catch {
+      return null;
+    }
+  };
+
   const updateServices = (services: Service[]) => {
     setData(prev => ({ ...prev, services }));
   };
@@ -1767,6 +1932,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         aiRecommendations: parsed.aiRecommendations || [],
         whatsappMessages: parsed.whatsappMessages || [],
         signalsPersonalities: parsed.signalsPersonalities || [],
+        calendarEvents: parsed.calendarEvents || [],
       });
       return true;
     } catch (e) {
@@ -1797,6 +1963,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addAIRecommendation, deleteAIRecommendation,
       addWhatsAppMessage, deleteWhatsAppMessage,
       uploadRecording,
+      addCalendarEvent, updateCalendarEvent, deleteCalendarEvent,
+      uploadReceiptImage, getReceiptUrl,
       updateServices, updateSettings, saveApiKeys, saveSignalsWebhookSecret,
       importData, exportData
     }}>

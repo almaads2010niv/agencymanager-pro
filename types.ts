@@ -114,6 +114,26 @@ export interface SupplierExpense {
   amount: number;
   notes: string;
   isRecurring: boolean;
+  receiptUrl?: string;
+}
+
+// ── Calendar Event Types ──────────────────────────────────────
+export type CalendarEventType = 'call' | 'meeting' | 'zoom' | 'task' | 'reminder';
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  eventType: CalendarEventType;
+  startTime: string; // ISO Date string
+  endTime?: string; // ISO Date string
+  allDay: boolean;
+  description: string;
+  clientId?: string;
+  leadId?: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export enum PaymentStatus {
@@ -279,4 +299,5 @@ export interface AppData {
   aiRecommendations: AIRecommendation[];
   whatsappMessages: WhatsAppMessage[];
   signalsPersonalities: SignalsPersonality[];
+  calendarEvents: CalendarEvent[];
 }

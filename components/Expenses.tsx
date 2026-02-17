@@ -1,17 +1,30 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useData } from '../contexts/DataContext';
+import { useAuth } from '../contexts/AuthContext';
 import { SupplierExpense, ExpenseType } from '../types';
 import { formatCurrency, formatDate, getMonthKey, getMonthName, exportToCSV } from '../utils';
-import { Plus, Edit2, Trash2, Zap, Repeat, Download, Search } from 'lucide-react';
+import { Plus, Edit2, Trash2, Zap, Repeat, Download, Search, Camera, Upload, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select, Checkbox } from './ui/Form';
 import { Modal } from './ui/Modal';
 import { Badge } from './ui/Badge';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from './ui/Table';
+import { supabase } from '../lib/supabaseClient';
+
+// Receipt scanning types
+interface ReceiptExtracted {
+  supplierName: string;
+  amount: number;
+  date: string;
+  category: string;
+  description: string;
+  confidence: number;
+}
 
 const Expenses: React.FC = () => {
-  const { expenses, clients, addExpense, updateExpense, deleteExpense, generateMonthlyExpenses } = useData();
+  const { expenses, clients, addExpense, updateExpense, deleteExpense, generateMonthlyExpenses, uploadReceiptImage } = useData();
+  const { user } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Partial<SupplierExpense> | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -20,6 +33,17 @@ const Expenses: React.FC = () => {
   const [filterMonth, setFilterMonth] = useState<string>(getMonthKey(new Date()));
   const [filterType, setFilterType] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Receipt scanning state
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
+  const [receiptStep, setReceiptStep] = useState<'upload' | 'review'>('upload');
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [receiptProcessing, setReceiptProcessing] = useState(false);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+  const [receiptData, setReceiptData] = useState<ReceiptExtracted | null>(null);
+  const [receiptSaving, setReceiptSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Get unique month keys for dropdown
   const monthOptions = useMemo(() => {
@@ -104,6 +128,106 @@ const Expenses: React.FC = () => {
     return c ? c.businessName : '-';
   };
 
+  // --- Receipt scanning functions ---
+  const openReceiptModal = () => {
+    setReceiptFile(null);
+    setReceiptPreview(null);
+    setReceiptData(null);
+    setReceiptError(null);
+    setReceiptStep('upload');
+    setReceiptProcessing(false);
+    setReceiptSaving(false);
+    setIsReceiptModalOpen(true);
+  };
+
+  const handleReceiptFileSelect = (file: File) => {
+    setReceiptFile(file);
+    setReceiptError(null);
+    const reader = new FileReader();
+    reader.onload = (e) => setReceiptPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleReceiptDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file && (file.type.startsWith('image/') || file.type === 'application/pdf')) {
+      handleReceiptFileSelect(file);
+    }
+  };
+
+  const processReceipt = async () => {
+    if (!receiptFile) return;
+    setReceiptProcessing(true);
+    setReceiptError(null);
+
+    try {
+      // Convert to base64
+      const arrayBuffer = await receiptFile.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      );
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No active session');
+
+      const { data, error } = await supabase.functions.invoke('process-receipt', {
+        body: { imageBase64: base64, mimeType: receiptFile.type },
+      });
+
+      if (error) throw new Error(error.message || 'Edge function error');
+      if (!data?.success) throw new Error(data?.error || 'Processing failed');
+
+      setReceiptData(data.data);
+      setReceiptStep('review');
+    } catch (err) {
+      setReceiptError(err instanceof Error ? err.message : 'שגיאה בעיבוד הקבלה');
+    } finally {
+      setReceiptProcessing(false);
+    }
+  };
+
+  const saveReceiptAsExpense = async () => {
+    if (!receiptData) return;
+    setReceiptSaving(true);
+
+    try {
+      // Upload receipt image to storage
+      let receiptUrl: string | undefined;
+      if (receiptFile) {
+        const path = await uploadReceiptImage(receiptFile);
+        if (path) receiptUrl = path;
+      }
+
+      const d = new Date(receiptData.date);
+      const monthKey = getMonthKey(d);
+
+      await addExpense({
+        clientId: '',
+        expenseDate: receiptData.date,
+        monthKey,
+        supplierName: receiptData.supplierName,
+        expenseType: receiptData.category as ExpenseType,
+        amount: receiptData.amount,
+        notes: receiptData.description,
+        isRecurring: false,
+        receiptUrl,
+      });
+
+      setIsReceiptModalOpen(false);
+    } catch (err) {
+      setReceiptError('שגיאה בשמירת ההוצאה');
+    } finally {
+      setReceiptSaving(false);
+    }
+  };
+
+  const getConfidenceInfo = (confidence: number) => {
+    if (confidence >= 0.8) return { label: 'גבוהה', color: 'text-emerald-400', bg: 'bg-emerald-500/10' };
+    if (confidence >= 0.5) return { label: 'בינונית', color: 'text-yellow-400', bg: 'bg-yellow-500/10' };
+    return { label: 'נמוכה', color: 'text-red-400', bg: 'bg-red-500/10' };
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
@@ -113,6 +237,7 @@ const Expenses: React.FC = () => {
         </div>
         <div className="flex gap-3 flex-wrap">
           <Button onClick={handleExportCSV} variant="ghost" icon={<Download size={16} />}>CSV</Button>
+          <Button onClick={openReceiptModal} variant="ghost" icon={<Camera size={16} />}>סרוק קבלה</Button>
           <Button onClick={() => {
             setGenerateFromMonth(new Date().toISOString().substring(0, 7));
             setIsGenerateModalOpen(true);
@@ -297,6 +422,177 @@ const Expenses: React.FC = () => {
             }} icon={<Zap size={18} />}>ייצור</Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Receipt Scanning Modal */}
+      <Modal isOpen={isReceiptModalOpen} onClose={() => setIsReceiptModalOpen(false)} title={receiptStep === 'upload' ? 'סריקת קבלה' : 'בדיקת תוצאות'} size="lg">
+        {receiptStep === 'upload' ? (
+          <div className="space-y-5">
+            {/* Drop zone */}
+            <div
+              onDragOver={e => e.preventDefault()}
+              onDrop={handleReceiptDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`
+                border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all
+                ${receiptPreview
+                  ? 'border-primary/40 bg-primary/5'
+                  : 'border-white/10 hover:border-white/20 hover:bg-white/[0.02]'
+                }
+              `}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) handleReceiptFileSelect(file);
+                }}
+              />
+
+              {receiptPreview ? (
+                <div className="space-y-3">
+                  {receiptFile?.type.startsWith('image/') ? (
+                    <img src={receiptPreview} alt="Receipt preview" className="max-h-64 mx-auto rounded-lg shadow-lg" />
+                  ) : (
+                    <div className="w-20 h-20 mx-auto bg-red-500/10 rounded-xl flex items-center justify-center">
+                      <span className="text-2xl font-bold text-red-400">PDF</span>
+                    </div>
+                  )}
+                  <p className="text-sm text-gray-400">{receiptFile?.name}</p>
+                  <p className="text-xs text-gray-500">לחץ להחלפת קובץ</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="w-16 h-16 mx-auto bg-white/5 rounded-xl flex items-center justify-center">
+                    <Upload size={28} className="text-gray-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-300 font-medium">גרור קבלה לכאן או לחץ לבחירה</p>
+                    <p className="text-xs text-gray-500 mt-1">JPEG, PNG, WebP, PDF — עד 10MB</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Error message */}
+            {receiptError && (
+              <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
+                <AlertTriangle size={16} />
+                {receiptError}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+              <Button type="button" variant="ghost" onClick={() => setIsReceiptModalOpen(false)}>ביטול</Button>
+              <Button
+                type="button"
+                onClick={processReceipt}
+                disabled={!receiptFile || receiptProcessing}
+                icon={receiptProcessing ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+              >
+                {receiptProcessing ? 'מנתח...' : 'נתח קבלה'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {/* Confidence indicator */}
+            {receiptData && (() => {
+              const conf = getConfidenceInfo(receiptData.confidence);
+              return (
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${conf.bg} text-sm`}>
+                  {receiptData.confidence >= 0.8 ? <CheckCircle size={16} className={conf.color} /> : <AlertTriangle size={16} className={conf.color} />}
+                  <span className={conf.color}>רמת ביטחון: {conf.label} ({Math.round(receiptData.confidence * 100)}%)</span>
+                </div>
+              );
+            })()}
+
+            {/* Preview thumbnail */}
+            {receiptPreview && receiptFile?.type.startsWith('image/') && (
+              <div className="flex justify-center">
+                <img src={receiptPreview} alt="Receipt" className="max-h-32 rounded-lg opacity-60" />
+              </div>
+            )}
+
+            {/* Editable fields */}
+            {receiptData && (
+              <div className="space-y-4">
+                <Input
+                  label="שם ספק"
+                  value={receiptData.supplierName}
+                  onChange={e => setReceiptData({ ...receiptData, supplierName: e.target.value })}
+                />
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    label="סכום (₪)"
+                    type="number"
+                    value={receiptData.amount}
+                    onChange={e => setReceiptData({ ...receiptData, amount: Number(e.target.value) || 0 })}
+                  />
+                  <Input
+                    label="תאריך"
+                    type="date"
+                    value={receiptData.date}
+                    onChange={e => setReceiptData({ ...receiptData, date: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Select
+                    label="קטגוריה"
+                    value={receiptData.category}
+                    onChange={e => setReceiptData({ ...receiptData, category: e.target.value })}
+                  >
+                    {Object.values(ExpenseType).map(t => <option key={t} value={t}>{t}</option>)}
+                  </Select>
+                  <Select
+                    label="לקוח מקושר"
+                    value=""
+                    onChange={() => {}}
+                  >
+                    <option value="">כללי</option>
+                    {clients.map(c => <option key={c.clientId} value={c.clientId}>{c.businessName}</option>)}
+                  </Select>
+                </div>
+                <Input
+                  label="תיאור"
+                  value={receiptData.description}
+                  onChange={e => setReceiptData({ ...receiptData, description: e.target.value })}
+                />
+              </div>
+            )}
+
+            {/* Error */}
+            {receiptError && (
+              <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
+                <AlertTriangle size={16} />
+                {receiptError}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex justify-between pt-4 border-t border-white/10">
+              <Button type="button" variant="ghost" onClick={() => { setReceiptStep('upload'); setReceiptError(null); }}>
+                חזור
+              </Button>
+              <div className="flex gap-3">
+                <Button type="button" variant="ghost" onClick={() => setIsReceiptModalOpen(false)}>ביטול</Button>
+                <Button
+                  type="button"
+                  variant="danger"
+                  onClick={saveReceiptAsExpense}
+                  disabled={receiptSaving}
+                  icon={receiptSaving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                >
+                  {receiptSaving ? 'שומר...' : 'שמור הוצאה'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
