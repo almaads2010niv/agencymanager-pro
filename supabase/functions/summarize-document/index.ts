@@ -42,9 +42,19 @@ Deno.serve(async (req) => {
 
     // 2. Get Gemini API key from settings
     const adminClient = createClient(supabaseUrl, supabaseServiceKey)
+    // Get caller tenant_id
+    const { data: callerRole } = await adminClient
+      .from('user_roles')
+      .select('tenant_id')
+      .eq('user_id', user.id)
+      .single()
+    const callerTenantId = callerRole?.tenant_id
+
+
     const { data: settings } = await adminClient
       .from('settings')
       .select('gemini_api_key')
+      .eq('tenant_id', callerTenantId)
       .single()
 
     if (!settings?.gemini_api_key) {

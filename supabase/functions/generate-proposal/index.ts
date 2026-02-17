@@ -42,9 +42,19 @@ Deno.serve(async (req) => {
 
     // 2. Get Canva API key from settings (via service role)
     const adminClient = createClient(supabaseUrl, supabaseServiceKey)
+    // Get caller tenant_id
+    const { data: callerRole } = await adminClient
+      .from('user_roles')
+      .select('tenant_id')
+      .eq('user_id', user.id)
+      .single()
+    const callerTenantId = callerRole?.tenant_id
+
+
     const { data: settings } = await adminClient
       .from('settings')
       .select('canva_api_key, canva_template_id')
+      .eq('tenant_id', callerTenantId)
       .single()
 
     if (!settings?.canva_api_key || !settings?.canva_template_id) {

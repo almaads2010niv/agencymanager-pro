@@ -451,8 +451,10 @@ const transformPaymentFromDB = (row: PaymentRow): Payment => ({
   notes: row.notes || '',
 });
 
-const transformSettingsToDB = (settings: AgencySettings) => ({
-  id: 1,
+const transformSettingsToDB = (settings: AgencySettings, tid: string | null) => ({
+  // Use tenant_id as the unique key — each tenant gets exactly one settings row
+  // No more hardcoded id:1 that conflicts across tenants!
+  tenant_id: tid || '00000000-0000-0000-0000-000000000000',
   agency_name: settings.agencyName,
   owner_name: settings.ownerName,
   target_monthly_revenue: settings.targetMonthlyRevenue,
@@ -907,7 +909,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
           supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
           supabase.from('payments').select('*').order('period_month', { ascending: false }),
-          supabase.from('settings').select('*').single(),
+          supabase.from('settings').select('*').eq('tenant_id', tenantId).single(),
           supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(50),
           supabase.from('retainer_changes').select('*').order('changed_at', { ascending: false }),
           supabase.from('client_notes').select('*').order('created_at', { ascending: false }),
@@ -955,7 +957,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (settingsRes.data && !settingsRes.error) {
           settings = transformSettingsFromDB(settingsRes.data);
         } else {
-          const { error: upsertError } = await supabase.from('settings').upsert(withTenant(transformSettingsToDB(DEFAULT_SETTINGS), tenantId));
+          // No settings row for this tenant — create one
+          const { error: upsertError } = await supabase.from('settings').upsert(
+            transformSettingsToDB(DEFAULT_SETTINGS, tenantId),
+            { onConflict: 'tenant_id' }
+          );
           if (upsertError) console.error('Error initializing settings:', upsertError);
         }
 
@@ -2067,7 +2073,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('settings')
-        .upsert(withTenant(transformSettingsToDB(settings), tenantId));
+        .upsert(transformSettingsToDB(settings, tenantId), { onConflict: 'tenant_id' });
 
       if (error) throw error;
 
@@ -2089,7 +2095,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase
         .from('settings')
         .update(updatePayload)
-        .eq('id', 1);
+        .eq('tenant_id', tenantId);
 
       if (error) throw error;
 
@@ -2115,7 +2121,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase
         .from('settings')
         .update({ signals_webhook_secret: secret || null })
-        .eq('id', 1);
+        .eq('tenant_id', tenantId);
 
       if (error) throw error;
 
