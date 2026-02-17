@@ -10,12 +10,13 @@ import { Modal } from './ui/Modal';
 
 const Settings: React.FC = () => {
   const { settings, services, updateSettings, updateServices, exportData, importData, saveApiKeys, saveSignalsWebhookSecret } = useData();
-  const { isAdmin, user, allUsers, refreshUsers, addViewer, removeUser, updateUserRole, updateUserPermissions, updateUserDisplayName } = useAuth();
+  const { isAdmin, user, allUsers, refreshUsers, addUser, removeUser, updateUserRole, updateUserPermissions, updateUserDisplayName } = useAuth();
   const [localSettings, setLocalSettings] = useState(settings);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newViewerName, setNewViewerName] = useState('');
   const [newViewerEmail, setNewViewerEmail] = useState('');
   const [newViewerPassword, setNewViewerPassword] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'viewer' | 'freelancer'>('freelancer');
   const [showAddUser, setShowAddUser] = useState(false);
   const [userError, setUserError] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
@@ -299,17 +300,21 @@ const Settings: React.FC = () => {
             {/* Add viewer section */}
             {showAddUser ? (
               <div className="p-4 bg-[#0B1121] rounded-xl border border-white/10 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <Input label="שם תצוגה" value={newViewerName} onChange={e => setNewViewerName(e.target.value)} placeholder="שם הפרילנסר" />
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                  <Input label="שם תצוגה" value={newViewerName} onChange={e => setNewViewerName(e.target.value)} placeholder="שם המשתמש" />
                   <Input label="אימייל" type="email" value={newViewerEmail} onChange={e => setNewViewerEmail(e.target.value)} placeholder="email@example.com" />
                   <Input label="סיסמה ראשונית" type="password" value={newViewerPassword} onChange={e => setNewViewerPassword(e.target.value)} placeholder="לפחות 6 תווים" />
+                  <Select label="תפקיד" value={newUserRole} onChange={e => setNewUserRole(e.target.value as 'viewer' | 'freelancer')}>
+                    <option value="freelancer">פרילנסר</option>
+                    <option value="viewer">צופה</option>
+                  </Select>
                 </div>
                 {userError && <div className="text-red-400 text-sm">{userError}</div>}
                 <div className="text-xs text-gray-500 space-y-1">
                   <div><KeyRound size={12} className="inline me-1" /> <strong>איך זה עובד:</strong></div>
-                  <div>1. הזן שם, אימייל וסיסמה ראשונית לפרילנסר</div>
+                  <div>1. הזן שם, אימייל, סיסמה ותפקיד למשתמש החדש</div>
                   <div>2. שלח לו את הלינק + פרטי ההתחברות: <span className="text-primary select-all font-mono">{window.location.origin}</span></div>
-                  <div>3. הפרילנסר נכנס עם האימייל והסיסמה שהגדרת (יכול לשנות סיסמה דרך "שכחתי סיסמה")</div>
+                  <div>3. <strong>פרילנסר</strong> = רואה רק לקוחות/לידים שהוקצו לו | <strong>צופה</strong> = רואה דשבורד ולידים בלבד</div>
                 </div>
                 <div className="flex gap-3 justify-end">
                   <Button variant="ghost" onClick={() => { setShowAddUser(false); setUserError(null); }}>ביטול</Button>
@@ -317,16 +322,17 @@ const Settings: React.FC = () => {
                     if (!newViewerName.trim()) { setUserError('שם תצוגה נדרש'); return; }
                     if (!newViewerEmail.trim()) { setUserError('אימייל נדרש'); return; }
                     if (!newViewerPassword || newViewerPassword.length < 6) { setUserError('סיסמה חייבת להכיל לפחות 6 תווים'); return; }
-                    const err = await addViewer(newViewerEmail, newViewerName, newViewerPassword);
+                    const err = await addUser(newViewerEmail, newViewerName, newViewerPassword, newUserRole);
                     if (err) setUserError(err);
                     else {
                       setNewViewerName('');
                       setNewViewerEmail('');
                       setNewViewerPassword('');
+                      setNewUserRole('freelancer');
                       setShowAddUser(false);
                       setUserError(null);
                     }
-                  }}>הוסף צופה</Button>
+                  }}>הוסף משתמש</Button>
                 </div>
               </div>
             ) : (

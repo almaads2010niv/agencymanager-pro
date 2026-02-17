@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { supabase } from '../lib/supabaseClient';
 import type { User } from '@supabase/supabase-js';
 
-export type UserRole = 'admin' | 'viewer';
+export type UserRole = 'admin' | 'viewer' | 'freelancer';
 
 // All available page permission keys
 export type PagePermission =
@@ -15,6 +15,8 @@ export type PagePermission =
   | 'profit_loss'
   | 'tax_calculator'
   | 'calendar'
+  | 'ideas'
+  | 'knowledge'
   | 'settings';
 
 export const ALL_PAGES: { key: PagePermission; label: string; path: string }[] = [
@@ -27,11 +29,16 @@ export const ALL_PAGES: { key: PagePermission; label: string; path: string }[] =
   { key: 'profit_loss', label: '\u05D3\u05D5\u05D7 \u05E8\u05D5\u05D5\u05D7 \u05D5\u05D4\u05E4\u05E1\u05D3', path: '/profit-loss' },
   { key: 'tax_calculator', label: '\u05DE\u05D7\u05E9\u05D1\u05D5\u05DF \u05DE\u05E1', path: '/tax-calculator' },
   { key: 'calendar', label: '\u05DC\u05D5\u05D7 \u05E9\u05E0\u05D4', path: '/calendar' },
+  { key: 'ideas', label: '\u05E8\u05E2\u05D9\u05D5\u05E0\u05D5\u05EA', path: '/ideas' },
+  { key: 'knowledge', label: '\u05DE\u05D0\u05D2\u05E8 \u05D9\u05D3\u05E2', path: '/knowledge' },
   { key: 'settings', label: '\u05D4\u05D2\u05D3\u05E8\u05D5\u05EA', path: '/settings' },
 ];
 
 // Default permissions for viewer - just dashboard and leads
 export const DEFAULT_VIEWER_PERMISSIONS: PagePermission[] = ['dashboard', 'leads'];
+
+// Default permissions for freelancer - dashboard + assigned clients/leads/deals + calendar
+export const DEFAULT_FREELANCER_PERMISSIONS: PagePermission[] = ['dashboard', 'clients', 'leads', 'deals', 'calendar'];
 
 interface UserRoleRecord {
   id: string;
@@ -41,6 +48,7 @@ interface UserRoleRecord {
   display_name: string;
   created_at: string;
   page_permissions?: string; // JSON array of PagePermission keys
+  tenant_id?: string;
 }
 
 export interface AuthContextType {
@@ -48,6 +56,9 @@ export interface AuthContextType {
   role: UserRole;
   isAdmin: boolean;
   isViewer: boolean;
+  isFreelancer: boolean;
+  tenantId: string | null;
+  tenantName: string;
   displayName: string;
   allUsers: UserRoleRecord[];
   isRoleLoaded: boolean;
@@ -55,7 +66,7 @@ export interface AuthContextType {
   hasPageAccess: (page: PagePermission) => boolean;
   logout: () => Promise<void>;
   refreshUsers: () => Promise<void>;
-  addViewer: (email: string, displayName: string, password: string) => Promise<string | null>;
+  addUser: (email: string, displayName: string, password: string, role: UserRole) => Promise<string | null>;
   removeUser: (userId: string) => Promise<string | null>;
   updateUserRole: (userId: string, newRole: UserRole) => Promise<string | null>;
   updateUserPermissions: (userId: string, permissions: PagePermission[]) => Promise<string | null>;
@@ -80,6 +91,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<UserRole>('admin');
   const [displayName, setDisplayName] = useState('');
+  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [tenantName, setTenantName] = useState('');
   const [allUsers, setAllUsers] = useState<UserRoleRecord[]>([]);
   const [isRoleLoaded, setIsRoleLoaded] = useState(false);
   const [pagePermissions, setPagePermissions] = useState<PagePermission[]>(ALL_PAGES.map(p => p.key));
@@ -102,12 +115,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const userRole = data.role as UserRole;
         setRole(userRole);
         setDisplayName(data.display_name || currentUser.email?.split('@')[0] || '');
+        setTenantId(data.tenant_id || null);
+
+        // Load tenant name
+        if (data.tenant_id) {
+          const { data: tenant } = await supabase.from('tenants').select('name').eq('id', data.tenant_id).single();
+          if (tenant) setTenantName(tenant.name);
+        }
 
         // Parse page permissions
-        const perms = safeParsePermissions(
-          data.page_permissions,
-          userRole === 'admin' ? ALL_PAGES.map(p => p.key) : DEFAULT_VIEWER_PERMISSIONS
-        );
+        const defaultPerms = userRole === 'admin' ? ALL_PAGES.map(p => p.key)
+          : userRole === 'freelancer' ? DEFAULT_FREELANCER_PERMISSIONS
+          : DEFAULT_VIEWER_PERMISSIONS;
+        const perms = safeParsePermissions(data.page_permissions, defaultPerms);
         setPagePermissions(perms);
         return;
       }
@@ -128,12 +148,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const userRole = emailMatch.role as UserRole;
           setRole(userRole);
           setDisplayName(emailMatch.display_name || currentUser.email.split('@')[0] || '');
+          setTenantId(emailMatch.tenant_id || null);
 
-          // Parse page permissions
-          const perms = safeParsePermissions(
-            emailMatch.page_permissions,
-            userRole === 'admin' ? ALL_PAGES.map(p => p.key) : DEFAULT_VIEWER_PERMISSIONS
-          );
+          if (emailMatch.tenant_id) {
+            const { data: tenant } = await supabase.from('tenants').select('name').eq('id', emailMatch.tenant_id).single();
+            if (tenant) setTenantName(tenant.name);
+          }
+
+          const defaultPerms = userRole === 'admin' ? ALL_PAGES.map(p => p.key)
+            : userRole === 'freelancer' ? DEFAULT_FREELANCER_PERMISSIONS
+            : DEFAULT_VIEWER_PERMISSIONS;
+          const perms = safeParsePermissions(emailMatch.page_permissions, defaultPerms);
           setPagePermissions(perms);
           return;
         }
@@ -236,7 +261,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return pagePermissions.includes(page);
   }, [role, pagePermissions]);
 
-  const addViewer = async (email: string, viewerDisplayName: string, password: string): Promise<string | null> => {
+  const addUser = async (email: string, newUserDisplayName: string, password: string, newUserRole: UserRole = 'viewer'): Promise<string | null> => {
     try {
       // Check for duplicate email first
       const trimmedEmail = email.toLowerCase().trim();
@@ -252,7 +277,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: {
           email: trimmedEmail,
           password,
-          displayName: viewerDisplayName,
+          displayName: newUserDisplayName,
+          role: newUserRole,
+          tenantId,
         },
       });
 
@@ -297,7 +324,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUserRole = async (userId: string, newRole: UserRole): Promise<string | null> => {
     try {
-      const perms = newRole === 'admin' ? ALL_PAGES.map(p => p.key) : DEFAULT_VIEWER_PERMISSIONS;
+      const perms = newRole === 'admin' ? ALL_PAGES.map(p => p.key)
+        : newRole === 'freelancer' ? DEFAULT_FREELANCER_PERMISSIONS
+        : DEFAULT_VIEWER_PERMISSIONS;
       const { error } = await supabase
         .from('user_roles')
         .update({ role: newRole, page_permissions: JSON.stringify(perms) })
@@ -371,6 +400,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       role,
       isAdmin: role === 'admin',
       isViewer: role === 'viewer',
+      isFreelancer: role === 'freelancer',
+      tenantId,
+      tenantName,
       displayName,
       allUsers,
       isRoleLoaded,
@@ -378,7 +410,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       hasPageAccess,
       logout,
       refreshUsers,
-      addViewer,
+      addUser,
       removeUser,
       updateUserRole,
       updateUserPermissions,

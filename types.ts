@@ -283,6 +283,55 @@ export interface WhatsAppMessage {
   sentAt: string;
 }
 
+// ── Multi-Tenant ─────────────────────────────────────────────
+export interface Tenant {
+  id: string;
+  name: string;
+  slug?: string;
+  createdAt: string;
+}
+
+// ── Ideas Kanban ─────────────────────────────────────────────
+export type IdeaStatus = 'draft' | 'active' | 'in_progress' | 'done' | 'archived';
+export type IdeaPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+export interface Idea {
+  id: string;
+  title: string;
+  description: string;
+  status: IdeaStatus;
+  priority: IdeaPriority;
+  clientId?: string;
+  leadId?: string;
+  category: string;
+  tags: string[];
+  createdBy: string;
+  createdByName: string;
+  assignedTo?: string;
+  dueDate?: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Knowledge Base ───────────────────────────────────────────
+export interface KnowledgeArticle {
+  id: string;
+  title: string;
+  content: string;
+  summary: string;
+  category: string;
+  tags: string[];
+  fileUrl?: string;
+  fileName?: string;
+  fileType?: string;
+  isAiGenerated: boolean;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppData {
   clients: Client[];
   leads: Lead[];
@@ -300,4 +349,6 @@ export interface AppData {
   whatsappMessages: WhatsAppMessage[];
   signalsPersonalities: SignalsPersonality[];
   calendarEvents: CalendarEvent[];
+  ideas: Idea[];
+  knowledgeArticles: KnowledgeArticle[];
 }

@@ -538,6 +538,107 @@ TypeScript check passed (no new errors in modified files).
 Pending: commit + push + SQL migrations + Edge Function deploy.
 
 ===============================================================================
+SESSION 12 (2026-02-17) - Multi-Tenant + Freelancer + Voice + Ideas + Knowledge
+===============================================================================
+
+WHAT HAPPENED:
+Five major features built together from the roadmap (items 4, 7, 8, 9, 10):
+1. Multi-Tenant architecture
+2. Freelancer role system
+3. In-browser voice recording
+4. Ideas Kanban board
+5. Knowledge Base
+
+CHANGES:
+
+1. MULTI-TENANT FOUNDATION
+   - New table: tenants (id, name, slug)
+   - tenant_id uuid column added to ALL 15 tables with FK to tenants
+   - Default tenant: '00000000-0000-0000-0000-000000000001'
+   - Helper functions: current_tenant_id(), is_admin()
+   - ALL RLS policies updated with tenant_id = current_tenant_id() filter
+   - signals_personality uses tenant_id_fk (separate from existing text tenant_id)
+   - AuthContext: +tenantId, +tenantName state, loaded from user_roles
+
+2. FREELANCER ROLE
+   - New UserRole: 'freelancer' (admin | viewer | freelancer)
+   - is_freelancer() SQL helper function
+   - RLS: freelancers see only clients/leads where assigned_to = auth.uid()
+   - deals/notes scoped to freelancer's assigned clients via subquery
+   - DEFAULT_FREELANCER_PERMISSIONS: dashboard, clients, leads, deals, calendar
+   - Dashboard: mini dashboard for freelancers (assigned clients + leads)
+   - Layout: freelancer badge (amber wrench icon, "פרילנסר" label)
+   - Settings: role selector when adding users (פרילנסר/צופה)
+   - create-user Edge Function: accepts role + tenantId params
+
+3. IN-BROWSER VOICE RECORDING
+   - New hook: hooks/useVoiceRecorder.ts
+     - navigator.mediaDevices.getUserMedia + MediaRecorder API
+     - AudioContext + AnalyserNode for audio level visualization
+     - Codec fallback: webm/opus → webm → mp4
+     - States: isRecording, isPaused, recordingTime, audioLevel
+   - New component: VoiceRecorderButton.tsx
+     - Three states: idle (mic), recording (red dot + timer + waveform), processing (spinner)
+     - Auto-upload → transcribe → save transcript + AI summary note
+   - Integrated in ClientProfile.tsx and LeadProfile.tsx next to "העלה הקלטה"
+
+4. IDEAS KANBAN BOARD
+   - New table: ideas (id, title, description, status, priority, client_id,
+     lead_id, category, tags, assigned_to, due_date, sort_order, tenant_id)
+   - 5 columns: draft, active, in_progress, done, archived
+   - @dnd-kit drag & drop between columns
+   - Client filter, search, priority badges, due dates
+   - AI Generate: Edge Function generate-idea with Gemini 2.0 Flash-Lite
+   - New component: Ideas.tsx (full kanban with add/edit/delete modals)
+
+5. KNOWLEDGE BASE
+   - New table: knowledge_articles (id, title, content, summary, category,
+     tags, file_url, file_name, file_type, is_ai_generated, tenant_id)
+   - Full-text search index (to_tsvector)
+   - Storage bucket 'knowledge' (20MB, PDF/docs/images)
+   - 7 categories: strategy, marketing, design, dev, operations, finance, general
+   - AI Summarize: Edge Function summarize-document with Gemini 2.0 Flash-Lite
+   - New component: KnowledgeBase.tsx (search, category tabs, card grid, file upload)
+
+SQL MIGRATIONS TO RUN (IN ORDER):
+  1. supabase-multi-tenant-migration.sql  (MUST be first — creates tenants table)
+  2. supabase-freelancer-migration.sql    (depends on tenants)
+  3. supabase-ideas-migration.sql
+  4. supabase-knowledge-migration.sql
+
+EDGE FUNCTIONS TO DEPLOY:
+  npx supabase functions deploy create-user --project-ref rxckkozbkrabpjdgyxqm
+  npx supabase functions deploy generate-idea --project-ref rxckkozbkrabpjdgyxqm
+  npx supabase functions deploy summarize-document --project-ref rxckkozbkrabpjdgyxqm
+
+NEW FILES (10):
+- supabase-multi-tenant-migration.sql
+- supabase-freelancer-migration.sql
+- supabase-ideas-migration.sql
+- supabase-knowledge-migration.sql
+- hooks/useVoiceRecorder.ts
+- components/VoiceRecorderButton.tsx
+- components/Ideas.tsx
+- components/KnowledgeBase.tsx
+- supabase/functions/generate-idea/index.ts
+- supabase/functions/summarize-document/index.ts
+
+FILES MODIFIED (9):
+- types.ts (Tenant, Idea, KnowledgeArticle, AppData)
+- contexts/AuthContext.tsx (freelancer, tenant, ideas/knowledge permissions)
+- contexts/DataContext.tsx (ideas + knowledge CRUD, transforms, uploadKnowledgeFile)
+- components/Layout.tsx (sidebar: ideas/knowledge, freelancer badge, full-width)
+- components/Dashboard.tsx (freelancer mini dashboard with assigned clients)
+- components/Settings.tsx (role selector: freelancer/viewer)
+- components/ClientProfile.tsx (+VoiceRecorderButton)
+- components/LeadProfile.tsx (+VoiceRecorderButton)
+- App.tsx (+routes: /ideas, /knowledge)
+- supabase/functions/create-user/index.ts (+role, +tenantId)
+
+TypeScript build verified: `npx vite build` succeeded.
+Pending: commit + push + SQL migrations + Edge Function deploys.
+
+===============================================================================
 ARCHITECTURE NOTES (Updated 2026-02-17)
 ===============================================================================
 
@@ -561,8 +662,10 @@ State Management:
 Auth:
   Supabase Auth (email/password)
   Session check on App mount
-  Role system: AuthContext.tsx with admin/viewer roles
+  Role system: AuthContext.tsx with admin/viewer/freelancer roles
+  Multi-tenant: tenant_id on all tables, current_tenant_id() SQL function
   Page-level permissions (page_permissions JSON in user_roles)
+  Freelancer: sees only assigned clients/leads (assigned_to = auth.uid())
   First user auto-becomes admin
   Admin creates accounts via Edge Function (no self-registration)
 
@@ -577,19 +680,22 @@ AI / Gemini:
   WARNING: responseMimeType/thinkingConfig/responseSchema NOT supported in 2.5-flash REST API
   Audio uses Gemini Files API (resumable upload -> file_uri)
 
-Edge Functions (7 total):
-  create-user -> Admin account creation
+Edge Functions (9 total):
+  create-user -> Admin account creation (+ role + tenantId)
   ai-recommendations -> AI advice via Gemini 3 Pro
   generate-ai-summary -> 3 summary types via Gemini 3 Pro
   generate-whatsapp-messages -> 3 message variants via Gemini 2.0 Flash-Lite
   transcribe-audio -> Audio -> text via Gemini Files API (2.5 Flash)
   generate-proposal -> PDF via Canva Connect API
   process-receipt -> Receipt OCR via Gemini 2.0 Flash Vision
+  generate-idea -> AI idea generation via Gemini 2.0 Flash-Lite
+  summarize-document -> AI document summarization via Gemini 2.0 Flash-Lite
 
-Supabase Tables:
+Supabase Tables (all have tenant_id uuid FK):
+  tenants (id, name, slug)
   clients (+ assigned_to uuid)
   leads (+ created_by, assigned_to uuid)
-  deals, expenses (+ is_recurring), payments
+  deals, expenses (+ is_recurring, receipt_url), payments
   settings (+ employee_salary, gemini_api_key, canva_api_key, canva_template_id)
   activity_log, retainer_changes
   client_notes (+ note_type, source_id)
@@ -598,8 +704,11 @@ Supabase Tables:
   ai_recommendations (client_id, lead_id, recommendation)
   whatsapp_messages (client_id, lead_id, message_text, purpose, is_ai_generated)
   calendar_events (id, title, event_type, start_time, end_time, all_day, description, client_id, lead_id)
-  user_roles (user_id, email, role, display_name, page_permissions)
-  storage.buckets: contracts, recordings, receipts
+  ideas (id, title, description, status, priority, client_id, category, tags, assigned_to, due_date, sort_order)
+  knowledge_articles (id, title, content, summary, category, tags, file_url, is_ai_generated)
+  user_roles (user_id, email, role, display_name, page_permissions, tenant_id)
+  signals_personality (+ tenant_id_fk uuid FK)
+  storage.buckets: contracts, recordings, receipts, knowledge
 
 Styling:
   Tailwind CSS via CDN (not PostCSS build)
@@ -627,8 +736,10 @@ Key Patterns:
   - Gemini thinking-parts filter in all AI functions (except 2.0-flash-lite which has none)
   - gemini-2.5-flash REST API does NOT support responseMimeType/thinkingConfig/responseSchema
   - For simple JSON generation, use gemini-2.0-flash-lite (no thinking overhead)
-  - NoteType: 'manual' | 'transcript_summary' | 'recommendation_summary' | 'proposal_focus'
+  - NoteType: 'manual' | 'transcript_summary' | 'recommendation_summary' | 'proposal_focus' | 'personality_insight'
   - MESSAGE_PURPOSES in constants.ts for WhatsApp purpose options
+  - Multi-tenant: all data scoped by tenant_id, RLS enforces isolation
+  - Freelancer: assigned_to filtering in RLS, mini dashboard, scoped sidebar
 
 GIT HISTORY (key commits):
   443c937 - Fix 19 audit issues
@@ -657,3 +768,4 @@ GIT HISTORY (key commits):
   5f6783d - Docs: project story update
   f6b39ba - Signals OS personality intelligence integration
   [pending] - Kanban drag & drop + Calendar + AI Receipt scanning
+  [pending] - Multi-Tenant + Freelancer + Voice + Ideas + Knowledge (Session 12)

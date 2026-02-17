@@ -15,6 +15,7 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Modal } from './ui/Modal';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from './ui/Table';
+import VoiceRecorderButton from './VoiceRecorderButton';
 
 const ClientProfile: React.FC = () => {
   const { clientId } = useParams<{ clientId: string }>();
@@ -671,6 +672,13 @@ const ClientProfile: React.FC = () => {
           <div className="flex items-center gap-2">
             {settings.hasGeminiKey && (
               <>
+                <VoiceRecorderButton
+                  entityType="client"
+                  entityId={clientId!}
+                  entityName={client.clientName}
+                  businessName={client.businessName}
+                  disabled={isTranscribing}
+                />
                 <input ref={audioInputRef} type="file" accept="audio/*" onChange={handleUploadRecording} className="hidden" />
                 <Button onClick={() => audioInputRef.current?.click()} disabled={isTranscribing} variant="ghost" icon={<Mic size={16} />}>
                   {isTranscribing ? 'מתמלל...' : 'העלה הקלטה'}

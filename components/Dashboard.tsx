@@ -51,13 +51,15 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, subtitle, icon: Icon, h
   );
 };
 
-// Mini Dashboard for Viewer role (freelancers)
+// Mini Dashboard for Viewer/Freelancer role
 const ViewerDashboard: React.FC = () => {
-  const { leads } = useData();
-  const { user, displayName } = useAuth();
+  const { leads, clients } = useData();
+  const { user, displayName, isFreelancer } = useAuth();
   const navigate = useNavigate();
 
-  const myLeads = user ? leads.filter(l => l.createdBy === user.id) : [];
+  // Freelancers see assigned leads/clients; viewers see leads they created
+  const myLeads = user ? leads.filter(l => isFreelancer ? l.assignedTo === user.id : l.createdBy === user.id) : [];
+  const myClients = user && isFreelancer ? clients.filter(c => c.assignedTo === user.id) : [];
   const myOpenLeads = myLeads.filter(l => ![LeadStatus.Won, LeadStatus.Lost, LeadStatus.Not_relevant].includes(l.status));
   const myWonLeads = myLeads.filter(l => l.status === LeadStatus.Won);
   const totalQuotedValue = myOpenLeads.reduce((sum, l) => sum + (l.quotedMonthlyValue || 0), 0);
@@ -68,15 +70,16 @@ const ViewerDashboard: React.FC = () => {
       <div className="flex flex-col md:flex-row justify-between items-end gap-4">
         <div>
           <h2 className="text-3xl font-black text-white tracking-tight">שלום, {displayName} 👋</h2>
-          <p className="text-gray-400 mt-1">הלידים שלי</p>
+          <p className="text-gray-400 mt-1">{isFreelancer ? 'הלקוחות והלידים שלי' : 'הלידים שלי'}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KPICard title="סה״כ לידים שלי" value={myLeads.length} icon={UserPlus} highlight onClick={() => navigate('/leads')} />
+        {isFreelancer && <KPICard title="לקוחות שלי" value={myClients.length} icon={Users} highlight onClick={() => navigate('/clients')} />}
+        <KPICard title="סה״כ לידים שלי" value={myLeads.length} icon={UserPlus} highlight={!isFreelancer} onClick={() => navigate('/leads')} />
         <KPICard title="לידים פתוחים" value={myOpenLeads.length} icon={FileText} color="accent" onClick={() => navigate('/leads')} />
         <KPICard title="לידים שנסגרו" value={myWonLeads.length} icon={Target} color="secondary" />
-        <KPICard title="שווי לידים פתוחים" value={formatCurrency(totalQuotedValue)} icon={DollarSign} color="primary" />
+        {!isFreelancer && <KPICard title="שווי לידים פתוחים" value={formatCurrency(totalQuotedValue)} icon={DollarSign} color="primary" />}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -121,13 +124,13 @@ const ViewerDashboard: React.FC = () => {
 
 const Dashboard: React.FC = () => {
   const { clients, leads, expenses, payments, settings, error, clearError } = useData();
-  const { isViewer } = useAuth();
+  const { isViewer, isFreelancer } = useAuth();
   const navigate = useNavigate();
   const currentDate = new Date();
   const currentMonthKey = getMonthKey(currentDate);
 
-  // If viewer, show mini dashboard
-  if (isViewer) return <ViewerDashboard />;
+  // If viewer or freelancer, show mini dashboard
+  if (isViewer || isFreelancer) return <ViewerDashboard />;
 
   // --- Helper Functions (must be defined before use) ---
 
@@ -251,6 +254,7 @@ const Dashboard: React.FC = () => {
         <KPICard
           title="צמיחה (YOY)"
           value={`${mrrChangePercent > 0 ? '+' : ''}${mrrChangePercent}%`}
+          icon={TrendingUp}
           color={mrrChangePercent >= 0 ? "accent" : "danger"}
         />
         <KPICard title="נטו לאחר מס" value={formatCurrency(taxData.netIncome)} subtitle={`${taxData.effectiveTaxRate}% מס`} icon={Calculator} color="accent" onClick={() => navigate('/tax-calculator')} />

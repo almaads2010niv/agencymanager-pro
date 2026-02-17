@@ -13,6 +13,7 @@ import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Modal } from './ui/Modal';
+import VoiceRecorderButton from './VoiceRecorderButton';
 
 type BadgeVariant = 'success' | 'danger' | 'info' | 'neutral' | 'primary' | 'warning';
 
@@ -1043,6 +1044,13 @@ const LeadProfile: React.FC = () => {
           <div className="flex items-center gap-2">
             {settings.hasGeminiKey && (
               <>
+                <VoiceRecorderButton
+                  entityType="lead"
+                  entityId={leadId!}
+                  entityName={lead.leadName}
+                  businessName={lead.businessName || ''}
+                  disabled={isTranscribing}
+                />
                 <input ref={audioInputRef} type="file" accept="audio/*" onChange={handleUploadRecording} className="hidden" />
                 <Button onClick={() => audioInputRef.current?.click()} disabled={isTranscribing} variant="ghost" icon={<Mic size={16} />}>
                   {isTranscribing ? 'מתמלל...' : 'העלה הקלטה'}

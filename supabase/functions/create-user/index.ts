@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
     }
 
     // 2. Parse request body
-    const { email, password, displayName } = await req.json()
+    const { email, password, displayName, role, tenantId } = await req.json()
 
     if (!email || !password || !displayName) {
       return new Response(JSON.stringify({ error: 'email, password, and displayName are required' }), {
@@ -66,6 +66,18 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
+
+    // Validate role - only viewer or freelancer can be created (not admin)
+    const validRoles = ['viewer', 'freelancer']
+    const userRole = validRoles.includes(role) ? role : 'viewer'
+
+    // Get caller's tenant_id for the new user
+    const { data: callerData } = await callerClient
+      .from('user_roles')
+      .select('tenant_id')
+      .eq('user_id', caller.id)
+      .single()
+    const callerTenantId = tenantId || callerData?.tenant_id || '00000000-0000-0000-0000-000000000001'
 
     if (password.length < 6) {
       return new Response(JSON.stringify({ error: 'Password must be at least 6 characters' }), {
@@ -105,11 +117,21 @@ Deno.serve(async (req) => {
       .eq('email', trimmedEmail)
       .single()
 
+    // Default permissions by role
+    const defaultPermissions = userRole === 'freelancer'
+      ? ['dashboard', 'clients', 'leads', 'deals', 'calendar']
+      : ['dashboard', 'leads']
+
     if (existingRole) {
       // Update the existing entry with the real user_id
       await adminClient
         .from('user_roles')
-        .update({ user_id: newUser.user!.id })
+        .update({
+          user_id: newUser.user!.id,
+          role: userRole,
+          page_permissions: JSON.stringify(defaultPermissions),
+          tenant_id: callerTenantId,
+        })
         .eq('email', trimmedEmail)
     } else {
       // Create new user_roles entry
@@ -118,9 +140,10 @@ Deno.serve(async (req) => {
         .insert({
           user_id: newUser.user!.id,
           email: trimmedEmail,
-          role: 'viewer',
+          role: userRole,
           display_name: displayName,
-          page_permissions: JSON.stringify(['dashboard', 'leads']),
+          page_permissions: JSON.stringify(defaultPermissions),
+          tenant_id: callerTenantId,
         })
     }
 

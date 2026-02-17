@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Settings, Briefcase, CreditCard, Calculator, Search, LogOut, Shield, Eye, Sun, Moon, BarChart3, CalendarDays } from 'lucide-react';
+import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Settings, Briefcase, CreditCard, Calculator, Search, LogOut, Shield, Eye, Sun, Moon, BarChart3, CalendarDays, Lightbulb, BookOpen, Wrench } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -43,7 +43,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const location = useLocation();
   const { settings, leads, payments } = useData();
-  const { isAdmin, isViewer, displayName, role, logout, hasPageAccess } = useAuth();
+  const { isAdmin, isViewer, isFreelancer, displayName, role, logout, hasPageAccess } = useAuth();
   const { isDark, toggleTheme } = useTheme();
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
@@ -109,6 +109,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             {hasPageAccess('profit_loss') && <SidebarItem to="/profit-loss" icon={BarChart3} label="דוח רווח והפסד" isActive={location.pathname === '/profit-loss'} onClick={closeSidebar} />}
             {hasPageAccess('tax_calculator') && <SidebarItem to="/tax-calculator" icon={Calculator} label="מחשבון מס" isActive={location.pathname === '/tax-calculator'} onClick={closeSidebar} />}
             {hasPageAccess('calendar') && <SidebarItem to="/calendar" icon={CalendarDays} label="לוח שנה" isActive={location.pathname === '/calendar'} onClick={closeSidebar} />}
+            {hasPageAccess('ideas') && <SidebarItem to="/ideas" icon={Lightbulb} label="רעיונות" isActive={location.pathname === '/ideas'} onClick={closeSidebar} />}
+            {hasPageAccess('knowledge') && <SidebarItem to="/knowledge" icon={BookOpen} label="מאגר ידע" isActive={location.pathname === '/knowledge'} onClick={closeSidebar} />}
             {hasPageAccess('settings') && <SidebarItem to="/settings" icon={Settings} label="הגדרות" isActive={location.pathname === '/settings'} onClick={closeSidebar} />}
 
             {/* Search shortcut - admin only */}
@@ -127,12 +129,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           {/* User Info & Logout */}
           <div className="p-4 border-t border-white/5 space-y-3">
              <div className="flex items-center gap-3 px-2">
-               <div className={`p-1.5 rounded-lg ${isAdmin ? 'bg-primary/10 text-primary' : 'bg-violet-500/10 text-violet-400'}`}>
-                 {isAdmin ? <Shield size={14} /> : <Eye size={14} />}
+               <div className={`p-1.5 rounded-lg ${isAdmin ? 'bg-primary/10 text-primary' : isFreelancer ? 'bg-amber-500/10 text-amber-400' : 'bg-violet-500/10 text-violet-400'}`}>
+                 {isAdmin ? <Shield size={14} /> : isFreelancer ? <Wrench size={14} /> : <Eye size={14} />}
                </div>
                <div className="flex-1 min-w-0">
                  <div className="text-sm text-white font-medium truncate">{displayName}</div>
-                 <div className="text-[10px] text-gray-500">{isAdmin ? 'מנהל' : 'צופה'}</div>
+                 <div className="text-[10px] text-gray-500">{isAdmin ? 'מנהל' : isFreelancer ? 'פרילנסר' : 'צופה'}</div>
                </div>
              </div>
              <button
@@ -179,8 +181,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </header>
 
         {/* Scrollable Content Area */}
-        <div className={`flex-1 overflow-auto p-4 ${['/leads', '/calendar'].includes(location.pathname) ? 'lg:p-6' : 'lg:p-10'} relative z-10`}>
-          <div className={`${['/leads', '/calendar'].includes(location.pathname) ? '' : 'max-w-7xl'} mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
+        <div className={`flex-1 overflow-auto p-4 ${['/leads', '/calendar', '/ideas', '/knowledge'].includes(location.pathname) ? 'lg:p-6' : 'lg:p-10'} relative z-10`}>
+          <div className={`${['/leads', '/calendar', '/ideas', '/knowledge'].includes(location.pathname) ? '' : 'max-w-7xl'} mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
             {children}
           </div>
         </div>

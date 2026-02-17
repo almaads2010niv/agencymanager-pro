@@ -199,3 +199,60 @@
 2. SQL: `supabase-receipts-migration.sql`
 3. Deploy: `npx supabase functions deploy process-receipt --project-ref rxckkozbkrabpjdgyxqm`
 4. Git commit + push
+
+---
+
+## סשן 12 (17.02.2026) — מולטי-טננט + פרילנסר + הקלטה + רעיונות + מאגר ידע
+
+**מה ביקשת:**
+סעיפים 4, 7, 8, 9, 10 מהרודמאפ ביחד — 5 פיצ'רים:
+1. הקלטה קולית מהדפדפן + AI סיכום
+2. עמוד רעיונות (קנבן per-client) + AI generate
+3. דף מקור ידע — העלאת מסמכים + AI סיכום
+4. מיני מערכת לפרילנסרים — תפקיד freelancer עם נראות מצומצמת
+5. מולטי-טננט — הפרדת עסקים עם tenant_id
+
+**מה עשיתי:**
+
+### 1. מולטי-טננט
+- טבלת tenants חדשה + tenant_id UUID בכל 15 הטבלאות
+- Helper functions: `current_tenant_id()`, `is_admin()`
+- כל ה-RLS policies עודכנו עם `tenant_id = current_tenant_id()`
+- AuthContext: +tenantId, +tenantName
+
+### 2. תפקיד פרילנסר
+- UserRole חדש: 'freelancer'
+- RLS: פרילנסר רואה רק לקוחות/לידים עם `assigned_to = auth.uid()`
+- DEFAULT_FREELANCER_PERMISSIONS: dashboard, clients, leads, deals, calendar
+- Dashboard מיני לפרילנסרים (לקוחות + לידים שמוקצים לו)
+- Layout: badge אמבר עם אייקון Wrench + תווית "פרילנסר"
+- Settings: בחירת תפקיד (פרילנסר/צופה) ביצירת משתמש
+
+### 3. הקלטה קולית מהדפדפן
+- Hook חדש: `useVoiceRecorder` — MediaRecorder + AudioContext + AnalyserNode
+- קומפוננטה: VoiceRecorderButton — 3 מצבים (idle/recording/processing)
+- אוטומטית: הקלטה → העלאה → תמלול → סיכום AI → שמירה כנוטה
+- שולב בClientProfile ו-LeadProfile ליד "העלה הקלטה"
+
+### 4. עמוד רעיונות (Kanban)
+- טבלת ideas חדשה (5 סטטוסים: draft/active/in_progress/done/archived)
+- @dnd-kit גרירה בין עמודות
+- פילטר לפי לקוח, חיפוש, priority badges, due dates
+- AI Generate: Edge Function generate-idea עם Gemini 2.0 Flash-Lite
+- Ideas.tsx: קנבן מלא עם מודלים ל-add/edit/delete
+
+### 5. מאגר ידע (Knowledge Base)
+- טבלת knowledge_articles (7 קטגוריות, full-text search)
+- Storage bucket 'knowledge' (20MB, PDF/docs/images)
+- AI Summarize: Edge Function summarize-document
+- KnowledgeBase.tsx: חיפוש, טאבים קטגוריות, רשת כרטיסים, העלאת קובץ
+
+**מה נשאר להריץ (בסדר!):**
+1. SQL: `supabase-multi-tenant-migration.sql` (ראשון!)
+2. SQL: `supabase-freelancer-migration.sql`
+3. SQL: `supabase-ideas-migration.sql`
+4. SQL: `supabase-knowledge-migration.sql`
+5. Deploy: `npx supabase functions deploy create-user --project-ref rxckkozbkrabpjdgyxqm`
+6. Deploy: `npx supabase functions deploy generate-idea --project-ref rxckkozbkrabpjdgyxqm`
+7. Deploy: `npx supabase functions deploy summarize-document --project-ref rxckkozbkrabpjdgyxqm`
+8. Git commit + push

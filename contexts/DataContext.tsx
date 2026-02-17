@@ -4,7 +4,7 @@ import {
   AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel,
   ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript, AIRecommendation,
   WhatsAppMessage, NoteType, SignalsPersonality, Archetype, ConfidenceLevel, ChurnRisk,
-  CalendarEvent, CalendarEventType
+  CalendarEvent, CalendarEventType, Idea, IdeaStatus, IdeaPriority, KnowledgeArticle
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -226,6 +226,15 @@ export interface DataContextType extends AppData {
   addCalendarEvent: (event: Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   updateCalendarEvent: (event: CalendarEvent) => Promise<void>;
   deleteCalendarEvent: (id: string) => Promise<void>;
+
+  addIdea: (idea: Omit<Idea, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateIdea: (idea: Idea) => Promise<void>;
+  deleteIdea: (id: string) => Promise<void>;
+
+  addKnowledgeArticle: (article: Omit<KnowledgeArticle, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateKnowledgeArticle: (article: KnowledgeArticle) => Promise<void>;
+  deleteKnowledgeArticle: (id: string) => Promise<void>;
+  uploadKnowledgeFile: (file: File) => Promise<string | null>;
 
   uploadReceiptImage: (file: File) => Promise<string | null>;
   getReceiptUrl: (path: string) => Promise<string | null>;
@@ -637,6 +646,42 @@ interface CalendarEventRow {
   updated_at: string;
 }
 
+interface IdeaRow {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: string;
+  client_id: string | null;
+  lead_id: string | null;
+  category: string;
+  tags: string;
+  created_by: string;
+  created_by_name: string;
+  assigned_to: string | null;
+  due_date: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface KnowledgeArticleRow {
+  id: string;
+  title: string;
+  content: string;
+  summary: string;
+  category: string;
+  tags: string;
+  file_url: string | null;
+  file_name: string | null;
+  file_type: string | null;
+  is_ai_generated: boolean;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
 const transformCalendarEventToDB = (event: CalendarEvent) => ({
   id: event.id,
   title: event.title,
@@ -663,6 +708,78 @@ const transformCalendarEventFromDB = (row: CalendarEventRow): CalendarEvent => (
   description: row.description || '',
   clientId: row.client_id || undefined,
   leadId: row.lead_id || undefined,
+  createdBy: row.created_by,
+  createdByName: row.created_by_name || '',
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const transformIdeaToDB = (idea: Idea) => ({
+  id: idea.id,
+  title: idea.title,
+  description: idea.description || '',
+  status: idea.status,
+  priority: idea.priority,
+  client_id: idea.clientId || null,
+  lead_id: idea.leadId || null,
+  category: idea.category || '',
+  tags: JSON.stringify(idea.tags || []),
+  created_by: idea.createdBy,
+  created_by_name: idea.createdByName,
+  assigned_to: idea.assignedTo || null,
+  due_date: idea.dueDate || null,
+  sort_order: idea.sortOrder || 0,
+  created_at: idea.createdAt,
+  updated_at: idea.updatedAt,
+});
+
+const transformIdeaFromDB = (row: IdeaRow): Idea => ({
+  id: row.id,
+  title: row.title,
+  description: row.description || '',
+  status: row.status as IdeaStatus,
+  priority: row.priority as IdeaPriority,
+  clientId: row.client_id || undefined,
+  leadId: row.lead_id || undefined,
+  category: row.category || '',
+  tags: safeJsonParse(row.tags) as string[],
+  createdBy: row.created_by,
+  createdByName: row.created_by_name || '',
+  assignedTo: row.assigned_to || undefined,
+  dueDate: row.due_date || undefined,
+  sortOrder: row.sort_order || 0,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const transformKnowledgeArticleToDB = (article: KnowledgeArticle) => ({
+  id: article.id,
+  title: article.title,
+  content: article.content || '',
+  summary: article.summary || '',
+  category: article.category || 'general',
+  tags: JSON.stringify(article.tags || []),
+  file_url: article.fileUrl || null,
+  file_name: article.fileName || null,
+  file_type: article.fileType || null,
+  is_ai_generated: article.isAiGenerated || false,
+  created_by: article.createdBy,
+  created_by_name: article.createdByName,
+  created_at: article.createdAt,
+  updated_at: article.updatedAt,
+});
+
+const transformKnowledgeArticleFromDB = (row: KnowledgeArticleRow): KnowledgeArticle => ({
+  id: row.id,
+  title: row.title,
+  content: row.content || '',
+  summary: row.summary || '',
+  category: row.category || 'general',
+  tags: safeJsonParse(row.tags) as string[],
+  fileUrl: row.file_url || undefined,
+  fileName: row.file_name || undefined,
+  fileType: row.file_type || undefined,
+  isAiGenerated: row.is_ai_generated ?? false,
   createdBy: row.created_by,
   createdByName: row.created_by_name || '',
   createdAt: row.created_at,
@@ -713,6 +830,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     whatsappMessages: [],
     signalsPersonalities: [],
     calendarEvents: [],
+    ideas: [],
+    knowledgeArticles: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -762,7 +881,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes, signalsPersonalitiesRes, calendarEventsRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes, signalsPersonalitiesRes, calendarEventsRes, ideasRes, knowledgeRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
@@ -778,6 +897,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('whatsapp_messages').select('*').order('sent_at', { ascending: false }),
           supabase.from('signals_personality').select('*').order('received_at', { ascending: false }),
           supabase.from('calendar_events').select('*').order('start_time', { ascending: true }),
+          supabase.from('ideas').select('*').order('sort_order', { ascending: true }),
+          supabase.from('knowledge_articles').select('*').order('created_at', { ascending: false }),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -807,6 +928,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const whatsappMessages: WhatsAppMessage[] = (whatsappMessagesRes.data || []).map((row: WhatsAppMessageRow) => transformWhatsAppMessageFromDB(row));
         const signalsPersonalities: SignalsPersonality[] = (signalsPersonalitiesRes.data || []).map((row: SignalsPersonalityRow) => transformSignalsPersonalityFromDB(row));
         const calendarEvents: CalendarEvent[] = (calendarEventsRes.data || []).map((row: CalendarEventRow) => transformCalendarEventFromDB(row));
+        const ideas: Idea[] = (ideasRes?.data || []).map((row: IdeaRow) => transformIdeaFromDB(row));
+        const knowledgeArticles: KnowledgeArticle[] = (knowledgeRes?.data || []).map((row: KnowledgeArticleRow) => transformKnowledgeArticleFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
         if (settingsRes.data && !settingsRes.error) {
@@ -833,6 +956,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           whatsappMessages,
           signalsPersonalities,
           calendarEvents,
+          ideas,
+          knowledgeArticles,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -1805,6 +1930,78 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // --- Ideas CRUD ---
+  const addIdea = async (idea: Omit<Idea, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const now = new Date().toISOString();
+    const newIdea: Idea = { ...idea, id: generateId(), createdAt: now, updatedAt: now };
+    try {
+      const { error } = await supabase.from('ideas').insert(transformIdeaToDB(newIdea));
+      if (error) throw error;
+      setData(prev => ({ ...prev, ideas: [...prev.ideas, newIdea] }));
+      logActivity('idea_added', 'idea', `רעיון חדש: ${idea.title}`, newIdea.id);
+    } catch (err) { showError('שגיאה בהוספת רעיון'); throw err; }
+  };
+
+  const updateIdea = async (idea: Idea) => {
+    const updated = { ...idea, updatedAt: new Date().toISOString() };
+    try {
+      const { error } = await supabase.from('ideas').update(transformIdeaToDB(updated)).eq('id', idea.id);
+      if (error) throw error;
+      setData(prev => ({ ...prev, ideas: prev.ideas.map(i => i.id === idea.id ? updated : i) }));
+    } catch (err) { showError('שגיאה בעדכון רעיון'); throw err; }
+  };
+
+  const deleteIdea = async (id: string) => {
+    const ideaTitle = data.ideas.find(i => i.id === id)?.title || id;
+    try {
+      const { error } = await supabase.from('ideas').delete().eq('id', id);
+      if (error) throw error;
+      setData(prev => ({ ...prev, ideas: prev.ideas.filter(i => i.id !== id) }));
+      logActivity('idea_deleted', 'idea', `נמחק רעיון: ${ideaTitle}`, id);
+    } catch (err) { showError('שגיאה במחיקת רעיון'); throw err; }
+  };
+
+  // --- Knowledge Articles CRUD ---
+  const addKnowledgeArticle = async (article: Omit<KnowledgeArticle, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const now = new Date().toISOString();
+    const newArticle: KnowledgeArticle = { ...article, id: generateId(), createdAt: now, updatedAt: now };
+    try {
+      const { error } = await supabase.from('knowledge_articles').insert(transformKnowledgeArticleToDB(newArticle));
+      if (error) throw error;
+      setData(prev => ({ ...prev, knowledgeArticles: [newArticle, ...prev.knowledgeArticles] }));
+      logActivity('article_added', 'knowledge', `מאמר חדש: ${article.title}`, newArticle.id);
+    } catch (err) { showError('שגיאה בהוספת מאמר'); throw err; }
+  };
+
+  const updateKnowledgeArticle = async (article: KnowledgeArticle) => {
+    const updated = { ...article, updatedAt: new Date().toISOString() };
+    try {
+      const { error } = await supabase.from('knowledge_articles').update(transformKnowledgeArticleToDB(updated)).eq('id', article.id);
+      if (error) throw error;
+      setData(prev => ({ ...prev, knowledgeArticles: prev.knowledgeArticles.map(a => a.id === article.id ? updated : a) }));
+    } catch (err) { showError('שגיאה בעדכון מאמר'); throw err; }
+  };
+
+  const deleteKnowledgeArticle = async (id: string) => {
+    const articleTitle = data.knowledgeArticles.find(a => a.id === id)?.title || id;
+    try {
+      const { error } = await supabase.from('knowledge_articles').delete().eq('id', id);
+      if (error) throw error;
+      setData(prev => ({ ...prev, knowledgeArticles: prev.knowledgeArticles.filter(a => a.id !== id) }));
+      logActivity('article_deleted', 'knowledge', `נמחק מאמר: ${articleTitle}`, id);
+    } catch (err) { showError('שגיאה במחיקת מאמר'); throw err; }
+  };
+
+  const uploadKnowledgeFile = async (file: File): Promise<string | null> => {
+    try {
+      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._\-]/g, '_')}`;
+      const { error } = await supabase.storage.from('knowledge').upload(safeName, file, { upsert: false });
+      if (error) { showError('שגיאה בהעלאת קובץ: ' + error.message); return null; }
+      const { data: urlData } = await supabase.storage.from('knowledge').createSignedUrl(safeName, 3600);
+      return urlData?.signedUrl || null;
+    } catch (err) { showError('שגיאה בהעלאת קובץ'); return null; }
+  };
+
   // --- Receipt Image Upload ---
   const uploadReceiptImage = async (file: File): Promise<string | null> => {
     try {
@@ -1933,6 +2130,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         whatsappMessages: parsed.whatsappMessages || [],
         signalsPersonalities: parsed.signalsPersonalities || [],
         calendarEvents: parsed.calendarEvents || [],
+        ideas: parsed.ideas || [],
+        knowledgeArticles: parsed.knowledgeArticles || [],
       });
       return true;
     } catch (e) {
@@ -1964,6 +2163,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addWhatsAppMessage, deleteWhatsAppMessage,
       uploadRecording,
       addCalendarEvent, updateCalendarEvent, deleteCalendarEvent,
+      addIdea, updateIdea, deleteIdea,
+      addKnowledgeArticle, updateKnowledgeArticle, deleteKnowledgeArticle, uploadKnowledgeFile,
       uploadReceiptImage, getReceiptUrl,
       updateServices, updateSettings, saveApiKeys, saveSignalsWebhookSecret,
       importData, exportData
