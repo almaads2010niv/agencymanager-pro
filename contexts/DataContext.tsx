@@ -289,9 +289,12 @@ const safeJsonParse = (value: string | unknown, fallback: unknown[] = []): unkno
   }
 };
 
-// Helper: attach tenant_id to a DB row if tenantId is available
+// Default tenant UUID — must match the one in supabase-multi-tenant-migration.sql
+const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
+
+// Helper: attach tenant_id to a DB row (uses default tenant as fallback)
 const withTenant = <T extends Record<string, unknown>>(row: T, tid: string | null): T =>
-  tid ? { ...row, tenant_id: tid } : row;
+  ({ ...row, tenant_id: tid || DEFAULT_TENANT_ID });
 
 // Transformation functions: DB (snake_case) <-> TypeScript (camelCase)
 const transformClientToDB = (client: Client) => ({
