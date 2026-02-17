@@ -287,7 +287,7 @@ export interface WhatsAppMessage {
 export interface Tenant {
   id: string;
   name: string;
-  slug?: string;
+  slug: string;
   createdAt: string;
 }
 

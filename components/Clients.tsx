@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useTenantNav } from '../hooks/useTenantNav';
 import { Client, ClientRating, ClientStatus, EffortLevel } from '../types';
 import { formatCurrency, formatPhoneForWhatsApp } from '../utils';
 import { Plus, Search, Edit2, Trash2, X, MessageCircle, User } from 'lucide-react';
@@ -13,7 +13,7 @@ import { Badge } from './ui/Badge';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from './ui/Table';
 
 const Clients: React.FC = () => {
-  const navigate = useNavigate();
+  const { tn } = useTenantNav();
   const { clients, services, addClient, updateClient, deleteClient } = useData();
   const { allUsers } = useAuth();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -152,7 +152,7 @@ const Clients: React.FC = () => {
             </TableHeader>
             <TableBody>
               {filteredClients.map(client => (
-                <TableRow key={client.clientId} className="cursor-pointer hover:bg-white/[0.03]" onClick={() => navigate(`/clients/${client.clientId}`)}>
+                <TableRow key={client.clientId} className="cursor-pointer hover:bg-white/[0.03]" onClick={() => tn(`/clients/${client.clientId}`)}>
                   <TableCell className="font-bold text-base">
                     <span className="text-white">{client.businessName}</span>
                   </TableCell>

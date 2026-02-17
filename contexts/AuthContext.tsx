@@ -61,6 +61,7 @@ export interface AuthContextType {
   isSuperAdmin: boolean;
   tenantId: string | null;
   tenantName: string;
+  tenantSlug: string | null;
   displayName: string;
   allUsers: UserRoleRecord[];
   isRoleLoaded: boolean;
@@ -96,6 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [displayName, setDisplayName] = useState('');
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [tenantName, setTenantName] = useState('');
+  const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   const [allUsers, setAllUsers] = useState<UserRoleRecord[]>([]);
   const [isRoleLoaded, setIsRoleLoaded] = useState(false);
   const [pagePermissions, setPagePermissions] = useState<PagePermission[]>(ALL_PAGES.map(p => p.key));
@@ -121,10 +123,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setDisplayName(data.display_name || currentUser.email?.split('@')[0] || '');
         setTenantId(data.tenant_id || null);
 
-        // Load tenant name
+        // Load tenant name + slug
         if (data.tenant_id) {
-          const { data: tenant } = await supabase.from('tenants').select('name').eq('id', data.tenant_id).single();
-          if (tenant) setTenantName(tenant.name);
+          const { data: tenant } = await supabase.from('tenants').select('name, slug').eq('id', data.tenant_id).single();
+          if (tenant) {
+            setTenantName(tenant.name);
+            setTenantSlug(tenant.slug || null);
+          }
         }
 
         // Parse page permissions
@@ -156,8 +161,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setTenantId(emailMatch.tenant_id || null);
 
           if (emailMatch.tenant_id) {
-            const { data: tenant } = await supabase.from('tenants').select('name').eq('id', emailMatch.tenant_id).single();
-            if (tenant) setTenantName(tenant.name);
+            const { data: tenant } = await supabase.from('tenants').select('name, slug').eq('id', emailMatch.tenant_id).single();
+            if (tenant) {
+              setTenantName(tenant.name);
+              setTenantSlug(tenant.slug || null);
+            }
           }
 
           const defaultPerms = userRole === 'admin' ? ALL_PAGES.map(p => p.key)
@@ -224,6 +232,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         setRole('viewer');
         setDisplayName('');
+        setTenantSlug(null);
         setPagePermissions(DEFAULT_VIEWER_PERMISSIONS);
         setIsRoleLoaded(true);
       }
@@ -237,6 +246,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setRole('viewer');
     setDisplayName('');
+    setTenantSlug(null);
     setPagePermissions(DEFAULT_VIEWER_PERMISSIONS);
   };
 
@@ -410,6 +420,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isSuperAdmin,
       tenantId,
       tenantName,
+      tenantSlug,
       displayName,
       allUsers,
       isRoleLoaded,

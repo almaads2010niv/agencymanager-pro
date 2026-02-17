@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
+import { useTenantNav } from '../hooks/useTenantNav';
 import { Search, Users, UserPlus, Briefcase, X } from 'lucide-react';
 
 interface SearchResult {
@@ -17,7 +17,7 @@ interface CommandPaletteProps {
 }
 
 const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
-  const navigate = useNavigate();
+  const { tn } = useTenantNav();
   const { clients, leads, oneTimeDeals } = useData();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -82,7 +82,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const results = getResults();
 
   const handleSelect = (result: SearchResult) => {
-    navigate(result.path);
+    tn(result.path);
     onClose();
   };
 

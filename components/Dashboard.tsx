@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
+import { useTenantNav } from '../hooks/useTenantNav';
 import { ClientStatus, LeadStatus, PaymentStatus } from '../types';
 import { formatCurrency, getMonthKey, getMonthName } from '../utils';
 import { calculateTax } from '../utils/taxCalculator';
@@ -55,7 +55,7 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, subtitle, icon: Icon, h
 const ViewerDashboard: React.FC = () => {
   const { leads, clients } = useData();
   const { user, displayName, isFreelancer } = useAuth();
-  const navigate = useNavigate();
+  const { tn } = useTenantNav();
 
   // Freelancers see assigned leads/clients; viewers see leads they created
   const myLeads = user ? leads.filter(l => isFreelancer ? l.assignedTo === user.id : l.createdBy === user.id) : [];
@@ -75,9 +75,9 @@ const ViewerDashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {isFreelancer && <KPICard title="לקוחות שלי" value={myClients.length} icon={Users} highlight onClick={() => navigate('/clients')} />}
-        <KPICard title="סה״כ לידים שלי" value={myLeads.length} icon={UserPlus} highlight={!isFreelancer} onClick={() => navigate('/leads')} />
-        <KPICard title="לידים פתוחים" value={myOpenLeads.length} icon={FileText} color="accent" onClick={() => navigate('/leads')} />
+        {isFreelancer && <KPICard title="לקוחות שלי" value={myClients.length} icon={Users} highlight onClick={() => tn('/clients')} />}
+        <KPICard title="סה״כ לידים שלי" value={myLeads.length} icon={UserPlus} highlight={!isFreelancer} onClick={() => tn('/leads')} />
+        <KPICard title="לידים פתוחים" value={myOpenLeads.length} icon={FileText} color="accent" onClick={() => tn('/leads')} />
         <KPICard title="לידים שנסגרו" value={myWonLeads.length} icon={Target} color="secondary" />
         {!isFreelancer && <KPICard title="שווי לידים פתוחים" value={formatCurrency(totalQuotedValue)} icon={DollarSign} color="primary" />}
       </div>
@@ -125,7 +125,7 @@ const ViewerDashboard: React.FC = () => {
 const Dashboard: React.FC = () => {
   const { clients, leads, expenses, payments, settings, error, clearError } = useData();
   const { isViewer, isFreelancer } = useAuth();
-  const navigate = useNavigate();
+  const { tn } = useTenantNav();
   const currentDate = new Date();
   const currentMonthKey = getMonthKey(currentDate);
 
@@ -247,17 +247,17 @@ const Dashboard: React.FC = () => {
         <KPICard title="הוצאות ספקים" value={formatCurrency(totalSupplierCostCurrentMonth)} icon={DollarSign} color="danger" />
         <KPICard title="לקוחות חדשים" value={newClientsThisMonth} icon={UserPlus} color="accent" />
         <KPICard title="לקוחות שעזבו" value={churnedClientsThisMonth} icon={UserMinus} color="danger" />
-        <KPICard title="לידים פתוחים" value={leadsOpenCount} icon={FileText} onClick={() => navigate('/leads')} />
-        <KPICard title="לידים חמים" value={hotLeadsCount} icon={AlertCircle} color="secondary" onClick={() => navigate('/leads')} />
-        <KPICard title="חוב פתוח" value={formatCurrency(unpaidInvoicesTotal)} icon={AlertCircle} color="danger" onClick={() => navigate('/debts')} />
-        <KPICard title="לקוחות פעילים" value={activeClientsCount} icon={Users} color="primary" onClick={() => navigate('/clients')} />
+        <KPICard title="לידים פתוחים" value={leadsOpenCount} icon={FileText} onClick={() => tn('/leads')} />
+        <KPICard title="לידים חמים" value={hotLeadsCount} icon={AlertCircle} color="secondary" onClick={() => tn('/leads')} />
+        <KPICard title="חוב פתוח" value={formatCurrency(unpaidInvoicesTotal)} icon={AlertCircle} color="danger" onClick={() => tn('/debts')} />
+        <KPICard title="לקוחות פעילים" value={activeClientsCount} icon={Users} color="primary" onClick={() => tn('/clients')} />
         <KPICard
           title="צמיחה (YOY)"
           value={`${mrrChangePercent > 0 ? '+' : ''}${mrrChangePercent}%`}
           icon={TrendingUp}
           color={mrrChangePercent >= 0 ? "accent" : "danger"}
         />
-        <KPICard title="נטו לאחר מס" value={formatCurrency(taxData.netIncome)} subtitle={`${taxData.effectiveTaxRate}% מס`} icon={Calculator} color="accent" onClick={() => navigate('/tax-calculator')} />
+        <KPICard title="נטו לאחר מס" value={formatCurrency(taxData.netIncome)} subtitle={`${taxData.effectiveTaxRate}% מס`} icon={Calculator} color="accent" onClick={() => tn('/tax-calculator')} />
       </div>
 
       {/* Tax Breakdown Collapsible Panel */}
@@ -359,7 +359,7 @@ const Dashboard: React.FC = () => {
                 .map(client => (
                 <TableRow key={client.clientId}>
                   <TableCell className="font-medium">
-                    <button onClick={() => navigate(`/clients/${client.clientId}`)} className="text-white hover:text-primary transition-colors text-right">{client.businessName}</button>
+                    <button onClick={() => tn(`/clients/${client.clientId}`)} className="text-white hover:text-primary transition-colors text-right">{client.businessName}</button>
                   </TableCell>
                   <TableCell>
                     <Badge variant={client.rating === 'A_plus' ? 'primary' : client.rating === 'A' ? 'success' : 'neutral'}>

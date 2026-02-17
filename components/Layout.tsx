@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Menu, X, LayoutDashboard, Users, UserPlus, DollarSign, Receipt, Settings, Briefcase, CreditCard, Calculator, Search, LogOut, Shield, Eye, Sun, Moon, BarChart3, CalendarDays, Lightbulb, BookOpen, Wrench, Building2 } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTenantNav } from '../hooks/useTenantNav';
 import { LeadStatus, PaymentStatus } from '../types';
 import CommandPalette from './CommandPalette';
 
@@ -43,11 +44,21 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const location = useLocation();
   const { settings, leads, payments } = useData();
-  const { isAdmin, isViewer, isFreelancer, isSuperAdmin, displayName, role, logout, hasPageAccess } = useAuth();
+  const { isAdmin, isViewer, isFreelancer, isSuperAdmin, displayName, role, logout, hasPageAccess, tenantSlug } = useAuth();
   const { isDark, toggleTheme } = useTheme();
+  const { tPath } = useTenantNav();
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
   const closeSidebar = () => setIsSidebarOpen(false);
+
+  // Strip tenant slug prefix from pathname for route matching
+  const currentPath = useMemo(() => {
+    const prefix = tenantSlug ? `/a/${tenantSlug}` : '';
+    if (prefix && location.pathname.startsWith(prefix)) {
+      return location.pathname.slice(prefix.length) || '/';
+    }
+    return location.pathname;
+  }, [location.pathname, tenantSlug]);
 
   // Ctrl+K / Cmd+K to open command palette
   useEffect(() => {
@@ -100,18 +111,18 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </div>
 
           <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-            <SidebarItem to="/" icon={LayoutDashboard} label="דשבורד" isActive={location.pathname === '/'} onClick={closeSidebar} />
-            {hasPageAccess('clients') && <SidebarItem to="/clients" icon={Users} label="לקוחות" isActive={location.pathname === '/clients'} onClick={closeSidebar} />}
-            {hasPageAccess('leads') && <SidebarItem to="/leads" icon={UserPlus} label="לידים" isActive={location.pathname === '/leads'} onClick={closeSidebar} badge={overdueLeads} />}
-            {hasPageAccess('deals') && <SidebarItem to="/deals" icon={Briefcase} label="פרויקטים" isActive={location.pathname === '/deals'} onClick={closeSidebar} />}
-            {hasPageAccess('expenses') && <SidebarItem to="/expenses" icon={Receipt} label="הוצאות" isActive={location.pathname === '/expenses'} onClick={closeSidebar} />}
-            {hasPageAccess('debts') && <SidebarItem to="/debts" icon={CreditCard} label="חובות לקוחות" isActive={location.pathname === '/debts'} onClick={closeSidebar} badge={unpaidDebts} />}
-            {hasPageAccess('profit_loss') && <SidebarItem to="/profit-loss" icon={BarChart3} label="דוח רווח והפסד" isActive={location.pathname === '/profit-loss'} onClick={closeSidebar} />}
-            {hasPageAccess('tax_calculator') && <SidebarItem to="/tax-calculator" icon={Calculator} label="מחשבון מס" isActive={location.pathname === '/tax-calculator'} onClick={closeSidebar} />}
-            {hasPageAccess('calendar') && <SidebarItem to="/calendar" icon={CalendarDays} label="לוח שנה" isActive={location.pathname === '/calendar'} onClick={closeSidebar} />}
-            {hasPageAccess('ideas') && <SidebarItem to="/ideas" icon={Lightbulb} label="רעיונות" isActive={location.pathname === '/ideas'} onClick={closeSidebar} />}
-            {hasPageAccess('knowledge') && <SidebarItem to="/knowledge" icon={BookOpen} label="מאגר ידע" isActive={location.pathname === '/knowledge'} onClick={closeSidebar} />}
-            {hasPageAccess('settings') && <SidebarItem to="/settings" icon={Settings} label="הגדרות" isActive={location.pathname === '/settings'} onClick={closeSidebar} />}
+            <SidebarItem to={tPath('/')} icon={LayoutDashboard} label="דשבורד" isActive={currentPath === '/'} onClick={closeSidebar} />
+            {hasPageAccess('clients') && <SidebarItem to={tPath('/clients')} icon={Users} label="לקוחות" isActive={currentPath === '/clients'} onClick={closeSidebar} />}
+            {hasPageAccess('leads') && <SidebarItem to={tPath('/leads')} icon={UserPlus} label="לידים" isActive={currentPath === '/leads'} onClick={closeSidebar} badge={overdueLeads} />}
+            {hasPageAccess('deals') && <SidebarItem to={tPath('/deals')} icon={Briefcase} label="פרויקטים" isActive={currentPath === '/deals'} onClick={closeSidebar} />}
+            {hasPageAccess('expenses') && <SidebarItem to={tPath('/expenses')} icon={Receipt} label="הוצאות" isActive={currentPath === '/expenses'} onClick={closeSidebar} />}
+            {hasPageAccess('debts') && <SidebarItem to={tPath('/debts')} icon={CreditCard} label="חובות לקוחות" isActive={currentPath === '/debts'} onClick={closeSidebar} badge={unpaidDebts} />}
+            {hasPageAccess('profit_loss') && <SidebarItem to={tPath('/profit-loss')} icon={BarChart3} label="דוח רווח והפסד" isActive={currentPath === '/profit-loss'} onClick={closeSidebar} />}
+            {hasPageAccess('tax_calculator') && <SidebarItem to={tPath('/tax-calculator')} icon={Calculator} label="מחשבון מס" isActive={currentPath === '/tax-calculator'} onClick={closeSidebar} />}
+            {hasPageAccess('calendar') && <SidebarItem to={tPath('/calendar')} icon={CalendarDays} label="לוח שנה" isActive={currentPath === '/calendar'} onClick={closeSidebar} />}
+            {hasPageAccess('ideas') && <SidebarItem to={tPath('/ideas')} icon={Lightbulb} label="רעיונות" isActive={currentPath === '/ideas'} onClick={closeSidebar} />}
+            {hasPageAccess('knowledge') && <SidebarItem to={tPath('/knowledge')} icon={BookOpen} label="מאגר ידע" isActive={currentPath === '/knowledge'} onClick={closeSidebar} />}
+            {hasPageAccess('settings') && <SidebarItem to={tPath('/settings')} icon={Settings} label="הגדרות" isActive={currentPath === '/settings'} onClick={closeSidebar} />}
             {isSuperAdmin && <SidebarItem to="/tenants" icon={Building2} label="ניהול סוכנויות" isActive={location.pathname === '/tenants'} onClick={closeSidebar} />}
 
             {/* Search shortcut - admin only */}
@@ -182,8 +193,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </header>
 
         {/* Scrollable Content Area */}
-        <div className={`flex-1 overflow-auto p-4 ${['/leads', '/calendar', '/ideas', '/knowledge'].includes(location.pathname) ? 'lg:p-6' : 'lg:p-10'} relative z-10`}>
-          <div className={`${['/leads', '/calendar', '/ideas', '/knowledge'].includes(location.pathname) ? '' : 'max-w-7xl'} mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
+        <div className={`flex-1 overflow-auto p-4 ${['/leads', '/calendar', '/ideas', '/knowledge'].includes(currentPath) ? 'lg:p-6' : 'lg:p-10'} relative z-10`}>
+          <div className={`${['/leads', '/calendar', '/ideas', '/knowledge'].includes(currentPath) ? '' : 'max-w-7xl'} mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
             {children}
           </div>
         </div>

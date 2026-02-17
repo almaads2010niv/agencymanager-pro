@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { useTenantNav } from '../hooks/useTenantNav';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import type { ClientFile } from '../contexts/DataContext';
@@ -19,7 +20,7 @@ import VoiceRecorderButton from './VoiceRecorderButton';
 
 const ClientProfile: React.FC = () => {
   const { clientId } = useParams<{ clientId: string }>();
-  const navigate = useNavigate();
+  const { tn } = useTenantNav();
   const { user, displayName: currentUserName, allUsers, isAdmin } = useAuth();
   const {
     clients, oneTimeDeals, expenses, payments, services, retainerHistory,
@@ -458,7 +459,7 @@ const ClientProfile: React.FC = () => {
   if (!client) {
     return (
       <div className="space-y-6">
-        <Button onClick={() => navigate('/clients')} variant="ghost" icon={<ArrowRight size={18} />}>חזרה ללקוחות</Button>
+        <Button onClick={() => tn('/clients')} variant="ghost" icon={<ArrowRight size={18} />}>חזרה ללקוחות</Button>
         <Card>
           <p className="text-gray-400 text-center py-12">לקוח לא נמצא</p>
         </Card>
@@ -486,7 +487,7 @@ const ClientProfile: React.FC = () => {
     <div className="space-y-8">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button onClick={() => navigate('/clients')} variant="ghost" icon={<ArrowRight size={18} />}>חזרה</Button>
+        <Button onClick={() => tn('/clients')} variant="ghost" icon={<ArrowRight size={18} />}>חזרה</Button>
         <div className="flex-1">
           <h2 className="text-3xl font-black text-white tracking-tight">{client.businessName}</h2>
           <div className="flex items-center gap-3 mt-1">

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useTenantNav } from '../hooks/useTenantNav';
 import { Lead, LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, Archetype } from '../types';
 import { formatCurrency, formatPhoneForWhatsApp } from '../utils';
 import { Plus, Search, CheckCircle, XCircle, List, LayoutGrid, Phone, MessageCircle, ArrowUpDown, Calendar, User, GripVertical, Brain } from 'lucide-react';
@@ -282,7 +282,7 @@ const LeadGhostCard: React.FC<{ lead: Lead }> = ({ lead }) => (
 const Leads: React.FC = () => {
   const { leads, services, addLead, updateLead, deleteLead, convertLeadToClient, signalsPersonalities } = useData();
   const { isAdmin, isViewer, user, allUsers } = useAuth();
-  const navigate = useNavigate();
+  const { tn } = useTenantNav();
 
   const getUserName = (userId?: string) => {
     if (!userId) return null;
@@ -559,7 +559,7 @@ const Leads: React.FC = () => {
                 <TableRow
                   key={lead.leadId}
                   className={`cursor-pointer ${rowBg}`}
-                  onClick={() => navigate(`/leads/${lead.leadId}`)}
+                  onClick={() => tn(`/leads/${lead.leadId}`)}
                 >
                   <TableCell className="font-semibold text-white">{lead.leadName}</TableCell>
                   <TableCell>{lead.businessName || <span className="text-gray-600">-</span>}</TableCell>
@@ -712,8 +712,8 @@ const Leads: React.FC = () => {
   }, [kanbanLeads, updateLead]);
 
   const handleNavigateToLead = useCallback((leadId: string) => {
-    navigate(`/leads/${leadId}`);
-  }, [navigate]);
+    tn(`/leads/${leadId}`);
+  }, [tn]);
 
   // --- Main Render ---
 

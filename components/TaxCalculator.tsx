@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { ClientStatus } from '../types';
 import { formatCurrency, getMonthKey } from '../utils';
@@ -13,7 +12,6 @@ import { Input } from './ui/Form';
 
 const TaxCalculator: React.FC = () => {
   const { clients, expenses, settings, updateSettings } = useData();
-  const navigate = useNavigate();
   const [showBrackets, setShowBrackets] = useState(true);
   const [showBL, setShowBL] = useState(true);
   const [editSalary, setEditSalary] = useState(false);

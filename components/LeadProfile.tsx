@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { useTenantNav } from '../hooks/useTenantNav';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, NoteType, Archetype } from '../types';
@@ -77,7 +78,7 @@ const CHURN_RISK_HE: Record<string, string> = { HIGH: 'גבוה', MEDIUM: 'בי�
 
 const LeadProfile: React.FC = () => {
   const { leadId } = useParams<{ leadId: string }>();
-  const navigate = useNavigate();
+  const { tn } = useTenantNav();
   const { user, displayName: currentUserName, allUsers, isAdmin } = useAuth();
   const {
     leads, services, activities, settings,
@@ -565,7 +566,7 @@ const LeadProfile: React.FC = () => {
   if (!lead) {
     return (
       <div className="space-y-6">
-        <Button onClick={() => navigate('/leads')} variant="ghost" icon={<ArrowRight size={18} />}>חזרה ללידים</Button>
+        <Button onClick={() => tn('/leads')} variant="ghost" icon={<ArrowRight size={18} />}>חזרה ללידים</Button>
         <Card>
           <p className="text-gray-400 text-center py-12">ליד לא נמצא</p>
         </Card>
@@ -585,7 +586,7 @@ const LeadProfile: React.FC = () => {
     <div className="space-y-8">
       {/* Header */}
       <div id="lead-header" className="flex items-center gap-4">
-        <Button onClick={() => navigate('/leads')} variant="ghost" icon={<ArrowRight size={18} />}>חזרה</Button>
+        <Button onClick={() => tn('/leads')} variant="ghost" icon={<ArrowRight size={18} />}>חזרה</Button>
         <div className="flex-1">
           <h2 className="text-3xl font-black text-white tracking-tight">{lead.leadName}</h2>
           <div className="flex items-center gap-3 mt-1">
@@ -831,7 +832,7 @@ const LeadProfile: React.FC = () => {
               <Button
                 variant="ghost"
                 className="text-primary hover:underline"
-                onClick={() => navigate(`/clients/${lead.relatedClientId}`)}
+                onClick={() => tn(`/clients/${lead.relatedClientId}`)}
               >
                 צפה בכרטיס לקוח &larr;
               </Button>
