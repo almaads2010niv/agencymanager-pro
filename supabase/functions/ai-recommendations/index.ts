@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
     const geminiApiKey = settings.gemini_api_key
 
     // 3. Parse request body
-    const { entityType, entityName, notes, transcripts, additionalContext } = await req.json()
+    const { entityType, entityName, notes, transcripts, additionalContext, personality } = await req.json()
 
     // 4. Build prompt
     const notesText = (notes || [])
@@ -80,19 +80,44 @@ Deno.serve(async (req) => {
 
     const entityLabel = entityType === 'client' ? 'לקוח' : 'ליד'
 
+    // Build personality context if available
+    const archNames: Record<string, string> = {
+      WINNER: 'ווינר', STAR: 'סטאר', DREAMER: 'חולם', HEART: 'לב', ANCHOR: 'עוגן',
+    }
+    const churnLabels: Record<string, string> = { HIGH: 'גבוה', MEDIUM: 'בינוני', LOW: 'נמוך' }
+    const confLabels: Record<string, string> = { HIGH: 'גבוהה', MEDIUM: 'בינונית', LOW: 'נמוכה' }
+
+    let personalityContext = ''
+    if (personality) {
+      personalityContext = `\n--- מודיעין אישיותי (Signals OS) ---
+ארכיטיפ ראשי: ${archNames[personality.primary] || personality.primary}
+ארכיטיפ משני: ${archNames[personality.secondary] || personality.secondary}
+סיכון נטישה: ${churnLabels[personality.churnRisk] || personality.churnRisk}
+רמת ביטחון: ${confLabels[personality.confidenceLevel] || personality.confidenceLevel}
+תגיות חכמות: ${(personality.smartTags || []).join(', ')}
+${personality.salesCheatSheet?.how_to_speak ? `איך לדבר: ${personality.salesCheatSheet.how_to_speak}` : ''}
+${personality.salesCheatSheet?.what_not_to_do ? `ממה להימנע: ${personality.salesCheatSheet.what_not_to_do}` : ''}
+${personality.salesCheatSheet?.red_flags ? `דגלים אדומים: ${personality.salesCheatSheet.red_flags}` : ''}
+${personality.salesCheatSheet?.best_offers ? `הצעות מומלצות: ${personality.salesCheatSheet.best_offers}` : ''}
+${personality.retentionCheatSheet?.onboarding_focus ? `דגש באונבורדינג: ${personality.retentionCheatSheet.onboarding_focus}` : ''}
+${personality.retentionCheatSheet?.risk_moments ? `רגעי סיכון: ${personality.retentionCheatSheet.risk_moments}` : ''}
+---\n`
+    }
+
     const prompt = `אתה מנהל חשבון בכיר בסוכנות שיווק דיגיטלי בישראל. נתונים על ${entityLabel}: "${entityName}"
 
 ${additionalContext ? `מידע נוסף: ${additionalContext}` : ''}
-
+${personalityContext}
 ${notesText ? `הערות:\n${notesText}` : 'אין הערות'}
 
 ${transcriptsText ? `תמלולי שיחות:\n${transcriptsText}` : 'אין תמלולי שיחות'}
 
-בהתבסס על כל המידע למעלה, תן המלצות מעשיות וספציפיות:
+בהתבסס על כל המידע למעלה${personalityContext ? ', כולל נתוני אישיות Signals OS,' : ''} תן המלצות מעשיות וספציפיות:
 1. מה הצעד הבא שצריך לעשות עם ${entityLabel === 'לקוח' ? 'הלקוח' : 'הליד'} הזה?
 2. מה הסיכונים או ההזדמנויות שצריך לשים לב אליהם?
 3. האם יש שירותים נוספים שכדאי להציע?
 4. המלצות לשיפור היחסים והתקשורת
+${personalityContext ? '5. המלצות ספציפיות בהתבסס על הפרופיל האישיותי (ארכיטיפ, סגנון תקשורת, סיכוני נטישה)' : ''}
 
 ענה בעברית, בצורה מסודרת עם כותרות ברורות. היה ספציפי ומעשי.`
 

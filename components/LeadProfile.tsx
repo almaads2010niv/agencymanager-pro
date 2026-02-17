@@ -2,11 +2,11 @@ import React, { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
-import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, NoteType } from '../types';
+import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, NoteType, Archetype } from '../types';
 import type { Lead } from '../types';
 import { formatCurrency, formatDate, formatDateTime, formatPhoneForWhatsApp } from '../utils';
 import { MESSAGE_PURPOSES } from '../constants';
-import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target } from 'lucide-react';
+import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
@@ -42,6 +42,38 @@ const getSourceBadgeVariant = (source: SourceChannel): BadgeVariant => {
   }
 };
 
+// --- Signals OS Personality Config ---
+const ARCHETYPE_CONFIG: Record<string, { nameHe: string; color: string; bgColor: string; borderColor: string; barColor: string; icon: string }> = {
+  WINNER:  { nameHe: 'ווינר',  color: 'text-red-400',    bgColor: 'bg-red-500/10',    borderColor: 'border-red-500/20',    barColor: '#EF4444', icon: '🏆' },
+  STAR:    { nameHe: 'סטאר',   color: 'text-amber-400',  bgColor: 'bg-amber-500/10',  borderColor: 'border-amber-500/20',  barColor: '#F59E0B', icon: '⭐' },
+  DREAMER: { nameHe: 'חולם',   color: 'text-violet-400', bgColor: 'bg-violet-500/10', borderColor: 'border-violet-500/20', barColor: '#8B5CF6', icon: '💫' },
+  HEART:   { nameHe: 'לב',     color: 'text-pink-400',   bgColor: 'bg-pink-500/10',   borderColor: 'border-pink-500/20',   barColor: '#EC4899', icon: '❤️' },
+  ANCHOR:  { nameHe: 'עוגן',   color: 'text-cyan-400',   bgColor: 'bg-cyan-500/10',   borderColor: 'border-cyan-500/20',   barColor: '#06B6D4', icon: '⚓' },
+};
+
+const SALES_SHEET_LABELS: Record<string, string> = {
+  how_to_speak: 'איך לדבר',
+  what_not_to_do: 'ממה להימנע',
+  closing_speed: 'מהירות סגירה',
+  followup_plan: 'תוכנית מעקב',
+  best_offers: 'הצעות מומלצות',
+  best_social_proof: 'הוכחה חברתית',
+  red_flags: 'דגלים אדומים',
+  recommended_channels: 'ערוצים מומלצים',
+};
+
+const RETENTION_SHEET_LABELS: Record<string, string> = {
+  onboarding_focus: 'דגש באונבורדינג',
+  habit_building: 'בניית הרגלים',
+  community_hook: 'חיבור קהילתי',
+  risk_moments: 'רגעי סיכון',
+  save_offer: 'הצעת שימור',
+  cadence: 'קצב תקשורת',
+};
+
+const CONFIDENCE_HE: Record<string, string> = { HIGH: 'גבוהה', MEDIUM: 'בינונית', LOW: 'נמוכה' };
+const CHURN_RISK_HE: Record<string, string> = { HIGH: 'גבוה', MEDIUM: 'בינוני', LOW: 'נמוך' };
+
 const LeadProfile: React.FC = () => {
   const { leadId } = useParams<{ leadId: string }>();
   const navigate = useNavigate();
@@ -53,6 +85,7 @@ const LeadProfile: React.FC = () => {
     callTranscripts, addCallTranscript, deleteCallTranscript,
     aiRecommendations, addAIRecommendation, deleteAIRecommendation,
     whatsappMessages, addWhatsAppMessage, deleteWhatsAppMessage, uploadRecording,
+    signalsPersonalities,
   } = useData();
 
   // Notes state
@@ -121,6 +154,11 @@ const LeadProfile: React.FC = () => {
 
   // Filter activities for this lead
   const leadActivities = activities.filter(a => a.entityId === leadId).slice(0, 20);
+
+  // Signals OS personality data for this lead
+  const personality = signalsPersonalities.find(p => p.leadId === leadId);
+  const [salesSheetExpanded, setSalesSheetExpanded] = useState(false);
+  const [retentionSheetExpanded, setRetentionSheetExpanded] = useState(false);
 
   // Helper to get user name from allUsers
   const getUserName = (userId?: string) => {
@@ -220,6 +258,15 @@ const LeadProfile: React.FC = () => {
           notes: leadNotesFiltered.map(n => ({ content: n.content, createdByName: n.createdByName, createdAt: n.createdAt })),
           transcripts: leadTranscripts.map(ct => ({ summary: ct.summary, callDate: ct.callDate, transcript: ct.transcript })),
           additionalContext: `סטטוס: ${lead.status}, מקור: ${lead.sourceChannel}, הצעת מחיר: ₪${lead.quotedMonthlyValue}`,
+          personality: personality ? {
+            primary: personality.primaryArchetype,
+            secondary: personality.secondaryArchetype,
+            confidenceLevel: personality.confidenceLevel,
+            churnRisk: personality.churnRisk,
+            smartTags: personality.smartTags,
+            salesCheatSheet: personality.salesCheatSheet,
+            retentionCheatSheet: personality.retentionCheatSheet,
+          } : null,
         }),
       });
       const result = await res.json();
@@ -749,6 +796,19 @@ const LeadProfile: React.FC = () => {
                 </span>
               </div>
             </button>
+            {personality && (
+              <button
+                onClick={() => document.getElementById('lead-personality-section')?.scrollIntoView({ behavior: 'smooth' })}
+                className="p-3 rounded-xl border text-start transition-all hover:bg-white/[0.03] bg-[#0B1121] border-violet-500/20"
+              >
+                <div className="flex items-center gap-2">
+                  <Brain size={14} className="text-violet-400" />
+                  <span className="text-sm font-medium text-gray-200">
+                    {ARCHETYPE_CONFIG[personality.primaryArchetype]?.icon} מודיעין אישיותי
+                  </span>
+                </div>
+              </button>
+            )}
           </div>
 
           {/* Services */}
@@ -778,6 +838,148 @@ const LeadProfile: React.FC = () => {
           )}
         </Card>
       </div>
+
+      {/* Signals OS Personality Intelligence Card */}
+      {personality && (() => {
+        const primaryCfg = ARCHETYPE_CONFIG[personality.primaryArchetype] || ARCHETYPE_CONFIG.WINNER;
+        const secondaryCfg = ARCHETYPE_CONFIG[personality.secondaryArchetype] || ARCHETYPE_CONFIG.STAR;
+        const archetypes: Archetype[] = ['WINNER', 'STAR', 'DREAMER', 'HEART', 'ANCHOR'];
+        const maxScore = Math.max(...Object.values(personality.scores), 1);
+
+        return (
+          <Card id="lead-personality-section">
+            <CardHeader
+              title="מודיעין אישיותי"
+              subtitle={`Signals OS · ${formatDateTime(personality.receivedAt)}`}
+            />
+
+            {/* Row 1: Archetype badges + confidence + churn */}
+            <div className="flex flex-wrap items-center gap-3 mt-4 mb-6">
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-xl ${primaryCfg.bgColor} border ${primaryCfg.borderColor}`}>
+                <span className="text-xl">{primaryCfg.icon}</span>
+                <div>
+                  <div className={`text-sm font-bold ${primaryCfg.color}`}>{primaryCfg.nameHe}</div>
+                  <div className="text-[10px] text-gray-500 uppercase">ראשי</div>
+                </div>
+              </div>
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${secondaryCfg.bgColor} border ${secondaryCfg.borderColor}`}>
+                <span className="text-lg">{secondaryCfg.icon}</span>
+                <div>
+                  <div className={`text-xs font-semibold ${secondaryCfg.color}`}>{secondaryCfg.nameHe}</div>
+                  <div className="text-[10px] text-gray-500 uppercase">משני</div>
+                </div>
+              </div>
+              <Badge variant={personality.confidenceLevel === 'HIGH' ? 'success' : personality.confidenceLevel === 'MEDIUM' ? 'warning' : 'danger'}>
+                ביטחון: {CONFIDENCE_HE[personality.confidenceLevel] || personality.confidenceLevel}
+              </Badge>
+              <Badge variant={personality.churnRisk === 'LOW' ? 'success' : personality.churnRisk === 'MEDIUM' ? 'warning' : 'danger'}>
+                סיכון נטישה: {CHURN_RISK_HE[personality.churnRisk] || personality.churnRisk}
+              </Badge>
+            </div>
+
+            {/* Row 2: Score bars */}
+            <div className="space-y-2.5 mb-6">
+              {archetypes.map(arch => {
+                const score = personality.scores[arch] || 0;
+                const pct = (score / maxScore) * 100;
+                const cfg = ARCHETYPE_CONFIG[arch];
+                const isPrimary = arch === personality.primaryArchetype;
+                return (
+                  <div key={arch} className="flex items-center gap-3">
+                    <span className="text-sm w-16 text-gray-400 shrink-0">{cfg.icon} {cfg.nameHe}</span>
+                    <div className="flex-1 h-2.5 bg-white/5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${isPrimary ? 'opacity-100' : 'opacity-50'}`}
+                        style={{ width: `${pct}%`, backgroundColor: cfg.barColor }}
+                      />
+                    </div>
+                    <span className={`text-xs font-mono w-8 text-end ${isPrimary ? 'text-white font-bold' : 'text-gray-500'}`}>
+                      {score}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Row 3: Smart tags */}
+            {personality.smartTags.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-6">
+                {personality.smartTags.map(tag => (
+                  <span key={tag} className="px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-300 text-xs border border-violet-500/20">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Row 4: Sales Cheat Sheet (expandable) */}
+            {Object.keys(personality.salesCheatSheet).length > 0 && (
+              <div className="border border-white/5 rounded-xl mb-3 overflow-hidden">
+                <button
+                  onClick={() => setSalesSheetExpanded(!salesSheetExpanded)}
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Target size={14} className="text-amber-400" />
+                    <span className="text-sm font-medium text-gray-200">גיליון מכירות</span>
+                  </div>
+                  {salesSheetExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                </button>
+                {salesSheetExpanded && (
+                  <div className="px-4 pb-4 space-y-0">
+                    {Object.entries(personality.salesCheatSheet).map(([key, value]) => (
+                      <div key={key} className="flex gap-3 py-2 border-b border-white/5 last:border-0">
+                        <span className="text-xs text-gray-500 w-28 shrink-0">{SALES_SHEET_LABELS[key] || key}</span>
+                        <span className="text-xs text-gray-300">{Array.isArray(value) ? value.join(', ') : value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Row 5: Retention Cheat Sheet (expandable) */}
+            {Object.keys(personality.retentionCheatSheet).length > 0 && (
+              <div className="border border-white/5 rounded-xl mb-3 overflow-hidden">
+                <button
+                  onClick={() => setRetentionSheetExpanded(!retentionSheetExpanded)}
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Shield size={14} className="text-cyan-400" />
+                    <span className="text-sm font-medium text-gray-200">גיליון שימור</span>
+                  </div>
+                  {retentionSheetExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                </button>
+                {retentionSheetExpanded && (
+                  <div className="px-4 pb-4 space-y-0">
+                    {Object.entries(personality.retentionCheatSheet).map(([key, value]) => (
+                      <div key={key} className="flex gap-3 py-2 border-b border-white/5 last:border-0">
+                        <span className="text-xs text-gray-500 w-28 shrink-0">{RETENTION_SHEET_LABELS[key] || key}</span>
+                        <span className="text-xs text-gray-300">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Row 6: Link to full report */}
+            {personality.resultUrl && (
+              <div className="mt-4 pt-4 border-t border-white/5">
+                <a
+                  href={personality.resultUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary text-xs hover:underline flex items-center gap-1.5"
+                >
+                  <ExternalLink size={12} /> צפה בדוח המלא ב-Signals OS
+                </a>
+              </div>
+            )}
+          </Card>
+        );
+      })()}
 
       {/* Notes History (manual only — AI summaries shown in separate section) */}
       <Card id="lead-notes-section">
@@ -1007,7 +1209,7 @@ const LeadProfile: React.FC = () => {
           <div className="space-y-3">
             {leadAISummaries.map(summary => {
               const isExpanded = expandedSummaryId === summary.id;
-              const typeLabel = summary.noteType === 'transcript_summary' ? '📝 סיכום תמלול' : summary.noteType === 'proposal_focus' ? '🎯 מיקוד להצעת מחיר' : '💡 סיכום המלצות';
+              const typeLabel = summary.noteType === 'transcript_summary' ? '📝 סיכום תמלול' : summary.noteType === 'proposal_focus' ? '🎯 מיקוד להצעת מחיר' : summary.noteType === 'personality_insight' ? '🧠 תובנת אישיות' : '💡 סיכום המלצות';
               const preview = summary.content.length > 200 ? summary.content.substring(0, 200) + '...' : summary.content;
               return (
                 <div key={summary.id} className="bg-[#0B1121] rounded-xl border border-purple-500/10 overflow-hidden">

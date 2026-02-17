@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
 import { useAuth, ALL_PAGES, PagePermission } from '../contexts/AuthContext';
-import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown, KeyRound, Sparkles, Palette } from 'lucide-react';
+import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown, KeyRound, Sparkles, Palette, Brain, Copy, Check } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select } from './ui/Form';
@@ -9,7 +9,7 @@ import { Badge } from './ui/Badge';
 import { Modal } from './ui/Modal';
 
 const Settings: React.FC = () => {
-  const { settings, services, updateSettings, updateServices, exportData, importData, saveApiKeys } = useData();
+  const { settings, services, updateSettings, updateServices, exportData, importData, saveApiKeys, saveSignalsWebhookSecret } = useData();
   const { isAdmin, user, allUsers, refreshUsers, addViewer, removeUser, updateUserRole, updateUserPermissions, updateUserDisplayName } = useAuth();
   const [localSettings, setLocalSettings] = useState(settings);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -28,6 +28,9 @@ const Settings: React.FC = () => {
   const [apiCanvaKey, setApiCanvaKey] = useState('');
   const [apiCanvaTemplateId, setApiCanvaTemplateId] = useState(settings.canvaTemplateId || '');
   const [apiGeminiKey, setApiGeminiKey] = useState('');
+  const [signalsWebhookSecret, setSignalsWebhookSecret] = useState('');
+  const [signalsSecretSaved, setSignalsSecretSaved] = useState(false);
+  const [webhookUrlCopied, setWebhookUrlCopied] = useState(false);
   const [apiKeysSaved, setApiKeysSaved] = useState(false);
 
   const showActionError = (msg: string | null) => {
@@ -389,6 +392,57 @@ const Settings: React.FC = () => {
                 onChange={e => { setApiGeminiKey(e.target.value); setApiKeysSaved(false); }}
                 placeholder={settings.hasGeminiKey ? '••••••• (מפתח קיים — הזן חדש לעדכון)' : 'AI...'}
               />
+            </div>
+
+            {/* Signals OS */}
+            <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5 space-y-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Brain size={18} className="text-violet-400" />
+                  <span className="text-white font-bold text-sm">Signals OS — מודיעין אישיותי</span>
+                </div>
+                {settings.hasSignalsWebhookSecret && <span className="text-emerald-400 text-xs">✓ סוד מוגדר</span>}
+              </div>
+              <Input
+                label="Webhook Secret"
+                type="password"
+                value={signalsWebhookSecret}
+                onChange={e => { setSignalsWebhookSecret(e.target.value); setSignalsSecretSaved(false); }}
+                placeholder={settings.hasSignalsWebhookSecret ? '••••••• (סוד קיים — הזן חדש לעדכון)' : 'הגדר סוד לאימות webhooks'}
+              />
+              <div className="space-y-2">
+                <label className="block text-xs text-gray-400">Webhook URL (להגדרה ב-Signals OS)</label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-black/30 text-gray-300 px-3 py-2 rounded-lg border border-white/5 overflow-x-auto" dir="ltr">
+                    {`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/signals-webhook`}
+                  </code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/signals-webhook`);
+                      setWebhookUrlCopied(true);
+                      setTimeout(() => setWebhookUrlCopied(false), 2000);
+                    }}
+                    className="p-2 rounded-lg hover:bg-white/5 transition-colors"
+                    title="העתק URL"
+                  >
+                    {webhookUrlCopied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} className="text-gray-400" />}
+                  </button>
+                </div>
+              </div>
+              {signalsSecretSaved && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-sm">
+                  סוד Webhook נשמר בהצלחה ✓
+                </div>
+              )}
+              <div className="flex justify-end pt-2">
+                <Button onClick={async () => {
+                  if (signalsWebhookSecret) {
+                    await saveSignalsWebhookSecret(signalsWebhookSecret);
+                    setSignalsSecretSaved(true);
+                    setSignalsWebhookSecret('');
+                  }
+                }} icon={<Save size={16} />} variant="ghost">שמור סוד</Button>
+              </div>
             </div>
 
             <div className="text-xs text-gray-500 p-3 bg-white/[0.02] rounded-lg">

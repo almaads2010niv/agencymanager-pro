@@ -23,6 +23,7 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   employeeSalary: 20000,
   hasCanvaKey: false,
   hasGeminiKey: false,
+  hasSignalsWebhookSecret: false,
 };
 
 export const MESSAGE_PURPOSES = [

@@ -149,6 +149,7 @@ export interface AgencySettings {
   hasCanvaKey: boolean;
   hasGeminiKey: boolean;
   canvaTemplateId?: string;
+  hasSignalsWebhookSecret: boolean;
 }
 
 export interface ActivityEntry {
@@ -171,7 +172,38 @@ export interface RetainerChange {
   notes: string;
 }
 
-export type NoteType = 'manual' | 'transcript_summary' | 'recommendation_summary' | 'proposal_focus';
+export type NoteType = 'manual' | 'transcript_summary' | 'recommendation_summary' | 'proposal_focus' | 'personality_insight';
+
+// ── Signals OS Personality Types ──────────────────────────────
+export type Archetype = 'WINNER' | 'STAR' | 'DREAMER' | 'HEART' | 'ANCHOR';
+export type ConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW';
+export type ChurnRisk = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface SignalsPersonality {
+  id: string;
+  leadId: string;
+  clientId?: string;
+  analysisId: string;
+  tenantId: string;
+  subjectName: string;
+  subjectEmail: string;
+  subjectPhone?: string;
+  scores: Record<Archetype, number>;
+  primaryArchetype: Archetype;
+  secondaryArchetype: Archetype;
+  confidenceLevel: ConfidenceLevel;
+  churnRisk: ChurnRisk;
+  smartTags: string[];
+  userReport?: string;
+  businessReport?: string;
+  salesCheatSheet: Record<string, string | string[]>;
+  retentionCheatSheet: Record<string, string>;
+  resultUrl?: string;
+  lang: string;
+  questionnaireVersion: string;
+  receivedAt: string;
+  updatedAt: string;
+}
 
 export interface ClientNote {
   id: string;
@@ -246,4 +278,5 @@ export interface AppData {
   callTranscripts: CallTranscript[];
   aiRecommendations: AIRecommendation[];
   whatsappMessages: WhatsAppMessage[];
+  signalsPersonalities: SignalsPersonality[];
 }

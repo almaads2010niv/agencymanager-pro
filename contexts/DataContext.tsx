@@ -3,7 +3,7 @@ import {
   AppData, Client, Lead, OneTimeDeal, SupplierExpense, Payment, Service,
   AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel,
   ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript, AIRecommendation,
-  WhatsAppMessage, NoteType
+  WhatsAppMessage, NoteType, SignalsPersonality, Archetype, ConfidenceLevel, ChurnRisk
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -153,6 +153,7 @@ interface SettingsRow {
   canva_api_key?: string | null;
   canva_template_id?: string | null;
   gemini_api_key?: string | null;
+  signals_webhook_secret?: string | null;
 }
 
 interface RetainerChangeRow {
@@ -223,6 +224,7 @@ export interface DataContextType extends AppData {
   updateServices: (services: Service[]) => void;
   updateSettings: (settings: AgencySettings) => Promise<void>;
   saveApiKeys: (keys: { canvaApiKey?: string; canvaTemplateId?: string; geminiApiKey?: string }) => Promise<void>;
+  saveSignalsWebhookSecret: (secret: string) => Promise<void>;
 
   importData: (json: string) => boolean;
   exportData: () => string;
@@ -439,6 +441,7 @@ const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
   hasCanvaKey: !!(row.canva_api_key && row.canva_api_key.length > 0),
   hasGeminiKey: !!(row.gemini_api_key && row.gemini_api_key.length > 0),
   canvaTemplateId: row.canva_template_id || undefined,
+  hasSignalsWebhookSecret: !!(row.signals_webhook_secret && row.signals_webhook_secret.length > 0),
 });
 
 const transformRetainerChangeToDB = (rc: RetainerChange) => ({
@@ -579,6 +582,59 @@ const transformWhatsAppMessageFromDB = (row: WhatsAppMessageRow): WhatsAppMessag
   sentAt: row.sent_at,
 });
 
+// --- Signals OS Personality ---
+interface SignalsPersonalityRow {
+  id: string;
+  lead_id: string | null;
+  client_id: string | null;
+  analysis_id: string;
+  tenant_id: string;
+  subject_name: string;
+  subject_email: string;
+  subject_phone: string | null;
+  scores: Record<string, number>;
+  primary_archetype: string;
+  secondary_archetype: string;
+  confidence_level: string;
+  churn_risk: string;
+  smart_tags: string[];
+  user_report: string | null;
+  business_report: string | null;
+  sales_cheat_sheet: Record<string, string | string[]>;
+  retention_cheat_sheet: Record<string, string>;
+  result_url: string | null;
+  lang: string;
+  questionnaire_version: string;
+  received_at: string;
+  updated_at: string;
+}
+
+const transformSignalsPersonalityFromDB = (row: SignalsPersonalityRow): SignalsPersonality => ({
+  id: row.id,
+  leadId: row.lead_id || '',
+  clientId: row.client_id || undefined,
+  analysisId: row.analysis_id,
+  tenantId: row.tenant_id,
+  subjectName: row.subject_name,
+  subjectEmail: row.subject_email,
+  subjectPhone: row.subject_phone || undefined,
+  scores: row.scores as Record<Archetype, number>,
+  primaryArchetype: row.primary_archetype as Archetype,
+  secondaryArchetype: row.secondary_archetype as Archetype,
+  confidenceLevel: row.confidence_level as ConfidenceLevel,
+  churnRisk: row.churn_risk as ChurnRisk,
+  smartTags: row.smart_tags || [],
+  userReport: row.user_report || undefined,
+  businessReport: row.business_report || undefined,
+  salesCheatSheet: row.sales_cheat_sheet || {},
+  retentionCheatSheet: row.retention_cheat_sheet || {},
+  resultUrl: row.result_url || undefined,
+  lang: row.lang || 'he',
+  questionnaireVersion: row.questionnaire_version || '',
+  receivedAt: row.received_at,
+  updatedAt: row.updated_at,
+});
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [data, setData] = useState<AppData>({
     clients: [],
@@ -595,6 +651,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     callTranscripts: [],
     aiRecommendations: [],
     whatsappMessages: [],
+    signalsPersonalities: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -644,7 +701,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes, signalsPersonalitiesRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
@@ -658,6 +715,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('call_transcripts').select('*').order('call_date', { ascending: false }),
           supabase.from('ai_recommendations').select('*').order('created_at', { ascending: false }),
           supabase.from('whatsapp_messages').select('*').order('sent_at', { ascending: false }),
+          supabase.from('signals_personality').select('*').order('received_at', { ascending: false }),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -685,6 +743,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const callTranscripts: CallTranscript[] = (callTranscriptsRes.data || []).map((row: CallTranscriptRow) => transformCallTranscriptFromDB(row));
         const aiRecommendations: AIRecommendation[] = (aiRecommendationsRes.data || []).map((row: AIRecommendationRow) => transformAIRecommendationFromDB(row));
         const whatsappMessages: WhatsAppMessage[] = (whatsappMessagesRes.data || []).map((row: WhatsAppMessageRow) => transformWhatsAppMessageFromDB(row));
+        const signalsPersonalities: SignalsPersonality[] = (signalsPersonalitiesRes.data || []).map((row: SignalsPersonalityRow) => transformSignalsPersonalityFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
         if (settingsRes.data && !settingsRes.error) {
@@ -709,6 +768,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           callTranscripts,
           aiRecommendations,
           whatsappMessages,
+          signalsPersonalities,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -718,6 +778,52 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     loadData();
+
+    // Realtime subscription for Signals OS personality data
+    const personalityChannel = supabase
+      .channel('signals_personality_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'signals_personality',
+      }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const newPersonality = transformSignalsPersonalityFromDB(payload.new as SignalsPersonalityRow);
+          setData(prev => ({
+            ...prev,
+            signalsPersonalities: [newPersonality, ...prev.signalsPersonalities],
+          }));
+        } else if (payload.eventType === 'UPDATE') {
+          const updated = transformSignalsPersonalityFromDB(payload.new as SignalsPersonalityRow);
+          setData(prev => ({
+            ...prev,
+            signalsPersonalities: prev.signalsPersonalities.map(p => p.id === updated.id ? updated : p),
+          }));
+        }
+      })
+      .subscribe();
+
+    // Also listen for new leads created by webhook
+    const leadsChannel = supabase
+      .channel('leads_webhook_changes')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'leads',
+      }, (payload) => {
+        const newLead = transformLeadFromDB(payload.new as LeadRow);
+        setData(prev => {
+          // Only add if not already in state
+          if (prev.leads.find(l => l.leadId === newLead.leadId)) return prev;
+          return { ...prev, leads: [newLead, ...prev.leads] };
+        });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(personalityChannel);
+      supabase.removeChannel(leadsChannel);
+    };
   }, []);
 
   const addClient = async (client: Omit<Client, 'clientId' | 'addedAt'>) => {
@@ -915,10 +1021,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           throw leadError;
         }
 
+        // Link Signals personality data to the new client
+        await supabase
+          .from('signals_personality')
+          .update({ client_id: newClient.clientId })
+          .eq('lead_id', leadId);
+
         setData(prev => ({
           ...prev,
           clients: [...prev.clients, newClient],
-          leads: prev.leads.map(l => l.leadId === leadId ? updatedLead : l)
+          leads: prev.leads.map(l => l.leadId === leadId ? updatedLead : l),
+          signalsPersonalities: prev.signalsPersonalities.map(p =>
+            p.leadId === leadId ? { ...p, clientId: newClient.clientId } : p
+          ),
         }));
         logActivity('lead_converted', 'lead', `ליד הומר ללקוח: ${lead.leadName} → ${clientData.businessName}`, leadId);
       }
@@ -1606,6 +1721,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Save Signals OS webhook secret
+  const saveSignalsWebhookSecret = async (secret: string) => {
+    try {
+      const { error } = await supabase
+        .from('settings')
+        .update({ signals_webhook_secret: secret || null })
+        .eq('id', 1);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          hasSignalsWebhookSecret: !!secret,
+        },
+      }));
+    } catch (err) {
+      showError('שגיאה בשמירת סוד Webhook');
+      throw err;
+    }
+  };
+
   const importData = (json: string): boolean => {
     try {
       const parsed = JSON.parse(json);
@@ -1628,6 +1766,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         callTranscripts: parsed.callTranscripts || [],
         aiRecommendations: parsed.aiRecommendations || [],
         whatsappMessages: parsed.whatsappMessages || [],
+        signalsPersonalities: parsed.signalsPersonalities || [],
       });
       return true;
     } catch (e) {
@@ -1658,7 +1797,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addAIRecommendation, deleteAIRecommendation,
       addWhatsAppMessage, deleteWhatsAppMessage,
       uploadRecording,
-      updateServices, updateSettings, saveApiKeys,
+      updateServices, updateSettings, saveApiKeys, saveSignalsWebhookSecret,
       importData, exportData
     }}>
       {children}
