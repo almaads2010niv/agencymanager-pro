@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTenantNav } from '../hooks/useTenantNav';
 import { useData } from '../contexts/DataContext';
@@ -7,7 +7,7 @@ import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, Not
 import type { Lead } from '../types';
 import { formatCurrency, formatDate, formatDateTime, formatPhoneForWhatsApp } from '../utils';
 import { MESSAGE_PURPOSES } from '../constants';
-import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink } from 'lucide-react';
+import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink, Upload, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
@@ -131,6 +131,14 @@ const LeadProfile: React.FC = () => {
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [expandedSummaryId, setExpandedSummaryId] = useState<string | null>(null);
   const [confirmDeleteSummaryId, setConfirmDeleteSummaryId] = useState<string | null>(null);
+
+  // Signals OS PDF upload state
+  const [isUploadingPDF, setIsUploadingPDF] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfSuccess, setPdfSuccess] = useState(false);
+  const signalsPdfRef = useRef<HTMLInputElement>(null);
+  // Track if auto-recommendation was already triggered for this personality
+  const [autoRecTriggered, setAutoRecTriggered] = useState(false);
 
   // Edit modal state
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -308,6 +316,74 @@ const LeadProfile: React.FC = () => {
       setIsLoadingAI(false);
     }
   };
+
+  // ===== Signals OS PDF Upload → Extract text → AI Recommendations =====
+  const handleSignalsPdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !lead || !user) return;
+    if (!file.type.includes('pdf') && !file.name.endsWith('.pdf')) {
+      setPdfError('נא להעלות קובץ PDF בלבד');
+      return;
+    }
+    setIsUploadingPDF(true);
+    setPdfError(null);
+    setPdfSuccess(false);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      // 1. Upload PDF to Gemini via Edge Function for text extraction + recommendations
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('entityType', 'lead');
+      formData.append('entityName', lead.businessName || lead.leadName);
+      formData.append('leadId', lead.leadId);
+      formData.append('additionalContext', `סטטוס: ${lead.status}, מקור: ${lead.sourceChannel}, הצעת מחיר: ₪${lead.quotedMonthlyValue}`);
+      // Add existing notes/transcripts for richer context
+      const notesJson = leadNotesFiltered.map(n => ({ content: n.content, createdByName: n.createdByName, createdAt: n.createdAt }));
+      formData.append('notes', JSON.stringify(notesJson));
+      const transcriptsJson = leadTranscripts.map(ct => ({ summary: ct.summary, callDate: ct.callDate }));
+      formData.append('transcripts', JSON.stringify(transcriptsJson));
+
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-recommendations`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: formData,
+      });
+
+      const result = await res.json();
+      if (result.success) {
+        await addAIRecommendation({
+          leadId: lead.leadId,
+          recommendation: result.recommendation,
+          createdBy: user.id,
+          createdByName: currentUserName,
+        });
+        setPdfSuccess(true);
+        setTimeout(() => setPdfSuccess(false), 5000);
+      } else {
+        setPdfError(result.error || 'שגיאה בניתוח ה-PDF');
+      }
+    } catch (err) {
+      console.error('PDF upload error:', err);
+      setPdfError('שגיאה בהעלאה או בניתוח ה-PDF');
+    } finally {
+      setIsUploadingPDF(false);
+      if (signalsPdfRef.current) signalsPdfRef.current.value = '';
+    }
+  };
+
+  // ===== Auto-trigger AI recommendations when personality data arrives =====
+  useEffect(() => {
+    if (!personality || !lead || !user || autoRecTriggered) return;
+    // Check if there are already recommendations — if yes, don't auto-trigger
+    if (leadRecommendations.length > 0) return;
+    // Auto-trigger recommendations with personality data
+    setAutoRecTriggered(true);
+    handleGetRecommendations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personality?.receivedAt]);
 
   const handleGenerateProposal = async () => {
     if (!lead) return;
@@ -923,6 +999,55 @@ ${questionnaireUrl}
                       {waMessage}
                     </div>
                   </details>
+
+                  {/* Divider */}
+                  <div className="flex items-center gap-3 pt-2">
+                    <div className="flex-1 h-px bg-white/5" />
+                    <span className="text-[10px] text-gray-600 uppercase">או</span>
+                    <div className="flex-1 h-px bg-white/5" />
+                  </div>
+
+                  {/* PDF Upload — paste existing report */}
+                  <div>
+                    <input
+                      ref={signalsPdfRef}
+                      type="file"
+                      accept=".pdf"
+                      onChange={handleSignalsPdfUpload}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => signalsPdfRef.current?.click()}
+                      disabled={isUploadingPDF}
+                      className="w-full flex items-center justify-center gap-3 px-5 py-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 hover:bg-blue-500/20 transition-all disabled:opacity-50"
+                    >
+                      {isUploadingPDF ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin" />
+                          <span className="text-sm">מנתח PDF ומייצר המלצות...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload size={18} />
+                          <span className="text-sm font-medium">יש לך PDF של אבחון? העלה וקבל המלצות AI</span>
+                        </>
+                      )}
+                    </button>
+                    <p className="text-[10px] text-gray-600 mt-1.5 text-center">העלה PDF של דוח Signals OS → AI ינתח ויייצר המלצות מותאמות</p>
+                  </div>
+
+                  {/* PDF Error/Success */}
+                  {pdfError && (
+                    <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center justify-between">
+                      <span>{pdfError}</span>
+                      <button onClick={() => setPdfError(null)} className="text-red-400/60 hover:text-red-300 ms-2">✕</button>
+                    </div>
+                  )}
+                  {pdfSuccess && (
+                    <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
+                      ✓ ה-PDF נותח בהצלחה! המלצות AI נוספו למטה בבלוק ההמלצות.
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -1049,9 +1174,9 @@ ${questionnaireUrl}
                 </div>
               )}
 
-              {/* Row 6: Link to full report */}
-              {personality.resultUrl && (
-                <div className="mt-4 pt-4 border-t border-white/5">
+              {/* Row 6: Actions — report link + PDF upload + generate recommendations */}
+              <div className="mt-4 pt-4 border-t border-white/5 space-y-3">
+                {personality.resultUrl && (
                   <a
                     href={personality.resultUrl}
                     target="_blank"
@@ -1060,8 +1185,53 @@ ${questionnaireUrl}
                   >
                     <ExternalLink size={12} /> צפה בדוח המלא ב-Signals OS
                   </a>
+                )}
+
+                {/* PDF upload for deeper analysis */}
+                <div className="flex gap-2">
+                  <input
+                    ref={signalsPdfRef}
+                    type="file"
+                    accept=".pdf"
+                    onChange={handleSignalsPdfUpload}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => signalsPdfRef.current?.click()}
+                    disabled={isUploadingPDF}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 hover:bg-blue-500/20 transition-all text-xs disabled:opacity-50"
+                  >
+                    {isUploadingPDF ? (
+                      <><Loader2 size={14} className="animate-spin" /> מנתח PDF...</>
+                    ) : (
+                      <><Upload size={14} /> העלה PDF לניתוח מעמיק</>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleGetRecommendations}
+                    disabled={isLoadingAI}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-300 hover:bg-violet-500/20 transition-all text-xs disabled:opacity-50"
+                  >
+                    {isLoadingAI ? (
+                      <><Loader2 size={14} className="animate-spin" /> מייצר...</>
+                    ) : (
+                      <><Sparkles size={14} /> ייצר המלצות AI</>
+                    )}
+                  </button>
                 </div>
-              )}
+
+                {pdfError && (
+                  <div className="p-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center justify-between">
+                    <span>{pdfError}</span>
+                    <button onClick={() => setPdfError(null)} className="text-red-400/60 hover:text-red-300 ms-2">✕</button>
+                  </div>
+                )}
+                {pdfSuccess && (
+                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
+                    ✓ ה-PDF נותח! המלצות נוספו לבלוק ההמלצות.
+                  </div>
+                )}
+              </div>
             </div>
           );
         })()}
