@@ -177,31 +177,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      // 3. No role found at all -- check if ANY roles exist
-      const { count } = await supabase
-        .from('user_roles')
-        .select('*', { count: 'exact', head: true });
-
-      // First user ever = admin; otherwise default to viewer (least privilege)
-      const isFirstUser = count === 0 || count === null;
-      const defaultRole: UserRole = isFirstUser ? 'admin' : 'viewer';
-      const name = currentUser.email?.split('@')[0] || 'User';
-      const defaultPerms = defaultRole === 'admin' ? ALL_PAGES.map(p => p.key) : DEFAULT_VIEWER_PERMISSIONS;
-
-      await supabase
-        .from('user_roles')
-        .insert({
-          user_id: currentUser.id,
-          email: currentUser.email || null,
-          role: defaultRole,
-          display_name: name,
-          page_permissions: JSON.stringify(defaultPerms),
-          tenant_id: '00000000-0000-0000-0000-000000000001',
-        });
-
-      setRole(defaultRole);
-      setDisplayName(name);
-      setPagePermissions(defaultPerms);
+      // 3. No role found at all — user was NOT pre-created by an admin
+      // DO NOT auto-create with DEFAULT_TENANT_ID — that leaks data!
+      // Instead: show error state. User must be created via TenantManagement or Settings.
+      console.warn('No user_roles entry found for:', currentUser.email);
+      setRole('viewer');
+      setDisplayName(currentUser.email?.split('@')[0] || 'User');
+      setPagePermissions([]);  // No access to any page
+      setTenantId(null);  // No tenant = no data
     } catch {
       // Graceful fallback to viewer if table doesn't exist (least privilege)
       setRole('viewer');
@@ -252,10 +235,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshUsers = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('user_roles')
         .select('*')
         .order('created_at', { ascending: true });
+
+      // Filter by tenant — super admins see all, regular admins see only their tenant
+      if (tenantId && !isSuperAdmin) {
+        query = query.eq('tenant_id', tenantId);
+      }
+
+      const { data, error } = await query;
 
       if (!error && data) {
         setAllUsers(data as UserRoleRecord[]);
@@ -263,14 +253,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // Table might not exist
     }
-  }, []);
+  }, [tenantId, isSuperAdmin]);
 
-  // Load all users on mount for admin
+  // Load all users on mount for admin (only after tenantId is set)
   useEffect(() => {
-    if (role === 'admin' && isRoleLoaded) {
+    if ((role === 'admin' || isSuperAdmin) && isRoleLoaded && (tenantId || isSuperAdmin)) {
       refreshUsers();
     }
-  }, [role, isRoleLoaded, refreshUsers]);
+  }, [role, isSuperAdmin, tenantId, isRoleLoaded, refreshUsers]);
 
   const hasPageAccess = useCallback((page: PagePermission): boolean => {
     if (role === 'admin') return true;

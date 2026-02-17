@@ -34,6 +34,32 @@ const LoadingScreen = () => (
   </div>
 )
 
+const NoTenantScreen = () => {
+  const { logout } = useAuth()
+  return (
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: 'white', background: '#0B1121' }}>
+      <div style={{ textAlign: 'center', maxWidth: 400, padding: 32 }}>
+        <div style={{ fontSize: '2.5rem', marginBottom: 16 }}>🔒</div>
+        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>אין גישה למערכת</div>
+        <div style={{ color: '#888', fontSize: 14, lineHeight: 1.7, marginBottom: 24 }}>
+          המשתמש שלך לא משויך לאף סוכנות.
+          <br />
+          פנה למנהל המערכת כדי לקבל גישה.
+        </div>
+        <button
+          onClick={logout}
+          style={{
+            padding: '10px 32px', background: '#e53935', color: 'white',
+            border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer', fontSize: 14
+          }}
+        >
+          התנתק
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // Guard: validates URL slug matches user's tenant
 function TenantRouteGuard() {
   const { tenantSlug, isRoleLoaded } = useAuth()
@@ -70,9 +96,15 @@ function TenantRouteGuard() {
 
 // Inner component that waits for role to load before rendering
 function AppContent() {
-  const { isRoleLoaded, tenantSlug, isSuperAdmin } = useAuth()
+  const { isRoleLoaded, tenantSlug, tenantId, isSuperAdmin } = useAuth()
 
   if (!isRoleLoaded) return <LoadingScreen />
+
+  // User is authenticated but not assigned to any tenant → show blocked screen
+  // Exception: super admins can access /tenants even without a tenant
+  if (!tenantId && !tenantSlug && !isSuperAdmin) {
+    return <NoTenantScreen />
+  }
 
   return (
     <DataProvider>
@@ -87,12 +119,12 @@ function AppContent() {
 
         {/* Root redirect to tenant-scoped dashboard */}
         <Route path="/" element={
-          tenantSlug ? <Navigate to={`/a/${tenantSlug}/`} replace /> : <LoadingScreen />
+          tenantSlug ? <Navigate to={`/a/${tenantSlug}/`} replace /> : (isSuperAdmin ? <Navigate to="/tenants" replace /> : <NoTenantScreen />)
         } />
 
         {/* Catch-all: redirect to tenant dashboard */}
         <Route path="*" element={
-          tenantSlug ? <Navigate to={`/a/${tenantSlug}/`} replace /> : <LoadingScreen />
+          tenantSlug ? <Navigate to={`/a/${tenantSlug}/`} replace /> : (isSuperAdmin ? <Navigate to="/tenants" replace /> : <NoTenantScreen />)
         } />
       </Routes>
     </DataProvider>

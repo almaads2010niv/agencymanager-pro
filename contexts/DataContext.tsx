@@ -289,12 +289,14 @@ const safeJsonParse = (value: string | unknown, fallback: unknown[] = []): unkno
   }
 };
 
-// Default tenant UUID — must match the one in supabase-multi-tenant-migration.sql
-const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
-
-// Helper: attach tenant_id to a DB row (uses default tenant as fallback)
-const withTenant = <T extends Record<string, unknown>>(row: T, tid: string | null): T =>
-  ({ ...row, tenant_id: tid || DEFAULT_TENANT_ID });
+// Helper: attach tenant_id to a DB row
+// CRITICAL: tenant_id must come from AuthContext — never use a hardcoded default!
+const withTenant = <T extends Record<string, unknown>>(row: T, tid: string | null): T => {
+  if (!tid) {
+    console.error('withTenant called without tenantId! Data will not be saved correctly.');
+  }
+  return { ...row, tenant_id: tid || '00000000-0000-0000-0000-000000000000' }; // impossible UUID if null
+};
 
 // Transformation functions: DB (snake_case) <-> TypeScript (camelCase)
 const transformClientToDB = (client: Client) => ({
@@ -881,12 +883,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, [tenantId]);
 
-  // Load data from Supabase on mount
+  // Load data from Supabase on mount (only when tenantId is known)
   useEffect(() => {
     const loadData = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
+          setIsLoaded(true);
+          return;
+        }
+
+        // CRITICAL: Don't load data until we know which tenant the user belongs to
+        // RLS uses current_tenant_id() which depends on user_roles.tenant_id
+        if (!tenantId) {
+          console.warn('DataProvider: tenantId not set, skipping data load');
           setIsLoaded(true);
           return;
         }
@@ -1023,7 +1033,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       supabase.removeChannel(personalityChannel);
       supabase.removeChannel(leadsChannel);
     };
-  }, []);
+  }, [tenantId]);
 
   const addClient = async (client: Omit<Client, 'clientId' | 'addedAt'>) => {
     const newClient: Client = {
