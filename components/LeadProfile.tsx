@@ -362,6 +362,12 @@ const LeadProfile: React.FC = () => {
           createdBy: user.id,
           createdByName: currentUserName,
         });
+        // If personality was extracted from PDF, the Edge Function saved it to DB
+        // Realtime subscription will auto-update signalsPersonalities
+        // Force a small delay to let realtime catch up, then show success
+        if (result.extractedPersonality) {
+          await new Promise(r => setTimeout(r, 1500));
+        }
         setPdfSuccess(true);
         setTimeout(() => setPdfSuccess(false), 5000);
       } else {

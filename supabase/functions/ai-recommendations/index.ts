@@ -78,6 +78,7 @@ Deno.serve(async (req) => {
     let personality: Record<string, unknown> | null = null
     let pdfFileData: Uint8Array | null = null
     let pdfMimeType = 'application/pdf'
+    let pdfLeadId = ''
 
     if (contentType.includes('multipart/form-data')) {
       // ===== PDF upload mode =====
@@ -96,8 +97,9 @@ Deno.serve(async (req) => {
       }
 
       // Also try to get personality data from the lead's signals_personality in DB
-      const leadId = formData.get('leadId') as string
-      if (leadId) {
+      pdfLeadId = (formData.get('leadId') as string) || ''
+      if (pdfLeadId) {
+        const leadId = pdfLeadId
         const { data: sigPers } = await adminClient
           .from('signals_personality')
           .select('*')
@@ -256,9 +258,138 @@ ${pdfInstruction}
       })
     }
 
+    // 7. If PDF was uploaded and no personality exists in DB, extract structured personality data
+    let extractedPersonality = null
+    if (pdfFileData && !personality) {
+      // Ask Gemini to extract structured personality data from the PDF
+      const extractPrompt = `מצורף דוח אבחון אישיות Signals OS בפורמט PDF.
+חלץ ממנו את הנתונים הבאים בפורמט JSON בלבד (ללא markdown, ללא backticks):
+
+{
+  "primary_archetype": "WINNER|STAR|DREAMER|HEART|ANCHOR",
+  "secondary_archetype": "WINNER|STAR|DREAMER|HEART|ANCHOR",
+  "confidence_level": "HIGH|MEDIUM|LOW",
+  "churn_risk": "HIGH|MEDIUM|LOW",
+  "scores": { "WINNER": 0-100, "STAR": 0-100, "DREAMER": 0-100, "HEART": 0-100, "ANCHOR": 0-100 },
+  "smart_tags": ["תגית1", "תגית2"],
+  "sales_cheat_sheet": {
+    "how_to_speak": "תיאור קצר",
+    "what_not_to_do": "תיאור קצר",
+    "closing_speed": "מהיר|בינוני|איטי",
+    "best_offers": "תיאור קצר",
+    "best_social_proof": "תיאור קצר",
+    "red_flags": "תיאור קצר",
+    "followup_plan": "תיאור קצר",
+    "recommended_channels": ["ערוץ1"]
+  },
+  "retention_cheat_sheet": {
+    "onboarding_focus": "תיאור קצר",
+    "habit_building": "תיאור קצר",
+    "community_hook": "תיאור קצר",
+    "risk_moments": "תיאור קצר",
+    "save_offer": "תיאור קצר",
+    "cadence": "תיאור קצר"
+  }
+}
+
+אם אין מספיק מידע בדוח לשדה מסוים, בצע הערכה מבוססת על מה שכן יש.
+החזר רק JSON תקני, בלי שום טקסט נוסף.`
+
+      try {
+        const extractParts: Record<string, unknown>[] = [{ text: extractPrompt }]
+        const base64PdfForExtract = btoa(String.fromCharCode(...pdfFileData))
+        extractParts.unshift({
+          inline_data: { mime_type: pdfMimeType, data: base64PdfForExtract },
+        })
+
+        const extractRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiApiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: extractParts }],
+              generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+            }),
+          }
+        )
+
+        if (extractRes.ok) {
+          const extractResult = await extractRes.json()
+          const extractTextParts = extractResult.candidates?.[0]?.content?.parts || []
+          let rawJson = ''
+          for (const part of extractTextParts) {
+            if (part.text) rawJson += part.text
+          }
+          // Clean up potential markdown fences
+          rawJson = rawJson.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
+          try {
+            extractedPersonality = JSON.parse(rawJson)
+          } catch {
+            // Try to extract JSON from response
+            const jsonMatch = rawJson.match(/\{[\s\S]*\}/)
+            if (jsonMatch) {
+              try { extractedPersonality = JSON.parse(jsonMatch[0]) } catch { /* ignore */ }
+            }
+          }
+        }
+      } catch (extractErr) {
+        console.error('Personality extraction error:', extractErr)
+        // Non-fatal — we still have the recommendations
+      }
+
+      // Save extracted personality to signals_personality table
+      if (extractedPersonality && pdfLeadId) {
+        const ep = extractedPersonality
+        const now = new Date().toISOString()
+        const upsertData = {
+          id: crypto.randomUUID(),
+          lead_id: pdfLeadId,
+          client_id: null,
+          analysis_id: `pdf-upload-${Date.now()}`,
+          tenant_id: callerTenantId,
+          subject_name: entityName || '',
+          subject_email: '',
+          subject_phone: '',
+          primary_archetype: ep.primary_archetype || 'WINNER',
+          secondary_archetype: ep.secondary_archetype || 'STAR',
+          confidence_level: ep.confidence_level || 'MEDIUM',
+          churn_risk: ep.churn_risk || 'MEDIUM',
+          scores: ep.scores || {},
+          smart_tags: ep.smart_tags || [],
+          user_report: null,
+          business_report: null,
+          sales_cheat_sheet: ep.sales_cheat_sheet || {},
+          retention_cheat_sheet: ep.retention_cheat_sheet || {},
+          result_url: null,
+          lang: 'he',
+          questionnaire_version: 'pdf-import',
+          received_at: now,
+          updated_at: now,
+        }
+
+        // Upsert — if personality already exists for this lead, update it
+        const { error: upsertError } = await adminClient
+          .from('signals_personality')
+          .upsert(upsertData, { onConflict: 'lead_id' })
+
+        if (upsertError) {
+          console.error('Failed to save extracted personality:', upsertError)
+          // Try insert without onConflict (lead_id might not have unique constraint)
+          const { error: insertError } = await adminClient
+            .from('signals_personality')
+            .insert(upsertData)
+          if (insertError) {
+            console.error('Insert fallback also failed:', insertError)
+          }
+        }
+      }
+    }
+
     return new Response(JSON.stringify({
       success: true,
       recommendation,
+      extractedPersonality: extractedPersonality || undefined,
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
