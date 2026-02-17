@@ -288,6 +288,7 @@ export interface Tenant {
   id: string;
   name: string;
   slug: string;
+  isActive: boolean;
   createdAt: string;
 }
 
@@ -303,6 +304,7 @@ export interface TenantUser {
   displayName: string;
   role: 'admin' | 'viewer' | 'freelancer';
   isSuperAdmin: boolean;
+  pagePermissions?: string[];
   createdAt: string;
 }
 

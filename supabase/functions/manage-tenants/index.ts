@@ -69,10 +69,11 @@ Deno.serve(async (req) => {
         countMap.set(u.tenant_id, (countMap.get(u.tenant_id) || 0) + 1)
       })
 
-      const result = tenants?.map((t: { id: string; name: string; slug: string; created_at: string }) => ({
+      const result = tenants?.map((t: { id: string; name: string; slug: string; is_active: boolean; created_at: string }) => ({
         id: t.id,
         name: t.name,
         slug: t.slug,
+        isActive: t.is_active !== false, // default true if column doesn't exist yet
         createdAt: t.created_at,
         userCount: countMap.get(t.id) || 0,
       }))
@@ -110,19 +111,29 @@ Deno.serve(async (req) => {
 
     // ── UPDATE TENANT ─────────────────────────────────────────
     if (action === 'update-tenant') {
-      const { tenantId, name, slug } = params
+      const { tenantId, name, slug, isActive } = params
       if (!tenantId) return jsonResponse({ error: 'tenantId is required' }, 400)
 
-      const updates: Record<string, string> = {}
-      if (name) updates.name = name
-      if (slug) updates.slug = slug
+      const updates: Record<string, unknown> = {}
+      if (name !== undefined) updates.name = name
+      if (slug !== undefined) updates.slug = slug
+      if (isActive !== undefined) updates.is_active = isActive
+
+      if (Object.keys(updates).length === 0) {
+        return jsonResponse({ error: 'No fields to update' }, 400)
+      }
 
       const { error } = await adminClient
         .from('tenants')
         .update(updates)
         .eq('id', tenantId)
 
-      if (error) return jsonResponse({ error: error.message }, 500)
+      if (error) {
+        if (error.message?.includes('duplicate') || error.message?.includes('unique')) {
+          return jsonResponse({ error: 'slug_exists' }, 409)
+        }
+        return jsonResponse({ error: error.message }, 500)
+      }
       return jsonResponse({ success: true })
     }
 
@@ -146,6 +157,7 @@ Deno.serve(async (req) => {
         display_name: string;
         role: string;
         is_super_admin: boolean;
+        page_permissions: string;
         created_at: string;
       }) => ({
         id: u.id,
@@ -154,10 +166,42 @@ Deno.serve(async (req) => {
         displayName: u.display_name || '',
         role: u.role,
         isSuperAdmin: u.is_super_admin || false,
+        pagePermissions: safeParseJson(u.page_permissions),
         createdAt: u.created_at,
       }))
 
       return jsonResponse({ success: true, users: result })
+    }
+
+    // ── UPDATE TENANT USER ──────────────────────────────────────
+    if (action === 'update-tenant-user') {
+      const { userId, role, displayName, pagePermissions } = params
+      if (!userId) return jsonResponse({ error: 'userId is required' }, 400)
+
+      const updates: Record<string, unknown> = {}
+      if (role !== undefined) {
+        const validRoles = ['admin', 'viewer', 'freelancer']
+        if (!validRoles.includes(role)) {
+          return jsonResponse({ error: `Invalid role: ${role}` }, 400)
+        }
+        updates.role = role
+      }
+      if (displayName !== undefined) updates.display_name = displayName
+      if (pagePermissions !== undefined) {
+        updates.page_permissions = JSON.stringify(pagePermissions)
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return jsonResponse({ error: 'No fields to update' }, 400)
+      }
+
+      const { error } = await adminClient
+        .from('user_roles')
+        .update(updates)
+        .eq('user_id', userId)
+
+      if (error) return jsonResponse({ error: error.message }, 500)
+      return jsonResponse({ success: true })
     }
 
     // ── CREATE TENANT USER ────────────────────────────────────
@@ -248,3 +292,14 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Internal server error' }, 500)
   }
 })
+
+// ── Helpers ─────────────────────────────────────────────────────
+function safeParseJson(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
