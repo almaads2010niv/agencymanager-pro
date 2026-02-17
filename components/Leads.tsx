@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -76,8 +76,211 @@ const isOverdue = (dateStr: string): boolean => {
   return contactDate < today;
 };
 
+// --- Kanban Components (MUST be defined OUTSIDE the main component to avoid remounts) ---
+
+const ARCHETYPE_COLORS: Record<Archetype, string> = {
+  WINNER: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+  STAR: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
+  DREAMER: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  HEART: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
+  ANCHOR: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
+};
+
+const ARCHETYPE_LABELS: Record<Archetype, string> = {
+  WINNER: 'מנצח', STAR: 'כוכב', DREAMER: 'חולם', HEART: 'לב', ANCHOR: 'עוגן',
+};
+
+// --- Sortable Lead Card (top-level) ---
+const SortableLeadCard: React.FC<{
+  lead: Lead;
+  personalityArchetype?: Archetype;
+  onNavigate: (leadId: string) => void;
+  getUserName: (userId?: string) => string | null;
+}> = ({ lead, personalityArchetype, onNavigate, getUserName }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: lead.leadId });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  const overdue = isOverdue(lead.nextContactDate);
+  const handlerName = getUserName(lead.assignedTo);
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`
+        p-4 rounded-xl border cursor-grab active:cursor-grabbing transition-all duration-200
+        hover:border-white/20 hover:bg-white/[0.04] hover:shadow-lg hover:shadow-black/20
+        ${overdue
+          ? 'border-red-500/20 bg-red-500/[0.04]'
+          : 'border-white/5 bg-surface/40'
+        }
+        ${isDragging ? 'shadow-2xl shadow-primary/20 border-primary/30 scale-[1.02]' : ''}
+      `}
+    >
+      {/* Drag handle + name + WhatsApp */}
+      <div className="flex items-start gap-2 mb-2">
+        <div className="mt-0.5 text-gray-600 hover:text-gray-400 flex-shrink-0">
+          <GripVertical size={16} />
+        </div>
+        <div className="flex-1 min-w-0" onClick={() => onNavigate(lead.leadId)}>
+          <h4 className="text-sm font-bold text-white leading-tight truncate cursor-pointer">{lead.leadName}</h4>
+        </div>
+        {lead.phone && (
+          <a
+            href={`https://wa.me/${formatPhoneForWhatsApp(lead.phone).replace('+', '')}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-colors flex-shrink-0"
+            title="WhatsApp"
+          >
+            <MessageCircle size={14} />
+          </a>
+        )}
+      </div>
+
+      {/* Business name */}
+      {lead.businessName && (
+        <p className="text-xs text-gray-500 mb-2 mr-6 truncate">{lead.businessName}</p>
+      )}
+
+      {/* Phone */}
+      {lead.phone && (
+        <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2 mr-6">
+          <Phone size={11} />
+          <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()} className="hover:text-white transition-colors">
+            {lead.phone}
+          </a>
+        </div>
+      )}
+
+      {/* Value + source */}
+      <div className="flex items-center justify-between mb-2 mr-6">
+        <span className="text-sm font-mono font-bold text-secondary">
+          {formatCurrency(lead.quotedMonthlyValue)}
+        </span>
+        <Badge variant={getSourceBadgeVariant(lead.sourceChannel)} className="text-[10px] px-1.5 py-0.5">
+          {lead.sourceChannel}
+        </Badge>
+      </div>
+
+      {/* Next contact date */}
+      <div className="flex items-center justify-between mr-6">
+        <div className={`flex items-center gap-1.5 text-xs ${overdue ? 'text-red-400 font-semibold' : 'text-gray-500'}`}>
+          <Calendar size={12} />
+          {new Date(lead.nextContactDate).toLocaleDateString('he-IL')}
+        </div>
+        {handlerName && (
+          <div className="flex items-center gap-1">
+            <div className="w-5 h-5 rounded-full bg-violet-500/20 flex items-center justify-center">
+              <User size={10} className="text-violet-400" />
+            </div>
+            <span className="text-[10px] text-gray-500 truncate max-w-[70px]">{handlerName}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Signals personality badge */}
+      {personalityArchetype && (
+        <div className={`mt-2 mr-6 inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold ${ARCHETYPE_COLORS[personalityArchetype]}`}>
+          <Brain size={10} />
+          {ARCHETYPE_LABELS[personalityArchetype]}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- Droppable Column (top-level) ---
+const KanbanColumn: React.FC<{
+  status: LeadStatus;
+  leads: Lead[];
+  personalityMap: Map<string, Archetype>;
+  onNavigate: (leadId: string) => void;
+  getUserName: (userId?: string) => string | null;
+}> = ({ status, leads: columnLeads, personalityMap, onNavigate, getUserName }) => {
+  const { setNodeRef, isOver } = useDroppable({ id: status });
+  const totalValue = columnLeads.reduce((sum, l) => sum + l.quotedMonthlyValue, 0);
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex flex-col bg-white/[0.02] border rounded-xl min-h-[400px] transition-colors duration-200
+        ${isOver ? 'border-primary/40 bg-primary/[0.03]' : 'border-white/5'}
+      `}
+    >
+      {/* Column header */}
+      <div className="p-4 border-b border-white/5">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-sm font-bold text-white">{status}</h3>
+          <span className="text-xs font-mono text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">
+            {columnLeads.length}
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 font-mono">{formatCurrency(totalValue)}</p>
+      </div>
+
+      {/* Column cards */}
+      <SortableContext items={columnLeads.map(l => l.leadId)} strategy={verticalListSortingStrategy}>
+        <div className="flex-1 p-3 space-y-3 overflow-y-auto custom-scrollbar" style={{ maxHeight: '65vh' }}>
+          {columnLeads.length === 0 ? (
+            <div className={`text-center py-8 text-xs rounded-lg border border-dashed transition-colors ${isOver ? 'text-primary/60 border-primary/30' : 'text-gray-600 border-transparent'}`}>
+              {isOver ? 'שחרר כאן' : 'אין לידים'}
+            </div>
+          ) : (
+            columnLeads.map(lead => (
+              <SortableLeadCard
+                key={lead.leadId}
+                lead={lead}
+                personalityArchetype={personalityMap.get(lead.leadId)}
+                onNavigate={onNavigate}
+                getUserName={getUserName}
+              />
+            ))
+          )}
+        </div>
+      </SortableContext>
+    </div>
+  );
+};
+
+// --- Ghost Card for DragOverlay (top-level) ---
+const LeadGhostCard: React.FC<{ lead: Lead }> = ({ lead }) => (
+  <div className="p-4 rounded-xl border border-primary/30 bg-surface shadow-2xl shadow-primary/20 w-72 opacity-90">
+    <div className="flex items-start gap-2 mb-2">
+      <GripVertical size={16} className="text-primary mt-0.5" />
+      <h4 className="text-sm font-bold text-white leading-tight truncate flex-1">{lead.leadName}</h4>
+    </div>
+    {lead.businessName && (
+      <p className="text-xs text-gray-500 mb-2 mr-6">{lead.businessName}</p>
+    )}
+    <div className="flex items-center justify-between mr-6">
+      <span className="text-sm font-mono font-bold text-secondary">
+        {formatCurrency(lead.quotedMonthlyValue)}
+      </span>
+      <Badge variant={getSourceBadgeVariant(lead.sourceChannel)} className="text-[10px] px-1.5 py-0.5">
+        {lead.sourceChannel}
+      </Badge>
+    </div>
+  </div>
+);
+
 const Leads: React.FC = () => {
-  const { leads, services, addLead, updateLead, deleteLead, convertLeadToClient } = useData();
+  const { leads, services, addLead, updateLead, deleteLead, convertLeadToClient, signalsPersonalities } = useData();
   const { isAdmin, isViewer, user, allUsers } = useAuth();
   const navigate = useNavigate();
 
@@ -458,266 +661,59 @@ const Leads: React.FC = () => {
     </Card>
   );
 
-  // --- Kanban View (Drag & Drop) ---
+  // --- Kanban State & Handlers ---
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
-  const ARCHETYPE_COLORS: Record<Archetype, string> = {
-    WINNER: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-    STAR: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
-    DREAMER: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-    HEART: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
-    ANCHOR: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
-  };
+  const kanbanSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
 
-  const ARCHETYPE_LABELS: Record<Archetype, string> = {
-    WINNER: 'מנצח', STAR: 'כוכב', DREAMER: 'חולם', HEART: 'לב', ANCHOR: 'עוגן',
-  };
+  const kanbanLeads = useMemo(() =>
+    filteredLeads.filter(l => KANBAN_STATUSES.includes(l.status)),
+    [filteredLeads]
+  );
 
-  // --- Sortable Card ---
-  const SortableLeadCard: React.FC<{ lead: Lead; personalityArchetype?: Archetype }> = ({ lead, personalityArchetype }) => {
-    const {
-      attributes,
-      listeners,
-      setNodeRef,
-      transform,
-      transition,
-      isDragging,
-    } = useSortable({ id: lead.leadId });
+  const personalityMap = useMemo(() => {
+    const map = new Map<string, Archetype>();
+    signalsPersonalities.forEach(p => {
+      if (p.leadId) map.set(p.leadId, p.primaryArchetype);
+    });
+    return map;
+  }, [signalsPersonalities]);
 
-    const style = {
-      transform: CSS.Transform.toString(transform),
-      transition,
-      opacity: isDragging ? 0.4 : 1,
-    };
+  const activeLead = activeDragId ? kanbanLeads.find(l => l.leadId === activeDragId) : null;
 
-    const overdue = isOverdue(lead.nextContactDate);
-    const handlerName = getUserName(lead.assignedTo);
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveDragId(event.active.id as string);
+  }, []);
 
-    return (
-      <div
-        ref={setNodeRef}
-        style={style}
-        {...attributes}
-        className={`
-          p-4 rounded-xl border cursor-grab active:cursor-grabbing transition-all duration-200
-          hover:border-white/20 hover:bg-white/[0.04] hover:shadow-lg hover:shadow-black/20
-          ${overdue
-            ? 'border-red-500/20 bg-red-500/[0.04]'
-            : 'border-white/5 bg-surface/40'
-          }
-          ${isDragging ? 'shadow-2xl shadow-primary/20 border-primary/30 scale-[1.02]' : ''}
-        `}
-      >
-        {/* Drag handle + name + WhatsApp */}
-        <div className="flex items-start gap-2 mb-2">
-          <div {...listeners} className="mt-0.5 text-gray-600 hover:text-gray-400 flex-shrink-0 touch-none">
-            <GripVertical size={16} />
-          </div>
-          <div className="flex-1 min-w-0" onClick={() => navigate(`/leads/${lead.leadId}`)}>
-            <h4 className="text-sm font-bold text-white leading-tight truncate">{lead.leadName}</h4>
-          </div>
-          {lead.phone && (
-            <a
-              href={`https://wa.me/${formatPhoneForWhatsApp(lead.phone).replace('+', '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-colors flex-shrink-0"
-              title="WhatsApp"
-            >
-              <MessageCircle size={14} />
-            </a>
-          )}
-        </div>
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    setActiveDragId(null);
+    const { active, over } = event;
+    if (!over) return;
 
-        {/* Business name */}
-        {lead.businessName && (
-          <p className="text-xs text-gray-500 mb-2 mr-6 truncate">{lead.businessName}</p>
-        )}
+    const leadId = active.id as string;
+    const lead = kanbanLeads.find(l => l.leadId === leadId);
+    if (!lead) return;
 
-        {/* Phone */}
-        {lead.phone && (
-          <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2 mr-6">
-            <Phone size={11} />
-            <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()} className="hover:text-white transition-colors">
-              {lead.phone}
-            </a>
-          </div>
-        )}
+    // Determine target status — "over" could be a column (status) or another card
+    let targetStatus: LeadStatus | undefined;
+    if (KANBAN_STATUSES.includes(over.id as LeadStatus)) {
+      targetStatus = over.id as LeadStatus;
+    } else {
+      // Dropped on another card — find that card's status
+      const targetLead = kanbanLeads.find(l => l.leadId === over.id);
+      if (targetLead) targetStatus = targetLead.status;
+    }
 
-        {/* Value + source */}
-        <div className="flex items-center justify-between mb-2 mr-6">
-          <span className="text-sm font-mono font-bold text-secondary">
-            {formatCurrency(lead.quotedMonthlyValue)}
-          </span>
-          <Badge variant={getSourceBadgeVariant(lead.sourceChannel)} className="text-[10px] px-1.5 py-0.5">
-            {lead.sourceChannel}
-          </Badge>
-        </div>
+    if (targetStatus && targetStatus !== lead.status) {
+      updateLead({ ...lead, status: targetStatus });
+    }
+  }, [kanbanLeads, updateLead]);
 
-        {/* Next contact date */}
-        <div className="flex items-center justify-between mr-6">
-          <div className={`flex items-center gap-1.5 text-xs ${overdue ? 'text-red-400 font-semibold' : 'text-gray-500'}`}>
-            <Calendar size={12} />
-            {new Date(lead.nextContactDate).toLocaleDateString('he-IL')}
-          </div>
-          {handlerName && (
-            <div className="flex items-center gap-1">
-              <div className="w-5 h-5 rounded-full bg-violet-500/20 flex items-center justify-center">
-                <User size={10} className="text-violet-400" />
-              </div>
-              <span className="text-[10px] text-gray-500 truncate max-w-[70px]">{handlerName}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Signals personality badge */}
-        {personalityArchetype && (
-          <div className={`mt-2 mr-6 inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold ${ARCHETYPE_COLORS[personalityArchetype]}`}>
-            <Brain size={10} />
-            {ARCHETYPE_LABELS[personalityArchetype]}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // --- Droppable Column ---
-  const KanbanColumn: React.FC<{ status: LeadStatus; leads: Lead[]; personalityMap: Map<string, Archetype> }> = ({ status, leads: columnLeads, personalityMap }) => {
-    const { setNodeRef, isOver } = useDroppable({ id: status });
-    const totalValue = columnLeads.reduce((sum, l) => sum + l.quotedMonthlyValue, 0);
-
-    return (
-      <div
-        ref={setNodeRef}
-        className={`flex flex-col bg-white/[0.02] border rounded-xl min-h-[400px] transition-colors duration-200
-          ${isOver ? 'border-primary/40 bg-primary/[0.03]' : 'border-white/5'}
-        `}
-      >
-        {/* Column header */}
-        <div className="p-4 border-b border-white/5">
-          <div className="flex items-center justify-between mb-1">
-            <h3 className="text-sm font-bold text-white">{status}</h3>
-            <span className="text-xs font-mono text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">
-              {columnLeads.length}
-            </span>
-          </div>
-          <p className="text-xs text-gray-500 font-mono">{formatCurrency(totalValue)}</p>
-        </div>
-
-        {/* Column cards */}
-        <SortableContext items={columnLeads.map(l => l.leadId)} strategy={verticalListSortingStrategy}>
-          <div className="flex-1 p-3 space-y-3 overflow-y-auto custom-scrollbar" style={{ maxHeight: '65vh' }}>
-            {columnLeads.length === 0 ? (
-              <div className={`text-center py-8 text-xs rounded-lg border border-dashed transition-colors ${isOver ? 'text-primary/60 border-primary/30' : 'text-gray-600 border-transparent'}`}>
-                {isOver ? 'שחרר כאן' : 'אין לידים'}
-              </div>
-            ) : (
-              columnLeads.map(lead => (
-                <SortableLeadCard
-                  key={lead.leadId}
-                  lead={lead}
-                  personalityArchetype={personalityMap.get(lead.leadId)}
-                />
-              ))
-            )}
-          </div>
-        </SortableContext>
-      </div>
-    );
-  };
-
-  const KanbanView = () => {
-    const [activeDragId, setActiveDragId] = useState<string | null>(null);
-    const { signalsPersonalities } = useData();
-
-    const sensors = useSensors(
-      useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
-    );
-
-    const kanbanLeads = filteredLeads.filter(l => KANBAN_STATUSES.includes(l.status));
-
-    // Build personality lookup map
-    const personalityMap = useMemo(() => {
-      const map = new Map<string, Archetype>();
-      signalsPersonalities.forEach(p => {
-        if (p.leadId) map.set(p.leadId, p.primaryArchetype);
-      });
-      return map;
-    }, [signalsPersonalities]);
-
-    const activeLead = activeDragId ? kanbanLeads.find(l => l.leadId === activeDragId) : null;
-
-    const handleDragStart = (event: DragStartEvent) => {
-      setActiveDragId(event.active.id as string);
-    };
-
-    const handleDragEnd = (event: DragEndEvent) => {
-      setActiveDragId(null);
-      const { active, over } = event;
-      if (!over) return;
-
-      const leadId = active.id as string;
-      const lead = kanbanLeads.find(l => l.leadId === leadId);
-      if (!lead) return;
-
-      // Determine target status — "over" could be a column (status) or another card
-      let targetStatus: LeadStatus | undefined;
-      if (KANBAN_STATUSES.includes(over.id as LeadStatus)) {
-        targetStatus = over.id as LeadStatus;
-      } else {
-        // Dropped on another card — find that card's status
-        const targetLead = kanbanLeads.find(l => l.leadId === over.id);
-        if (targetLead) targetStatus = targetLead.status;
-      }
-
-      if (targetStatus && targetStatus !== lead.status) {
-        updateLead({ ...lead, status: targetStatus });
-      }
-    };
-
-    return (
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4" style={{ minHeight: '400px' }}>
-          {KANBAN_STATUSES.map(status => (
-            <KanbanColumn
-              key={status}
-              status={status}
-              leads={kanbanLeads.filter(l => l.status === status)}
-              personalityMap={personalityMap}
-            />
-          ))}
-        </div>
-
-        {/* Drag overlay — ghost card */}
-        <DragOverlay>
-          {activeLead ? (
-            <div className="p-4 rounded-xl border border-primary/30 bg-surface shadow-2xl shadow-primary/20 w-72 opacity-90">
-              <div className="flex items-start gap-2 mb-2">
-                <GripVertical size={16} className="text-primary mt-0.5" />
-                <h4 className="text-sm font-bold text-white leading-tight truncate flex-1">{activeLead.leadName}</h4>
-              </div>
-              {activeLead.businessName && (
-                <p className="text-xs text-gray-500 mb-2 mr-6">{activeLead.businessName}</p>
-              )}
-              <div className="flex items-center justify-between mr-6">
-                <span className="text-sm font-mono font-bold text-secondary">
-                  {formatCurrency(activeLead.quotedMonthlyValue)}
-                </span>
-                <Badge variant={getSourceBadgeVariant(activeLead.sourceChannel)} className="text-[10px] px-1.5 py-0.5">
-                  {activeLead.sourceChannel}
-                </Badge>
-              </div>
-            </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
-    );
-  };
+  const handleNavigateToLead = useCallback((leadId: string) => {
+    navigate(`/leads/${leadId}`);
+  }, [navigate]);
 
   // --- Main Render ---
 
@@ -759,7 +755,31 @@ const Leads: React.FC = () => {
       <StatsRow />
       <FiltersBar />
 
-      {viewMode === 'table' ? <TableView /> : <KanbanView />}
+      {viewMode === 'table' ? <TableView /> : (
+        <DndContext
+          sensors={kanbanSensors}
+          collisionDetection={closestCorners}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4" style={{ minHeight: '400px' }}>
+            {KANBAN_STATUSES.map(status => (
+              <KanbanColumn
+                key={status}
+                status={status}
+                leads={kanbanLeads.filter(l => l.status === status)}
+                personalityMap={personalityMap}
+                onNavigate={handleNavigateToLead}
+                getUserName={getUserName}
+              />
+            ))}
+          </div>
+
+          <DragOverlay>
+            {activeLead ? <LeadGhostCard lead={activeLead} /> : null}
+          </DragOverlay>
+        </DndContext>
+      )}
       {/* Add/Edit Lead Modal */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="פרטי ליד">
         {editingLead && (
