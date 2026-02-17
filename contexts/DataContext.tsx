@@ -9,6 +9,7 @@ import {
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
 import { supabase } from '../lib/supabaseClient';
+import { useAuth } from './AuthContext';
 
 // --- DB Row types (snake_case) ---
 interface ClientRow {
@@ -287,6 +288,10 @@ const safeJsonParse = (value: string | unknown, fallback: unknown[] = []): unkno
     return fallback;
   }
 };
+
+// Helper: attach tenant_id to a DB row if tenantId is available
+const withTenant = <T extends Record<string, unknown>>(row: T, tid: string | null): T =>
+  tid ? { ...row, tenant_id: tid } : row;
 
 // Transformation functions: DB (snake_case) <-> TypeScript (camelCase)
 const transformClientToDB = (client: Client) => ({
@@ -813,6 +818,8 @@ const transformSignalsPersonalityFromDB = (row: SignalsPersonalityRow): SignalsP
 });
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { tenantId } = useAuth();
+
   const [data, setData] = useState<AppData>({
     clients: [],
     leads: [],
@@ -859,17 +866,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       activities: [entry, ...prev.activities].slice(0, 100), // Keep last 100
     }));
     // Optional: persist to Supabase activity_log table if it exists
-    supabase.from('activity_log').insert({
+    supabase.from('activity_log').insert(withTenant({
       id: entry.id,
       action_type: entry.actionType,
       entity_type: entry.entityType,
       entity_id: entry.entityId || null,
       description: entry.description,
       created_at: entry.createdAt,
-    }).then(({ error }) => {
+    }, tenantId)).then(({ error }) => {
       if (error) console.warn('Activity log not persisted (table may not exist yet):', error.message);
     });
-  }, []);
+  }, [tenantId]);
 
   // Load data from Supabase on mount
   useEffect(() => {
@@ -935,7 +942,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (settingsRes.data && !settingsRes.error) {
           settings = transformSettingsFromDB(settingsRes.data);
         } else {
-          const { error: upsertError } = await supabase.from('settings').upsert(transformSettingsToDB(DEFAULT_SETTINGS));
+          const { error: upsertError } = await supabase.from('settings').upsert(withTenant(transformSettingsToDB(DEFAULT_SETTINGS), tenantId));
           if (upsertError) console.error('Error initializing settings:', upsertError);
         }
 
@@ -1025,7 +1032,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('clients')
-        .insert(transformClientToDB(newClient));
+        .insert(withTenant(transformClientToDB(newClient), tenantId));
 
       if (error) throw error;
 
@@ -1069,7 +1076,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           notes: '',
         };
         // Try to persist - don't fail if table doesn't exist
-        supabase.from('retainer_changes').insert(transformRetainerChangeToDB(change)).then(({ error: rcError }) => {
+        supabase.from('retainer_changes').insert(withTenant(transformRetainerChangeToDB(change), tenantId)).then(({ error: rcError }) => {
           if (rcError) console.warn('Retainer change not persisted:', rcError.message);
         });
         setData(prev => ({
@@ -1129,7 +1136,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('leads')
-        .insert(transformLeadToDB(newLead));
+        .insert(withTenant(transformLeadToDB(newLead), tenantId));
 
       if (error) throw error;
 
@@ -1192,7 +1199,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error: clientError } = await supabase
         .from('clients')
-        .insert(transformClientToDB(newClient));
+        .insert(withTenant(transformClientToDB(newClient), tenantId));
 
       if (clientError) throw clientError;
 
@@ -1241,7 +1248,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('deals')
-        .insert(transformDealToDB(newDeal));
+        .insert(withTenant(transformDealToDB(newDeal), tenantId));
 
       if (error) throw error;
 
@@ -1282,7 +1289,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('expenses')
-        .insert(transformExpenseToDB(newExpense));
+        .insert(withTenant(transformExpenseToDB(newExpense), tenantId));
 
       if (error) throw error;
 
@@ -1364,7 +1371,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (newExpenses.length === 0) return 0;
 
       // 4. Batch insert to Supabase
-      const dbRows = newExpenses.map(e => transformExpenseToDB(e));
+      const dbRows = newExpenses.map(e => withTenant(transformExpenseToDB(e), tenantId));
       const { error } = await supabase.from('expenses').insert(dbRows);
       if (error) throw error;
 
@@ -1391,7 +1398,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('payments')
-        .insert(transformPaymentToDB(newPayment));
+        .insert(withTenant(transformPaymentToDB(newPayment), tenantId));
 
       if (error) throw error;
 
@@ -1463,7 +1470,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (newPayments.length === 0) return 0;
 
-      const dbRows = newPayments.map(p => transformPaymentToDB(p));
+      const dbRows = newPayments.map(p => withTenant(transformPaymentToDB(p), tenantId));
       const { error } = await supabase.from('payments').insert(dbRows);
       if (error) throw error;
 
@@ -1567,7 +1574,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('client_notes')
-        .insert(transformClientNoteToDB(note));
+        .insert(withTenant(transformClientNoteToDB(note), tenantId));
 
       if (error) throw error;
 
@@ -1619,7 +1626,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('lead_notes')
-        .insert(transformLeadNoteToDB(note));
+        .insert(withTenant(transformLeadNoteToDB(note), tenantId));
 
       if (error) throw error;
 
@@ -1666,7 +1673,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('call_transcripts')
-        .insert(transformCallTranscriptToDB(newCT));
+        .insert(withTenant(transformCallTranscriptToDB(newCT), tenantId));
 
       if (error) throw error;
 
@@ -1716,7 +1723,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('ai_recommendations')
-        .insert(transformAIRecommendationToDB(newRec));
+        .insert(withTenant(transformAIRecommendationToDB(newRec), tenantId));
 
       if (error) throw error;
 
@@ -1766,7 +1773,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('whatsapp_messages')
-        .insert(transformWhatsAppMessageToDB(newMsg));
+        .insert(withTenant(transformWhatsAppMessageToDB(newMsg), tenantId));
 
       if (error) throw error;
 
@@ -1873,7 +1880,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('calendar_events')
-        .insert(transformCalendarEventToDB(newEvent));
+        .insert(withTenant(transformCalendarEventToDB(newEvent), tenantId));
 
       if (error) throw error;
 
@@ -1935,7 +1942,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const now = new Date().toISOString();
     const newIdea: Idea = { ...idea, id: generateId(), createdAt: now, updatedAt: now };
     try {
-      const { error } = await supabase.from('ideas').insert(transformIdeaToDB(newIdea));
+      const { error } = await supabase.from('ideas').insert(withTenant(transformIdeaToDB(newIdea), tenantId));
       if (error) throw error;
       setData(prev => ({ ...prev, ideas: [...prev.ideas, newIdea] }));
       logActivity('idea_added', 'idea', `רעיון חדש: ${idea.title}`, newIdea.id);
@@ -1966,7 +1973,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const now = new Date().toISOString();
     const newArticle: KnowledgeArticle = { ...article, id: generateId(), createdAt: now, updatedAt: now };
     try {
-      const { error } = await supabase.from('knowledge_articles').insert(transformKnowledgeArticleToDB(newArticle));
+      const { error } = await supabase.from('knowledge_articles').insert(withTenant(transformKnowledgeArticleToDB(newArticle), tenantId));
       if (error) throw error;
       setData(prev => ({ ...prev, knowledgeArticles: [newArticle, ...prev.knowledgeArticles] }));
       logActivity('article_added', 'knowledge', `מאמר חדש: ${article.title}`, newArticle.id);
@@ -2041,7 +2048,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('settings')
-        .upsert(transformSettingsToDB(settings));
+        .upsert(withTenant(transformSettingsToDB(settings), tenantId));
 
       if (error) throw error;
 
