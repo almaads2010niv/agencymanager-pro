@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Idea, IdeaStatus, IdeaPriority } from '../types';
-import { Plus, Search, Lightbulb, Sparkles, Trash2, Edit3, GripVertical, Calendar as CalendarIcon, User, Tag } from 'lucide-react';
+import { Plus, Search, Lightbulb, Sparkles, Trash2, Edit3, GripVertical, Calendar as CalendarIcon, User, Tag, Globe, Facebook, Instagram } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select, Textarea } from './ui/Form';
@@ -111,6 +111,9 @@ const Ideas: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateClientId, setGenerateClientId] = useState('');
   const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [generateFbUrl, setGenerateFbUrl] = useState('');
+  const [generateWebUrl, setGenerateWebUrl] = useState('');
+  const [generateIgUrl, setGenerateIgUrl] = useState('');
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -223,6 +226,9 @@ const Ideas: React.FC = () => {
           industry: client.industry,
           services: client.services,
           notes: client.notes,
+          facebookUrl: generateFbUrl.trim() || undefined,
+          websiteUrl: generateWebUrl.trim() || undefined,
+          instagramUrl: generateIgUrl.trim() || undefined,
         }),
       });
       const result = await res.json();
@@ -352,17 +358,63 @@ const Ideas: React.FC = () => {
       </Modal>
 
       {/* AI Generate Modal */}
-      <Modal isOpen={showGenerateModal} onClose={() => setShowGenerateModal(false)} title="יצירת רעיונות AI">
+      <Modal isOpen={showGenerateModal} onClose={() => { setShowGenerateModal(false); setGenerateFbUrl(''); setGenerateWebUrl(''); setGenerateIgUrl(''); }} title="יצירת רעיונות AI">
         <div className="space-y-4">
-          <p className="text-sm text-gray-400">בחר לקוח ו-AI ייצור 5 רעיונות שיווקיים מותאמים אישית.</p>
+          <p className="text-sm text-gray-400">בחר לקוח, הזן לינקים לנוכחות דיגיטלית ו-AI יסרוק, ינתח וייצור 5 רעיונות שיווקיים מותאמים.</p>
           <Select label="לקוח" value={generateClientId} onChange={e => setGenerateClientId(e.target.value)}>
             <option value="">בחר לקוח</option>
             {clients.map(c => <option key={c.clientId} value={c.clientId}>{c.clientName} — {c.businessName}</option>)}
           </Select>
-          <div className="flex gap-3 justify-end">
-            <Button variant="ghost" onClick={() => setShowGenerateModal(false)}>ביטול</Button>
+
+          <div className="pt-2 border-t border-white/5">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">לינקים לנוכחות דיגיטלית (אופציונלי)</p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                  <Facebook size={16} className="text-blue-400" />
+                </div>
+                <input
+                  type="url"
+                  placeholder="https://facebook.com/..."
+                  value={generateFbUrl}
+                  onChange={e => setGenerateFbUrl(e.target.value)}
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-primary/50 focus:outline-none"
+                  dir="ltr"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+                  <Instagram size={16} className="text-purple-400" />
+                </div>
+                <input
+                  type="url"
+                  placeholder="https://instagram.com/..."
+                  value={generateIgUrl}
+                  onChange={e => setGenerateIgUrl(e.target.value)}
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-primary/50 focus:outline-none"
+                  dir="ltr"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                  <Globe size={16} className="text-emerald-400" />
+                </div>
+                <input
+                  type="url"
+                  placeholder="https://www.example.com"
+                  value={generateWebUrl}
+                  onChange={e => setGenerateWebUrl(e.target.value)}
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-primary/50 focus:outline-none"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 justify-end pt-2">
+            <Button variant="ghost" onClick={() => { setShowGenerateModal(false); setGenerateFbUrl(''); setGenerateWebUrl(''); setGenerateIgUrl(''); }}>ביטול</Button>
             <Button onClick={handleGenerateIdeas} disabled={!generateClientId || isGenerating} icon={<Sparkles size={16} />}>
-              {isGenerating ? 'מייצר...' : 'צור רעיונות'}
+              {isGenerating ? 'סורק ומייצר...' : 'סרוק וצור רעיונות'}
             </Button>
           </div>
         </div>

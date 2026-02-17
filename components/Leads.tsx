@@ -26,7 +26,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 
 type ViewMode = 'table' | 'kanban';
-type SortField = 'nextContactDate' | 'quotedMonthlyValue' | null;
+type SortField = 'leadName' | 'businessName' | 'phone' | 'sourceChannel' | 'quotedMonthlyValue' | 'status' | 'assignedTo' | 'nextContactDate' | null;
 type SortDir = 'asc' | 'desc';
 
 const KANBAN_STATUSES: LeadStatus[] = [
@@ -117,10 +117,34 @@ const Leads: React.FC = () => {
     if (sortField) {
       result = [...result].sort((a, b) => {
         let cmp = 0;
-        if (sortField === 'nextContactDate') {
-          cmp = new Date(a.nextContactDate).getTime() - new Date(b.nextContactDate).getTime();
-        } else if (sortField === 'quotedMonthlyValue') {
-          cmp = a.quotedMonthlyValue - b.quotedMonthlyValue;
+        switch (sortField) {
+          case 'leadName':
+            cmp = (a.leadName || '').localeCompare(b.leadName || '', 'he');
+            break;
+          case 'businessName':
+            cmp = (a.businessName || '').localeCompare(b.businessName || '', 'he');
+            break;
+          case 'phone':
+            cmp = (a.phone || '').localeCompare(b.phone || '');
+            break;
+          case 'sourceChannel':
+            cmp = (a.sourceChannel || '').localeCompare(b.sourceChannel || '', 'he');
+            break;
+          case 'quotedMonthlyValue':
+            cmp = a.quotedMonthlyValue - b.quotedMonthlyValue;
+            break;
+          case 'status':
+            cmp = (a.status || '').localeCompare(b.status || '', 'he');
+            break;
+          case 'assignedTo': {
+            const nameA = getUserName(a.assignedTo) || 'תתתת';
+            const nameB = getUserName(b.assignedTo) || 'תתתת';
+            cmp = nameA.localeCompare(nameB, 'he');
+            break;
+          }
+          case 'nextContactDate':
+            cmp = new Date(a.nextContactDate).getTime() - new Date(b.nextContactDate).getTime();
+            break;
         }
         return sortDir === 'asc' ? cmp : -cmp;
       });
@@ -265,26 +289,50 @@ const Leads: React.FC = () => {
     <Card noPadding>
       <Table>
         <TableHeader>
-          <TableHead>שם</TableHead>
-          <TableHead>עסק</TableHead>
-          <TableHead>טלפון</TableHead>
-          <TableHead>מקור</TableHead>
           <TableHead>
-            <button
-              onClick={() => handleSort('quotedMonthlyValue')}
-              className="inline-flex items-center gap-1 hover:text-white transition-colors"
-            >
+            <button onClick={() => handleSort('leadName')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+              שם
+              <ArrowUpDown size={14} className={sortField === 'leadName' ? 'text-primary' : 'text-gray-600'} />
+            </button>
+          </TableHead>
+          <TableHead>
+            <button onClick={() => handleSort('businessName')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+              עסק
+              <ArrowUpDown size={14} className={sortField === 'businessName' ? 'text-primary' : 'text-gray-600'} />
+            </button>
+          </TableHead>
+          <TableHead>
+            <button onClick={() => handleSort('phone')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+              טלפון
+              <ArrowUpDown size={14} className={sortField === 'phone' ? 'text-primary' : 'text-gray-600'} />
+            </button>
+          </TableHead>
+          <TableHead>
+            <button onClick={() => handleSort('sourceChannel')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+              מקור
+              <ArrowUpDown size={14} className={sortField === 'sourceChannel' ? 'text-primary' : 'text-gray-600'} />
+            </button>
+          </TableHead>
+          <TableHead>
+            <button onClick={() => handleSort('quotedMonthlyValue')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
               הצעת מחיר
               <ArrowUpDown size={14} className={sortField === 'quotedMonthlyValue' ? 'text-primary' : 'text-gray-600'} />
             </button>
           </TableHead>
-          <TableHead>סטטוס</TableHead>
-          <TableHead>מטפל</TableHead>
           <TableHead>
-            <button
-              onClick={() => handleSort('nextContactDate')}
-              className="inline-flex items-center gap-1 hover:text-white transition-colors"
-            >
+            <button onClick={() => handleSort('status')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+              סטטוס
+              <ArrowUpDown size={14} className={sortField === 'status' ? 'text-primary' : 'text-gray-600'} />
+            </button>
+          </TableHead>
+          <TableHead>
+            <button onClick={() => handleSort('assignedTo')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+              מטפל
+              <ArrowUpDown size={14} className={sortField === 'assignedTo' ? 'text-primary' : 'text-gray-600'} />
+            </button>
+          </TableHead>
+          <TableHead>
+            <button onClick={() => handleSort('nextContactDate')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
               תאריך קשר
               <ArrowUpDown size={14} className={sortField === 'nextContactDate' ? 'text-primary' : 'text-gray-600'} />
             </button>
@@ -448,6 +496,7 @@ const Leads: React.FC = () => {
       <div
         ref={setNodeRef}
         style={style}
+        {...attributes}
         className={`
           p-4 rounded-xl border cursor-grab active:cursor-grabbing transition-all duration-200
           hover:border-white/20 hover:bg-white/[0.04] hover:shadow-lg hover:shadow-black/20
@@ -460,7 +509,7 @@ const Leads: React.FC = () => {
       >
         {/* Drag handle + name + WhatsApp */}
         <div className="flex items-start gap-2 mb-2">
-          <div {...attributes} {...listeners} className="mt-0.5 text-gray-600 hover:text-gray-400 flex-shrink-0 touch-none">
+          <div {...listeners} className="mt-0.5 text-gray-600 hover:text-gray-400 flex-shrink-0 touch-none">
             <GripVertical size={16} />
           </div>
           <div className="flex-1 min-w-0" onClick={() => navigate(`/leads/${lead.leadId}`)}>

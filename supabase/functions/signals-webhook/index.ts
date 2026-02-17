@@ -131,6 +131,7 @@ Deno.serve(async (req) => {
             client_id: clientByEmail.client_id,
             analysis_id: payload.analysis_id,
             tenant_id: payload.tenant_id,
+            tenant_id_fk: '00000000-0000-0000-0000-000000000001',
             subject_name: payload.subject.full_name,
             subject_email: payload.subject.email,
             subject_phone: payload.subject.phone || null,
@@ -163,6 +164,7 @@ Deno.serve(async (req) => {
           entity_id: clientByEmail.client_id,
           description: `נתוני אישיות התקבלו מ-Signals OS: ${ARCHETYPE_NAMES_HE[payload.analysis.primary] || payload.analysis.primary}/${ARCHETYPE_NAMES_HE[payload.analysis.secondary] || payload.analysis.secondary}`,
           created_at: new Date().toISOString(),
+          tenant_id: '00000000-0000-0000-0000-000000000001',
         })
 
         return new Response(JSON.stringify({
@@ -196,6 +198,7 @@ Deno.serve(async (req) => {
         related_client_id: null,
         created_by: null,
         assigned_to: null,
+        tenant_id: '00000000-0000-0000-0000-000000000001',
       })
     }
 
@@ -208,6 +211,7 @@ Deno.serve(async (req) => {
         lead_id: leadId,
         analysis_id: payload.analysis_id,
         tenant_id: payload.tenant_id,
+        tenant_id_fk: '00000000-0000-0000-0000-000000000001',
         subject_name: payload.subject.full_name,
         subject_email: payload.subject.email,
         subject_phone: payload.subject.phone || null,
@@ -271,6 +275,7 @@ Deno.serve(async (req) => {
       created_at: new Date().toISOString(),
       note_type: 'personality_insight',
       source_id: payload.analysis_id,
+      tenant_id: '00000000-0000-0000-0000-000000000001',
     })
 
     // 7. Log activity
@@ -285,6 +290,7 @@ Deno.serve(async (req) => {
       entity_id: leadId,
       description: activityDesc,
       created_at: new Date().toISOString(),
+      tenant_id: '00000000-0000-0000-0000-000000000001',
     })
 
     // 8. Return success

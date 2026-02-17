@@ -183,6 +183,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: defaultRole,
           display_name: name,
           page_permissions: JSON.stringify(defaultPerms),
+          tenant_id: '00000000-0000-0000-0000-000000000001',
         });
 
       setRole(defaultRole);

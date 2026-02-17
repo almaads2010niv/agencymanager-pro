@@ -769,3 +769,71 @@ GIT HISTORY (key commits):
   f6b39ba - Signals OS personality intelligence integration
   [pending] - Kanban drag & drop + Calendar + AI Receipt scanning
   [pending] - Multi-Tenant + Freelancer + Voice + Ideas + Knowledge (Session 12)
+
+===============================================================================
+SESSION 13 (2026-02-17) - Bug Fixes + Feature Improvements
+===============================================================================
+
+WHAT HAPPENED:
+Fixed critical POST 400 error on expense insert after multi-tenant migration,
+plus 4 feature improvements.
+
+BUGS FIXED:
+
+1. EXPENSE INSERT POST 400 (CRITICAL)
+   - Root cause: Multi-tenant RLS policies require tenant_id = current_tenant_id()
+     AND is_admin(). The current_tenant_id() function returned NULL when
+     user_roles.tenant_id was NULL, causing tenant_id = NULL comparison to fail.
+   - Fix 1 (DataContext.tsx): withTenant helper ALWAYS sets tenant_id with
+     fallback to DEFAULT_TENANT_ID
+   - Fix 2 (SQL): current_tenant_id() now uses COALESCE to return default
+     tenant UUID instead of NULL
+   - Fix 3 (AuthContext.tsx): First user creation now explicitly includes
+     tenant_id: '00000000-0000-0000-0000-000000000001'
+   - Added detailed console.error logging to addExpense for debugging
+   - Comprehensive SQL fix file: supabase-fix-tenant-null.sql
+
+2. LEADS KANBAN DRAG & DROP BROKEN
+   - Root cause: useSortable attributes were only on grip handle div,
+     not on the card root div. Ideas kanban had it right (attributes on root),
+     Leads kanban did not.
+   - Fix: Moved {...attributes} from grip handle to card root div,
+     kept {...listeners} on grip handle only
+
+FEATURES ADDED:
+
+3. LEADS TABLE — FULL COLUMN SORTING
+   - All 8 columns now sortable: שם, עסק, טלפון, מקור, הצעת מחיר, סטטוס, מטפל, תאריך קשר
+   - Previously only 2 columns (quotedMonthlyValue, nextContactDate) were sortable
+   - Hebrew-aware collation for text columns (localeCompare with 'he')
+   - SortField type expanded to include all fields
+
+4. IDEAS AI GENERATION — SOCIAL MEDIA SCRAPING
+   - Modal now includes 3 optional URL inputs: Facebook, Instagram, Website
+   - Icons: Facebook (blue), Instagram (purple), Globe (green)
+   - Edge Function updated: fetches URL content, strips HTML, feeds to Gemini
+   - Prompt updated: analyze digital presence, identify gaps, suggest complementary ideas
+   - Scrape timeout: 8 seconds per URL, errors silently ignored
+   - Response includes scrapedSources array for transparency
+
+5. SIGNALS OS WEBHOOK — TENANT_ID FIXES
+   - All webhook inserts now include tenant_id: '00000000-...-000001'
+   - signals_personality upserts include tenant_id_fk for RLS
+   - New leads created by webhook include tenant_id
+   - lead_notes and activity_log inserts include tenant_id
+
+SQL TO RUN:
+  supabase-fix-tenant-null.sql (MUST run in Supabase SQL Editor)
+
+EDGE FUNCTIONS DEPLOYED:
+  generate-idea (+ URL scraping)
+  signals-webhook (+ tenant_id on all inserts)
+
+FILES MODIFIED:
+- contexts/DataContext.tsx (addExpense logging, withTenant already there)
+- contexts/AuthContext.tsx (tenant_id on first user creation)
+- components/Leads.tsx (full column sorting, kanban D&D fix)
+- components/Ideas.tsx (social URL inputs in AI generate modal)
+- supabase/functions/generate-idea/index.ts (URL scraping + enhanced prompt)
+- supabase/functions/signals-webhook/index.ts (tenant_id on all inserts)
+- supabase-fix-tenant-null.sql (comprehensive tenant fix + COALESCE)

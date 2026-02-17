@@ -1290,15 +1290,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     try {
+      const row = withTenant(transformExpenseToDB(newExpense), tenantId);
+      console.log('[addExpense] inserting row:', JSON.stringify(row));
       const { error } = await supabase
         .from('expenses')
-        .insert(withTenant(transformExpenseToDB(newExpense), tenantId));
+        .insert(row);
 
-      if (error) throw error;
+      if (error) {
+        console.error('[addExpense] Supabase error:', error.code, error.message, error.details, error.hint);
+        throw error;
+      }
 
       setData(prev => ({ ...prev, expenses: [...prev.expenses, newExpense] }));
       logActivity('expense_added', 'expense', `הוצאה חדשה: ${expense.supplierName} - ₪${expense.amount}`, newExpense.expenseId);
     } catch (err) {
+      console.error('[addExpense] Full error:', err);
       showError('שגיאה בהוספת הוצאה');
       throw err;
     }
