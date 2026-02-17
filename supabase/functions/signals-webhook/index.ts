@@ -29,6 +29,9 @@ const CONFIDENCE_LABELS_HE: Record<string, string> = {
   LOW: 'נמוכה',
 }
 
+// Default tenant as last resort fallback
+const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001'
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -40,22 +43,33 @@ Deno.serve(async (req) => {
     const adminClient = createClient(supabaseUrl, supabaseServiceKey)
 
     // 1. Validate webhook secret
-    const { data: settings } = await adminClient
+    // Try to find settings by the webhook's tenant_id, fallback to any settings with matching secret
+    const { data: allSettings } = await adminClient
       .from('settings')
-      .select('signals_webhook_secret')
-      .single()
+      .select('signals_webhook_secret, tenant_id')
 
-    if (settings?.signals_webhook_secret) {
-      const receivedSecret =
-        req.headers.get('x-webhook-secret') ||
-        new URL(req.url).searchParams.get('secret')
+    const receivedSecret =
+      req.headers.get('x-webhook-secret') ||
+      new URL(req.url).searchParams.get('secret')
 
-      if (receivedSecret !== settings.signals_webhook_secret) {
-        return new Response(JSON.stringify({ error: 'Invalid webhook secret' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+    // Find which tenant this webhook belongs to based on the secret
+    let webhookTenantId: string | null = null
+    if (allSettings && receivedSecret) {
+      const matchingSetting = allSettings.find(
+        (s: { signals_webhook_secret: string | null }) =>
+          s.signals_webhook_secret && s.signals_webhook_secret === receivedSecret
+      )
+      if (matchingSetting) {
+        webhookTenantId = matchingSetting.tenant_id
       }
+    }
+
+    // If secret was provided but no match found → reject
+    if (receivedSecret && !webhookTenantId && allSettings?.some((s: { signals_webhook_secret: string | null }) => s.signals_webhook_secret)) {
+      return new Response(JSON.stringify({ error: 'Invalid webhook secret' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     // 2. Parse payload
@@ -81,25 +95,30 @@ Deno.serve(async (req) => {
     const phone = payload.subject?.phone?.trim()
     let leadId: string | null = null
     let isNewLead = false
+    let resolvedTenantId = webhookTenantId // Start with tenant from webhook secret
 
     if (email) {
       const { data: leadByEmail } = await adminClient
         .from('leads')
-        .select('lead_id')
+        .select('lead_id, tenant_id')
         .ilike('email', email)
         .limit(1)
         .maybeSingle()
-      if (leadByEmail) leadId = leadByEmail.lead_id
+      if (leadByEmail) {
+        leadId = leadByEmail.lead_id
+        // Inherit tenant from the matched lead
+        if (!resolvedTenantId) resolvedTenantId = leadByEmail.tenant_id
+      }
     }
 
     if (!leadId && phone) {
       const normalizedPhone = phone.replace(/[\s\-()]/g, '')
       const { data: allLeads } = await adminClient
         .from('leads')
-        .select('lead_id, phone')
+        .select('lead_id, phone, tenant_id')
 
       if (allLeads) {
-        const match = allLeads.find((l: { lead_id: string; phone: string }) => {
+        const match = allLeads.find((l: { lead_id: string; phone: string; tenant_id: string }) => {
           const lPhone = (l.phone || '').replace(/[\s\-()]/g, '')
           return (
             lPhone === normalizedPhone ||
@@ -107,7 +126,10 @@ Deno.serve(async (req) => {
             normalizedPhone.replace(/^0/, '+972') === lPhone
           )
         })
-        if (match) leadId = match.lead_id
+        if (match) {
+          leadId = match.lead_id
+          if (!resolvedTenantId) resolvedTenantId = match.tenant_id
+        }
       }
     }
 
@@ -115,12 +137,15 @@ Deno.serve(async (req) => {
     if (!leadId && email) {
       const { data: clientByEmail } = await adminClient
         .from('clients')
-        .select('client_id')
+        .select('client_id, tenant_id')
         .ilike('email', email)
         .limit(1)
         .maybeSingle()
 
       if (clientByEmail) {
+        // Inherit tenant from matched client
+        const clientTenantId = resolvedTenantId || clientByEmail.tenant_id || DEFAULT_TENANT
+
         // Store personality data for the client directly (no lead_id)
         const personalityId = crypto.randomUUID()
         const { error: upsertErr } = await adminClient
@@ -131,7 +156,7 @@ Deno.serve(async (req) => {
             client_id: clientByEmail.client_id,
             analysis_id: payload.analysis_id,
             tenant_id: payload.tenant_id,
-            tenant_id_fk: '00000000-0000-0000-0000-000000000001',
+            tenant_id_fk: clientTenantId,
             subject_name: payload.subject.full_name,
             subject_email: payload.subject.email,
             subject_phone: payload.subject.phone || null,
@@ -164,7 +189,7 @@ Deno.serve(async (req) => {
           entity_id: clientByEmail.client_id,
           description: `נתוני אישיות התקבלו מ-Signals OS: ${ARCHETYPE_NAMES_HE[payload.analysis.primary] || payload.analysis.primary}/${ARCHETYPE_NAMES_HE[payload.analysis.secondary] || payload.analysis.secondary}`,
           created_at: new Date().toISOString(),
-          tenant_id: '00000000-0000-0000-0000-000000000001',
+          tenant_id: clientTenantId,
         })
 
         return new Response(JSON.stringify({
@@ -177,6 +202,9 @@ Deno.serve(async (req) => {
         })
       }
     }
+
+    // Final tenant resolution: webhook secret > matched entity > default
+    const finalTenantId = resolvedTenantId || DEFAULT_TENANT
 
     // 4. If no matching lead or client, create new lead
     if (!leadId) {
@@ -198,7 +226,7 @@ Deno.serve(async (req) => {
         related_client_id: null,
         created_by: null,
         assigned_to: null,
-        tenant_id: '00000000-0000-0000-0000-000000000001',
+        tenant_id: finalTenantId,
       })
     }
 
@@ -211,7 +239,7 @@ Deno.serve(async (req) => {
         lead_id: leadId,
         analysis_id: payload.analysis_id,
         tenant_id: payload.tenant_id,
-        tenant_id_fk: '00000000-0000-0000-0000-000000000001',
+        tenant_id_fk: finalTenantId,
         subject_name: payload.subject.full_name,
         subject_email: payload.subject.email,
         subject_phone: payload.subject.phone || null,
@@ -275,7 +303,7 @@ Deno.serve(async (req) => {
       created_at: new Date().toISOString(),
       note_type: 'personality_insight',
       source_id: payload.analysis_id,
-      tenant_id: '00000000-0000-0000-0000-000000000001',
+      tenant_id: finalTenantId,
     })
 
     // 7. Log activity
@@ -290,7 +318,7 @@ Deno.serve(async (req) => {
       entity_id: leadId,
       description: activityDesc,
       created_at: new Date().toISOString(),
-      tenant_id: '00000000-0000-0000-0000-000000000001',
+      tenant_id: finalTenantId,
     })
 
     // 8. Return success
