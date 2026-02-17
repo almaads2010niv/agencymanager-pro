@@ -49,6 +49,7 @@ interface UserRoleRecord {
   created_at: string;
   page_permissions?: string; // JSON array of PagePermission keys
   tenant_id?: string;
+  is_super_admin?: boolean;
 }
 
 export interface AuthContextType {
@@ -57,6 +58,7 @@ export interface AuthContextType {
   isAdmin: boolean;
   isViewer: boolean;
   isFreelancer: boolean;
+  isSuperAdmin: boolean;
   tenantId: string | null;
   tenantName: string;
   displayName: string;
@@ -90,6 +92,7 @@ function safeParsePermissions(raw: string | undefined | null, fallback: PagePerm
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<UserRole>('admin');
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [tenantName, setTenantName] = useState('');
@@ -114,6 +117,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         const userRole = data.role as UserRole;
         setRole(userRole);
+        setIsSuperAdmin(!!data.is_super_admin);
         setDisplayName(data.display_name || currentUser.email?.split('@')[0] || '');
         setTenantId(data.tenant_id || null);
 
@@ -147,6 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .eq('email', currentUser.email);
           const userRole = emailMatch.role as UserRole;
           setRole(userRole);
+          setIsSuperAdmin(!!emailMatch.is_super_admin);
           setDisplayName(emailMatch.display_name || currentUser.email.split('@')[0] || '');
           setTenantId(emailMatch.tenant_id || null);
 
@@ -402,6 +407,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isAdmin: role === 'admin',
       isViewer: role === 'viewer',
       isFreelancer: role === 'freelancer',
+      isSuperAdmin,
       tenantId,
       tenantName,
       displayName,

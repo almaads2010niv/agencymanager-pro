@@ -43,14 +43,14 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Check if caller is admin
+    // Check if caller is admin or super_admin
     const { data: callerRole } = await callerClient
       .from('user_roles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('user_id', caller.id)
       .single()
 
-    if (!callerRole || callerRole.role !== 'admin') {
+    if (!callerRole || (callerRole.role !== 'admin' && !callerRole.is_super_admin)) {
       return new Response(JSON.stringify({ error: 'Only admins can create users' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -67,8 +67,10 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Validate role - only viewer or freelancer can be created (not admin)
-    const validRoles = ['viewer', 'freelancer']
+    // Validate role - super admin can also create admin users
+    const validRoles = callerRole.is_super_admin
+      ? ['admin', 'viewer', 'freelancer']
+      : ['viewer', 'freelancer']
     const userRole = validRoles.includes(role) ? role : 'viewer'
 
     // Get caller's tenant_id for the new user
@@ -118,9 +120,11 @@ Deno.serve(async (req) => {
       .single()
 
     // Default permissions by role
-    const defaultPermissions = userRole === 'freelancer'
-      ? ['dashboard', 'clients', 'leads', 'deals', 'calendar']
-      : ['dashboard', 'leads']
+    const defaultPermissions = userRole === 'admin'
+      ? ['dashboard', 'clients', 'leads', 'deals', 'expenses', 'debts', 'profit_loss', 'tax_calculator', 'calendar', 'ideas', 'knowledge', 'settings']
+      : userRole === 'freelancer'
+        ? ['dashboard', 'clients', 'leads', 'deals', 'calendar']
+        : ['dashboard', 'leads']
 
     if (existingRole) {
       // Update the existing entry with the real user_id

@@ -22,6 +22,7 @@ import ProfitLoss from './components/ProfitLoss'
 import CalendarPage from './components/Calendar'
 import Ideas from './components/Ideas'
 import KnowledgeBase from './components/KnowledgeBase'
+import TenantManagement from './components/TenantManagement'
 import Login from './components/Login'
 
 // Inner component that waits for role to load before rendering
@@ -58,6 +59,7 @@ function AppContent() {
             <Route path="/ideas" element={<Ideas />} />
             <Route path="/knowledge" element={<KnowledgeBase />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/tenants" element={<TenantManagement />} />
           </Routes>
         </Layout>
       </Router>

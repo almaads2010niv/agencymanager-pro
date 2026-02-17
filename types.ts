@@ -291,6 +291,21 @@ export interface Tenant {
   createdAt: string;
 }
 
+export interface TenantWithUsers extends Tenant {
+  userCount: number;
+  users?: TenantUser[];
+}
+
+export interface TenantUser {
+  id: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  role: 'admin' | 'viewer' | 'freelancer';
+  isSuperAdmin: boolean;
+  createdAt: string;
+}
+
 // ── Ideas Kanban ─────────────────────────────────────────────
 export type IdeaStatus = 'draft' | 'active' | 'in_progress' | 'done' | 'archived';
 export type IdeaPriority = 'low' | 'medium' | 'high' | 'urgent';
