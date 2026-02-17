@@ -837,3 +837,370 @@ FILES MODIFIED:
 - supabase/functions/generate-idea/index.ts (URL scraping + enhanced prompt)
 - supabase/functions/signals-webhook/index.ts (tenant_id on all inserts)
 - supabase-fix-tenant-null.sql (comprehensive tenant fix + COALESCE)
+
+===============================================================================
+SESSION 14 (2026-02-17) - Slug Routing + Tenant Management Upgrade
+===============================================================================
+
+WHAT HAPPENED:
+Major routing overhaul from HashRouter to BrowserRouter with slug-based
+tenant URLs, plus full tenant management admin page.
+
+CHANGES:
+
+1. SLUG-BASED ROUTING
+   - HashRouter → BrowserRouter migration
+   - URL format: /a/:tenantSlug/* (e.g., /a/my-agency/dashboard)
+   - Slug stored on tenants table + backfill script
+   - Auto-redirect to slug-based URL on login
+   - Login page per tenant: /a/:slug/login
+
+2. TENANT MANAGEMENT PAGE (TenantManagement.tsx)
+   - Super admin only (/tenants route)
+   - List all tenants with user counts
+   - Add/edit tenants with slug
+   - Add/remove users per tenant
+   - Copy direct login link per tenant
+
+3. EDGE FUNCTION: manage-tenants
+   - Actions: list-tenants, create-tenant, update-tenant,
+     add-user, remove-user, update-tenant-user
+   - Super admin authentication check
+   - Deployed to Supabase
+
+SQL MIGRATIONS:
+  - supabase-slug-migration.sql (slug column + backfill)
+  - supabase-tenant-features-migration.sql (is_active on tenants)
+
+Commits: 3ced376
+
+===============================================================================
+SESSION 15 (2026-02-17) - CRITICAL: Tenant Data Isolation + Settings Fix
+===============================================================================
+
+WHAT HAPPENED:
+Critical security issue discovered: new tenant ("הסקיפים") could see ALL
+data from the primary tenant. This was a multi-layered problem requiring
+complete RLS overhaul, settings architecture change, and Edge Function updates.
+
+SECURITY ISSUES FOUND & FIXED:
+
+1. CURRENT_TENANT_ID() LEAKING TO DEFAULT TENANT
+   - Problem: COALESCE fallback to DEFAULT_TENANT_ID ('000...001') meant
+     any unauthenticated/unregistered user got the primary tenant's data
+   - Fix: Changed fallback to impossible UUID ('000...000')
+   - File: supabase-fix-tenant-isolation.sql
+   - Commit: 9368bd4
+
+2. AUTHCONTEXT AUTO-CREATING USER_ROLES WITH DEFAULT TENANT
+   - Problem: loadRole created user_roles with DEFAULT_TENANT_ID for unknown users
+   - Fix: No auto-creation; show NoTenantScreen instead
+   - Added NoTenantScreen to App.tsx (locked screen with logout)
+   - File: contexts/AuthContext.tsx, App.tsx
+   - Commit: 9368bd4
+
+3. PERMISSIVE RLS POLICIES — THE REAL KILLER
+   - Problem: PostgreSQL permissive policies work as OR. Old USING(true)
+     policies + new tenant_id = current_tenant_id() = USING(true) wins!
+   - Fix: Complete RLS overhaul — DROP ALL old policies, create strict new
+     ones for ALL 19 tables. FORCE ROW LEVEL SECURITY on all tables.
+   - File: supabase-fix-rls-complete.sql
+   - Commit: ca805be
+
+4. SIGNALS-WEBHOOK HARDCODED DEFAULT TENANT
+   - Problem: All webhook data went to default tenant
+   - Fix: Dynamic tenant resolution: webhook secret → matched entity → DEFAULT
+   - File: supabase/functions/signals-webhook/index.ts (rewritten)
+   - Commit: ca805be
+
+5. SETTINGS TABLE SHARED SINGLE ROW (ID=1)
+   - Problem: transformSettingsToDB sent id: 1 — all tenants write to same row
+   - Problem: saveApiKeys used .eq('id', 1)
+   - Fix: Changed PK from id to tenant_id, dropped id column entirely
+   - File: contexts/DataContext.tsx, supabase-fix-settings-pk.sql
+   - Commits: 35b80d3, 26d135e
+
+6. EDGE FUNCTIONS READING WRONG TENANT'S API KEYS
+   - Problem: All 8 Edge Functions queried settings without tenant filter
+   - Fix: Each function now gets caller's tenant_id from user_roles first
+   - Files: All 8 Edge Functions updated and deployed
+   - Commit: 35b80d3
+
+7. SETTINGS 409 CONFLICT (duplicate key violation)
+   - Problem: PK was still on id column, upsert with onConflict: 'tenant_id' failed
+   - Fix: DROP PK on id, DROP id column, ADD PRIMARY KEY (tenant_id)
+   - File: supabase-fix-settings-pk.sql
+   - Commit: 26d135e
+
+FEATURE ADDED:
+- Toggle שכיר/ה (salaried yes/no) in Settings
+  - is_salaried boolean column on settings table
+  - Toggle switch in Settings.tsx
+  - Salary input only shows when isSalaried = true
+  - Types, constants, DataContext all updated
+
+SQL MIGRATIONS RUN:
+  - supabase-fix-tenant-isolation.sql (current_tenant_id fix)
+  - supabase-fix-rls-complete.sql (complete RLS overhaul)
+  - supabase-fix-settings-tenant.sql (settings unique constraint)
+  - supabase-fix-settings-pk.sql (PK → tenant_id + is_salaried)
+
+EDGE FUNCTIONS DEPLOYED:
+  All 8 edge functions redeployed with tenant-aware settings queries:
+  ai-recommendations, generate-ai-summary, generate-whatsapp-messages,
+  transcribe-audio, generate-proposal, process-receipt, generate-idea,
+  summarize-document
+
+FILES MODIFIED:
+- contexts/AuthContext.tsx (no auto-creation, tenant filter on refreshUsers)
+- contexts/DataContext.tsx (tenant guard, settings per-tenant, withTenant fix)
+- App.tsx (NoTenantScreen component)
+- types.ts (isSalaried in AgencySettings)
+- constants.ts (isSalaried in DEFAULT_SETTINGS)
+- components/Settings.tsx (salaried toggle)
+- supabase/functions/signals-webhook/index.ts (dynamic tenant resolution)
+- All 8 AI Edge Functions (tenant-aware settings)
+
+Commits: 9368bd4, ca805be, 35b80d3, 26d135e
+
+===============================================================================
+ARCHITECTURE NOTES (Updated 2026-02-17)
+===============================================================================
+
+Data Flow:
+  Supabase (PostgreSQL) <-> DataContext.tsx <-> Components
+  DB uses snake_case, TypeScript uses camelCase
+  Transform functions handle conversion both ways
+
+Component Structure:
+  App.tsx (router + auth)
+    -> Layout.tsx (sidebar + main area)
+      -> [Page Components] (Dashboard, Clients, Leads, etc.)
+        -> ClientProfile.tsx / LeadProfile.tsx (full CRM views)
+        -> ui/ (Button, Card, Form, Modal, Badge, Table)
+
+State Management:
+  Single React Context (DataContext) holds all app state (~1100 lines)
+  All CRUD operations are async with try/catch + error toast
+  No external state libraries (Redux, Zustand, etc.)
+
+Auth:
+  Supabase Auth (email/password)
+  Session check on App mount
+  Role system: AuthContext.tsx with admin/viewer/freelancer roles
+  Multi-tenant: tenant_id on all tables, current_tenant_id() SQL function
+  Page-level permissions (page_permissions JSON in user_roles)
+  Freelancer: sees only assigned clients/leads (assigned_to = auth.uid())
+  First user auto-becomes admin
+  Admin creates accounts via Edge Function (no self-registration)
+  Slug-based routing: /a/:tenantSlug/* (BrowserRouter)
+
+Security:
+  FORCE ROW LEVEL SECURITY on ALL 19 tables
+  current_tenant_id() returns impossible UUID ('000...000') as fallback
+  No permissive USING(true) policies — all strict tenant_id checks
+  Settings keyed by tenant_id (PK), not shared id=1 row
+  Edge Functions filter settings by caller's tenant_id
+  signals-webhook: dynamic tenant resolution from webhook secret
+
+AI / Gemini:
+  gemini-3-pro-preview -> ai-recommendations, generate-ai-summary (quality)
+  gemini-2.5-flash -> transcribe-audio (speed, large token counts)
+  gemini-2.0-flash-lite -> generate-whatsapp-messages, generate-idea, summarize-document (no thinking parts, reliable JSON)
+  gemini-2.0-flash -> process-receipt (Vision API, receipt OCR, temperature 0.1)
+  API key stored server-side only (settings.gemini_api_key)
+  Thinking parts filter: if (part.text && !part.thought) — needed for 2.5+ and 3.x
+  gemini-2.0-flash-lite has NO thinking parts (simpler, ideal for JSON generation)
+  WARNING: responseMimeType/thinkingConfig/responseSchema NOT supported in 2.5-flash REST API
+  Audio uses Gemini Files API (resumable upload -> file_uri)
+
+Edge Functions (10 total):
+  create-user -> Admin account creation (+ role + tenantId)
+  manage-tenants -> Super admin tenant CRUD (list/create/update/add-user/remove-user/update-tenant-user)
+  ai-recommendations -> AI advice via Gemini 3 Pro
+  generate-ai-summary -> 3 summary types via Gemini 3 Pro
+  generate-whatsapp-messages -> 3 message variants via Gemini 2.0 Flash-Lite
+  transcribe-audio -> Audio -> text via Gemini Files API (2.5 Flash)
+  generate-proposal -> PDF via Canva Connect API
+  process-receipt -> Receipt OCR via Gemini 2.0 Flash Vision
+  generate-idea -> AI idea generation via Gemini 2.0 Flash-Lite
+  summarize-document -> AI document summarization via Gemini 2.0 Flash-Lite
+  signals-webhook -> Personality data from Signals OS (dynamic tenant resolution)
+
+Supabase Tables (all have tenant_id uuid FK + FORCE RLS):
+  tenants (id, name, slug, is_active)
+  clients (+ assigned_to uuid)
+  leads (+ created_by, assigned_to uuid)
+  deals, expenses (+ is_recurring, receipt_url), payments
+  settings (PK = tenant_id, + employee_salary, is_salaried, gemini_api_key, canva_api_key, canva_template_id, signals_webhook_secret)
+  activity_log, retainer_changes
+  client_notes (+ note_type, source_id)
+  lead_notes (+ note_type, source_id)
+  call_transcripts (client_id, lead_id, transcript, summary, recording_url)
+  ai_recommendations (client_id, lead_id, recommendation)
+  whatsapp_messages (client_id, lead_id, message_text, purpose, is_ai_generated)
+  calendar_events (id, title, event_type, start_time, end_time, all_day, description, client_id, lead_id)
+  ideas (id, title, description, status, priority, client_id, category, tags, assigned_to, due_date, sort_order)
+  knowledge_articles (id, title, content, summary, category, tags, file_url, is_ai_generated)
+  user_roles (user_id, email, role, display_name, page_permissions, tenant_id)
+  signals_personality (+ tenant_id_fk uuid FK — separate from text tenant_id)
+  storage.buckets: contracts, recordings, receipts, knowledge
+
+Styling:
+  Tailwind CSS via CDN (not PostCSS build)
+  Custom config in index.html <script> tag
+  Dark theme: background #0B1121, surface #151e32
+  Glass morphism effects throughout
+  RTL: use logical properties (ms-/me- not ml-/mr-)
+
+Libraries:
+  @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities -> Kanban drag & drop
+  react-big-calendar + date-fns -> Calendar with Hebrew locale
+  Tailwind CSS via CDN (not PostCSS build)
+
+Key Patterns:
+  - Modal z-index: z-[60] (above sidebar z-50)
+  - custom-scrollbar CSS class in index.html
+  - Hebrew localized dates, currency, text
+  - DB row interfaces for type safety
+  - safeJsonParse helper for crash-safe JSON
+  - Atomic operations with rollback support
+  - Confirm modals for destructive actions
+  - allUsers from AuthContext for user dropdowns
+  - is_admin() SECURITY DEFINER function for RLS
+  - Edge Functions with service_role key for admin operations
+  - Gemini thinking-parts filter in all AI functions (except 2.0-flash-lite which has none)
+  - gemini-2.5-flash REST API does NOT support responseMimeType/thinkingConfig/responseSchema
+  - For simple JSON generation, use gemini-2.0-flash-lite (no thinking overhead)
+  - NoteType: 'manual' | 'transcript_summary' | 'recommendation_summary' | 'proposal_focus' | 'personality_insight'
+  - MESSAGE_PURPOSES in constants.ts for WhatsApp purpose options
+  - Multi-tenant: all data scoped by tenant_id, RLS enforces isolation
+  - Freelancer: assigned_to filtering in RLS, mini dashboard, scoped sidebar
+  - Slug routing: /a/:tenantSlug/*, BrowserRouter, auto-redirect on login
+
+GIT HISTORY (key commits):
+  443c937 - Fix 19 audit issues
+  [session 2 commits] - 9 features
+  [session 3 commits] - theme, viewer fix, file uploads
+  [session 4 commits] - retainer history, advanced roles, RLS, user sync
+  6925a1a - Edge Function for admin user creation
+  1085824 - Viewers can see all leads
+  0c3cea1 - Enhanced client management (handler, notes, CRM view)
+  89a3947 - Lead management upgrade (handler, notes, profile page)
+  fd2946a - Call transcripts, AI recommendations, Canva proposals
+  67f4fa4 - API keys stored server-side only
+  6d6edbb - Persistent AI recommendations, expandable notes
+  e1e83c7 - WhatsApp outgoing messages + AI audio transcription
+  5643ebc - Improve transcription error messages
+  c45cf30 - Audio upload MIME type handling
+  83231d7 - Remove Hebrew chars from storage file paths
+  ef5a45c - Improve transcription prompt (separator + Hebrew)
+  de6cefd - Upgrade transcription to gemini-2.5-flash
+  f143444 - Gemini Files API to avoid memory limit
+  83c5840 - AI Summary Notes (3 types)
+  c3080f8 - Inline profile editing, proposal focus, WhatsApp fix
+  c14c9b3 - Gemini model upgrade + MEMORY/PROJECT docs update
+  9b73c62 - Debug: detailed error logging for WhatsApp generation
+  5c4b723 - Fix: switch WhatsApp to gemini-2.0-flash-lite for reliability
+  5f6783d - Docs: project story update
+  f6b39ba - Signals OS personality intelligence integration
+  [session 11] - Kanban drag & drop + Calendar + AI Receipt scanning
+  [session 12] - Multi-Tenant + Freelancer + Voice + Ideas + Knowledge
+  [session 13] - Bug fixes + feature improvements
+  3ced376 - Slug routing + tenant management upgrade
+  9368bd4 - Critical: tenant data isolation fix
+  ca805be - Complete RLS overhaul + signals-webhook tenant isolation
+  35b80d3 - Settings tenant isolation (Edge Functions + unique constraint)
+  26d135e - Settings PK → tenant_id + salaried toggle + upsert fix
+  746146d - Signals OS block in LeadProfile (send questionnaire + copy link)
+  2dcfb64 - PDF upload → AI recommendations + auto-trigger from webhook
+
+===============================================================================
+SESSION 16 (2026-02-17) - Signals OS: Send Questionnaire + PDF → AI Recs
+===============================================================================
+
+WHAT HAPPENED:
+Three Signals OS enhancements: (1) Send questionnaire button in lead profile,
+(2) PDF upload for deeper AI analysis, (3) Auto-trigger recommendations on
+webhook personality data arrival.
+
+CHANGES:
+
+1. SIGNALS OS BLOCK IN LEAD PROFILE
+   - Always visible Card (not just when personality exists)
+   - STATE 1 (no personality):
+     - Amber "no questionnaire sent" indicator
+     - Green WhatsApp button — pre-composed message + personalized link
+     - Copy link button for alternative sharing
+     - Message preview (expandable)
+     - PDF upload button for existing Signals reports
+   - STATE 2 (has personality):
+     - All existing personality display (archetypes, scores, cheat sheets)
+     - + "Upload PDF for deep analysis" button
+     - + "Generate AI recommendations" button
+
+2. QUESTIONNAIRE LINK FORMAT
+   - URL: signals-os.alma-ads.co.il/widget?questionnaire=v3-biz-owner
+   - Pre-fills: subject_email, subject_name, subject_phone, external_id, source_id
+   - WhatsApp message: sales pitch about free diagnostic tool
+
+3. PDF UPLOAD → AI RECOMMENDATIONS
+   - User uploads Signals OS report PDF
+   - Sent as FormData to ai-recommendations Edge Function
+   - Gemini 3 Pro reads PDF via inline_data (base64)
+   - Generates 9-point deep recommendations (vs standard 5):
+     - Standard 1-5 + personality analysis + communication style +
+       what NOT to do + optimal proposal framing
+
+4. AI-RECOMMENDATIONS EDGE FUNCTION UPGRADE
+   - Now supports both JSON (existing) and FormData (with PDF)
+   - Detects content-type to choose parsing method
+   - PDF converted to base64, sent as inline_data to Gemini
+   - Auto-fetches personality from DB when leadId provided
+   - maxOutputTokens raised to 4096
+
+5. AUTO-TRIGGER RECOMMENDATIONS ON WEBHOOK
+   - useEffect watches personality.receivedAt
+   - When personality data arrives (from webhook), auto-calls handleGetRecommendations
+   - Only triggers if no existing recommendations (prevents duplicates)
+   - Sets autoRecTriggered flag to prevent re-firing
+
+EDGE FUNCTIONS DEPLOYED:
+  ai-recommendations (FormData + PDF support)
+
+FILES MODIFIED:
+- components/LeadProfile.tsx (Signals OS block, PDF upload, auto-trigger useEffect)
+- supabase/functions/ai-recommendations/index.ts (FormData + PDF inline_data)
+
+Commits: 746146d, 2dcfb64
+
+===============================================================================
+SESSION 17 (2026-02-17) - Bulk Import: 177 Old Clients → Leads
+===============================================================================
+
+WHAT HAPPENED:
+User had an old Excel file (לקוחות פוטנציאליים.xlsx) with 177 past clients.
+Imported all of them as leads into Supabase with status "לא רלוונטי".
+
+PROCESS:
+1. Read .xlsx with Node.js xlsx library (copied to ASCII path first — Hebrew paths fail)
+2. Parsed 177 rows: שם טוב (name), עסק (business), טלפון (phone), קטגוריה, לידים/מוצר
+3. Generated leads with:
+   - status: "לא רלוונטי"
+   - created_at / next_contact_date: 2026-01-01
+   - source_channel: "אחר"
+   - notes: original category (לידים/מוצר)
+   - Phone normalized (0-prefix, +972 → 0, dashes removed, #ERROR! → empty)
+4. Inserted via Supabase REST API (service_role key) in 4 batches of 50
+5. Verified in SQL Editor: 187 total "לא רלוונטי" leads (177 new + 10 existing)
+
+TOOLS USED:
+- Node.js xlsx library to read Excel
+- Supabase REST API POST /rest/v1/leads with service_role Bearer token
+- supabase CLI: `npx supabase projects api-keys` to get service_role key
+
+FILES CREATED (temp, not committed):
+- import_leads.js (Node.js import script)
+- generate_sql.js (SQL generator — used REST API instead)
+- supabase-import-old-clients.sql (177 INSERT VALUES — backup)
+- read_excel.js (Excel reader utility)

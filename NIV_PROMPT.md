@@ -256,3 +256,151 @@
 6. Deploy: `npx supabase functions deploy generate-idea --project-ref rxckkozbkrabpjdgyxqm`
 7. Deploy: `npx supabase functions deploy summarize-document --project-ref rxckkozbkrabpjdgyxqm`
 8. Git commit + push
+
+---
+
+## סשן 13 (17.02.2026) — באג פיקסים + שיפורי פיצ'רים
+
+**מה ביקשת:**
+תיקון שגיאת POST 400 בהוצאות, + שיפורים בקנבן ובסוכנים.
+
+**מה עשיתי:**
+- **תיקון INSERT 400 בהוצאות:** current_tenant_id() מחזיר NULL → תוקן עם COALESCE + withTenant fallback
+- **תיקון Kanban drag & drop:** attributes היו על grip handle ולא על root — תוקן
+- **מיון עמודות בלידים:** כל 8 העמודות sortable (היה רק 2)
+- **AI Ideas + Social scraping:** 3 שדות URL (פייסבוק, אינסטגרם, אתר) → Edge Function שולף תוכן ומנתח
+
+---
+
+## סשן 14 (17.02.2026) — Slug Routing + ניהול סוכנויות
+
+**מה ביקשת:**
+ניתוב לפי slug, דף ניהול סוכנויות לסופר אדמין, לינק ישיר לכל סוכנות.
+
+**מה עשיתי:**
+- **HashRouter → BrowserRouter:** מיגרציה מלאה
+- **URL חדש:** `/a/:tenantSlug/*` (למשל `/a/my-agency/dashboard`)
+- **TenantManagement.tsx:** רשימת סוכנויות, הוספה/עריכה, ניהול משתמשים, העתקת לינק
+- **Edge Function manage-tenants:** list/create/update/add-user/remove-user/update-tenant-user
+
+---
+
+## סשן 15 (17.02.2026) — 🔒 תיקון קריטי: בידוד נתונים בין סוכנויות
+
+**מה ביקשת:**
+"הסוכנות הסקיפים עדיין רואה את הנתונים שלי" → בדוק וסגור את כל הפרצות.
+
+**מה עשיתי:**
+
+### 🚨 בעיית בידוד נתונים (7 שכבות של תיקונים!)
+
+1. **current_tenant_id() דולף:** COALESCE fallback ל-DEFAULT_TENANT → כל משתמש חדש ראה את הנתונים הראשיים
+   - תיקון: fallback ל-UUID בלתי אפשרי (000...000)
+
+2. **AuthContext יוצר אוטומטית user_roles:** כל login חדש קיבל גישה לטננט ברירת מחדל
+   - תיקון: לא יוצר אוטומטית, מציג NoTenantScreen
+
+3. **RLS Permissive — הבעיה האמיתית:** פוליסות USING(true) ישנות + חדשות = OR = הכל גלוי!
+   - תיקון: DROP ALL old policies, יצירת פוליסות חדשות strict ל-19 טבלאות
+   - FORCE ROW LEVEL SECURITY על הכל
+
+4. **signals-webhook hardcoded DEFAULT_TENANT:**
+   - תיקון: dynamic tenant resolution מ-webhook secret → matched entity → fallback
+
+5. **Settings שורה אחת (id=1) לכולם:**
+   - תיקון: PK שונה מ-id ל-tenant_id, הוסר id column
+
+6. **Edge Functions קוראים settings בלי tenant filter:**
+   - תיקון: כל 8 Edge Functions עודכנו עם .eq('tenant_id', callerTenantId)
+
+7. **Settings 409 Conflict:**
+   - תיקון: DROP PK on id, ADD PRIMARY KEY (tenant_id)
+
+### ✅ פיצ'ר חדש: Toggle שכיר/ה
+- עמודת `is_salaried` boolean בsettings
+- Toggle switch בSettings.tsx
+- שדה משכורת מופיע רק כשהטוגל פעיל
+
+### SQL שהורץ:
+- `supabase-fix-tenant-isolation.sql`
+- `supabase-fix-rls-complete.sql`
+- `supabase-fix-settings-tenant.sql`
+- `supabase-fix-settings-pk.sql`
+
+### Edge Functions שנפרסו מחדש: כל 8 + signals-webhook
+
+### Commits: 9368bd4, ca805be, 35b80d3, 26d135e
+
+---
+
+## סשן 16 (17.02.2026) — Signals OS: שליחת שאלון + PDF → המלצות AI
+
+**מה ביקשת:**
+1. "למה שאני מכניס ליד חדש אני לא יכול לשלוח לו שאלון SIGNAL"
+2. "אם אני רוצה להדביק את ה-PDF של האבחון ואז שה-AI ייצר לי המלצות בבלוק המלצות AI"
+3. "אם זה מפעולה יזומה של שליחת הלינק מה-CRM אז הוובהוק ישלח את זה ואז אני רוצה המלצות"
+4. "צבא של סוכני AI יעשו למערכת הזאת" — מה אפשר להוסיף
+5. עדכון קבצי LOG
+
+**מה עשיתי:**
+
+### 1. בלוק Signals OS בפרופיל ליד (LeadProfile.tsx)
+- **מצב 1 (אין נתוני אישיות):**
+  - אינדיקטור אמבר "טרם נשלח שאלון"
+  - כפתור WhatsApp ירוק — שולח הודעה מוכנה עם לינק מותאם (email, name, phone, lead_id)
+  - כפתור "העתק לינק לשאלון"
+  - תצוגה מקדימה של ההודעה
+  - כפתור "העלה PDF של אבחון → קבל המלצות AI"
+- **מצב 2 (יש נתוני אישיות):**
+  - כל תצוגת הארכיטיפים כמו קודם
+  - + כפתור "העלה PDF לניתוח מעמיק"
+  - + כפתור "ייצר המלצות AI" (מנתוני personality)
+
+### 2. העלאת PDF אבחון → המלצות AI
+- המשתמש מעלה PDF של דוח Signals OS
+- ה-PDF נשלח כ-FormData ל-Edge Function `ai-recommendations`
+- Gemini 3 Pro קורא את ה-PDF (inline_data) ומייצר המלצות מעמיקות:
+  - ניתוח פרופיל אישיותי
+  - איך לדבר עם הליד
+  - מה לא לעשות
+  - סוג ההצעה שתעבוד הכי טוב
+
+### 3. Auto-trigger המלצות מוובהוק
+- כשנתוני personality מגיעים מ-Signals OS → useEffect מזהה ומפעיל `handleGetRecommendations` אוטומטית
+- רק אם אין המלצות קיימות (לא מכפיל)
+
+### 4. Edge Function `ai-recommendations` שודרג
+- תומך ב-JSON (קיים) + FormData עם PDF (חדש)
+- PDF מועבר ל-Gemini כ-base64 inline_data
+- Prompt מורחב: 9 סעיפי המלצות (במקום 5) כשיש PDF
+- maxOutputTokens הועלה ל-4096
+
+### 5. צבא סוכני AI — חזון
+- 10 סוכנים אפשריים ב-3 רמות (lead nurture, alerts, reports, proposals, scheduling, content, billing...)
+- ארכיטקטורה: Agent Orchestrator + Edge Functions + Cron
+
+### Commits: 746146d (בלוק Signals), 2dcfb64 (PDF + auto-trigger)
+### Edge Functions deployed: ai-recommendations
+
+---
+
+## סשן 17 (17.02.2026) — ייבוא לקוחות עבר מאקסל
+
+**מה ביקשת:**
+"יש לי קובץ ישן של לקוחות עבר. אפשר שתסרוק אותו ותשתול אותו בלידים? יש בו שם, עסק, טלפון ושאר העמודות לא רלוונטיות. מבחינת סטטוס ליד — לא רלוונטי. מבחינת תאריך — 1.1.26. אני רוצה מאגר מידע."
+
+**מה עשיתי:**
+- קראתי את `לקוחות פוטנציאליים.xlsx` (177 שורות) עם Node.js xlsx library
+- נרמלתי טלפונים: `+972` → `0`, הסרת מקפים/רווחים, `#ERROR!` → ריק
+- יצרתי סקריפט Node.js שמכניס ישירות ל-Supabase דרך REST API:
+  - סטטוס: `"לא רלוונטי"`
+  - תאריך: `2026-01-01`
+  - ערוץ מקור: `"אחר"`
+  - הערות: קטגוריה מקורית (לידים/מוצר)
+- הרצתי ב-4 batches של 50 — **177 לידים יובאו בהצלחה!**
+- אומת ב-SQL Editor: 187 לידים בסטטוס "לא רלוונטי" (177 חדשים + 10 קיימים)
+
+### כלים ששימשו:
+- `xlsx` npm package לקריאת אקסל
+- `npx supabase projects api-keys` לקבלת service_role key
+- Supabase REST API: `POST /rest/v1/leads` עם service_role Bearer

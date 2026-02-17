@@ -447,6 +447,14 @@ const LeadProfile: React.FC = () => {
           notes: leadNotesFiltered.map(n => ({ content: n.content, createdByName: n.createdByName, createdAt: n.createdAt })),
           transcripts: leadTranscripts.map(ct => ({ summary: ct.summary, callDate: ct.callDate })),
           additionalContext: `סטטוס: ${lead.status}, מקור: ${lead.sourceChannel}, הצעת מחיר: ₪${lead.quotedMonthlyValue}`,
+          personality: personality ? {
+            primary: personality.primaryArchetype,
+            secondary: personality.secondaryArchetype,
+            churnRisk: personality.churnRisk,
+            confidenceLevel: personality.confidenceLevel,
+            smartTags: personality.smartTags,
+            salesCheatSheet: personality.salesCheatSheet,
+          } : null,
         }),
       });
       const result = await res.json();
@@ -1576,6 +1584,19 @@ ${questionnaireUrl}
           />
         </div>
 
+        {/* Personality-aware indicator */}
+        {personality?.primaryArchetype && (
+          <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-purple-500/10 border border-purple-500/20 rounded-xl">
+            <Brain size={16} className="text-purple-400 shrink-0" />
+            <span className="text-purple-300 text-sm">
+              הודעות מותאמות לפרופיל <strong>{personality.primaryArchetype === 'WINNER' ? 'המנצח' : personality.primaryArchetype === 'STAR' ? 'הכוכב' : personality.primaryArchetype === 'DREAMER' ? 'החולם' : personality.primaryArchetype === 'HEART' ? 'הלב' : personality.primaryArchetype === 'ANCHOR' ? 'העוגן' : personality.primaryArchetype}</strong>
+              {personality.salesCheatSheet?.how_to_speak && (
+                <> · <span className="text-purple-400/70">{personality.salesCheatSheet.how_to_speak.substring(0, 60)}{personality.salesCheatSheet.how_to_speak.length > 60 ? '...' : ''}</span></>
+              )}
+            </span>
+          </div>
+        )}
+
         {!lead?.phone ? (
           <p className="text-gray-600 text-sm text-center py-6 italic">לא ניתן לשלוח הודעות - לא הוזן מספר טלפון</p>
         ) : (
@@ -1592,7 +1613,7 @@ ${questionnaireUrl}
                 ))}
               </select>
               <Button onClick={handleGenerateWAMessages} disabled={isGeneratingWA || !settings.hasGeminiKey} icon={<Sparkles size={16} />}>
-                {isGeneratingWA ? 'יוצר...' : 'צור הודעות'}
+                {isGeneratingWA ? 'יוצר...' : personality?.primaryArchetype ? '🧠 צור הודעות מותאמות' : 'צור הודעות'}
               </Button>
             </div>
 
