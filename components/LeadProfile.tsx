@@ -841,147 +841,231 @@ const LeadProfile: React.FC = () => {
         </Card>
       </div>
 
-      {/* Signals OS Personality Intelligence Card */}
-      {personality && (() => {
-        const primaryCfg = ARCHETYPE_CONFIG[personality.primaryArchetype] || ARCHETYPE_CONFIG.WINNER;
-        const secondaryCfg = ARCHETYPE_CONFIG[personality.secondaryArchetype] || ARCHETYPE_CONFIG.STAR;
-        const archetypes: Archetype[] = ['WINNER', 'STAR', 'DREAMER', 'HEART', 'ANCHOR'];
-        const maxScore = Math.max(...Object.values(personality.scores), 1);
+      {/* ============ Signals OS Block ============ */}
+      <Card id="lead-signals-section">
+        <CardHeader
+          title={<span className="flex items-center gap-2"><Brain size={18} className="text-violet-400" /> Signals OS</span>}
+          subtitle={personality ? `נתונים התקבלו · ${formatDateTime(personality.receivedAt)}` : 'שליחת שאלון אישיות'}
+        />
 
-        return (
-          <Card id="lead-personality-section">
-            <CardHeader
-              title="מודיעין אישיותי"
-              subtitle={`Signals OS · ${formatDateTime(personality.receivedAt)}`}
-            />
-
-            {/* Row 1: Archetype badges + confidence + churn */}
-            <div className="flex flex-wrap items-center gap-3 mt-4 mb-6">
-              <div className={`flex items-center gap-2 px-4 py-2 rounded-xl ${primaryCfg.bgColor} border ${primaryCfg.borderColor}`}>
-                <span className="text-xl">{primaryCfg.icon}</span>
-                <div>
-                  <div className={`text-sm font-bold ${primaryCfg.color}`}>{primaryCfg.nameHe}</div>
-                  <div className="text-[10px] text-gray-500 uppercase">ראשי</div>
-                </div>
-              </div>
-              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${secondaryCfg.bgColor} border ${secondaryCfg.borderColor}`}>
-                <span className="text-lg">{secondaryCfg.icon}</span>
-                <div>
-                  <div className={`text-xs font-semibold ${secondaryCfg.color}`}>{secondaryCfg.nameHe}</div>
-                  <div className="text-[10px] text-gray-500 uppercase">משני</div>
-                </div>
-              </div>
-              <Badge variant={personality.confidenceLevel === 'HIGH' ? 'success' : personality.confidenceLevel === 'MEDIUM' ? 'warning' : 'danger'}>
-                ביטחון: {CONFIDENCE_HE[personality.confidenceLevel] || personality.confidenceLevel}
-              </Badge>
-              <Badge variant={personality.churnRisk === 'LOW' ? 'success' : personality.churnRisk === 'MEDIUM' ? 'warning' : 'danger'}>
-                סיכון נטישה: {CHURN_RISK_HE[personality.churnRisk] || personality.churnRisk}
-              </Badge>
+        {/* === STATE 1: No personality data — Send questionnaire === */}
+        {!personality && (
+          <div className="mt-4">
+            {/* Status indicator */}
+            <div className="flex items-center gap-3 mb-5 p-3 rounded-xl bg-amber-500/5 border border-amber-500/15">
+              <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <span className="text-sm text-amber-300/80">טרם נשלח שאלון אישיות לליד זה</span>
             </div>
 
-            {/* Row 2: Score bars */}
-            <div className="space-y-2.5 mb-6">
-              {archetypes.map(arch => {
-                const score = personality.scores[arch] || 0;
-                const pct = (score / maxScore) * 100;
-                const cfg = ARCHETYPE_CONFIG[arch];
-                const isPrimary = arch === personality.primaryArchetype;
-                return (
-                  <div key={arch} className="flex items-center gap-3">
-                    <span className="text-sm w-16 text-gray-400 shrink-0">{cfg.icon} {cfg.nameHe}</span>
-                    <div className="flex-1 h-2.5 bg-white/5 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${isPrimary ? 'opacity-100' : 'opacity-50'}`}
-                        style={{ width: `${pct}%`, backgroundColor: cfg.barColor }}
-                      />
+            {/* Questionnaire link */}
+            {(() => {
+              const questionnaireUrl = `https://signals-os.alma-ads.co.il/widget?questionnaire=v3-biz-owner${lead.email ? `&subject_email=${encodeURIComponent(lead.email)}` : ''}${lead.leadName ? `&subject_name=${encodeURIComponent(lead.leadName)}` : ''}${lead.phone ? `&subject_phone=${encodeURIComponent(lead.phone)}` : ''}&external_id=${encodeURIComponent(lead.leadId)}&source_id=agencymanager-pro`;
+
+              const waMessage = `יש לנו כלי אבחון שאנחנו בדרך כלל נותנים ללקוחות בתשלום,
+אבל אני רוצה להראות לך את יכולת החשיבה שלנו לעסק שלך -
+אז אני נותן לך את זה ללא תשלום.
+זה שאלון קצר (3 דקות) שנותן לך דוח מפורט על:
+✅ הסגנון הניהולי שלך
+✅ החוזקות והאתגרים בעסק
+✅ המלצות ספציפיות לצמיחה
+אין שם תשובה נכונה או לא נכונה
+וגם אם מרגיש לך ששתי התשובות נכונות, תבחר את מה שמרגיש לך יותר נכון.
+זה כלי שיכול לתת לך תובנות כבר עכשיו לך, לעסק. אתה תופתע לדעתי
+אם יש לך 2 דקות - כנס לפה:
+
+${questionnaireUrl}
+
+ואם בא לך, תשלח לי מה יצא - מעניין לראות`;
+
+              const waUrl = lead.phone
+                ? `https://wa.me/${formatPhoneForWhatsApp(lead.phone)}?text=${encodeURIComponent(waMessage)}`
+                : null;
+
+              return (
+                <div className="space-y-4">
+                  {/* WhatsApp send button */}
+                  {waUrl ? (
+                    <a
+                      href={waUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-3 w-full px-5 py-3.5 rounded-xl bg-[#25D366]/15 border border-[#25D366]/30 text-[#25D366] hover:bg-[#25D366]/25 transition-all group"
+                    >
+                      <MessageCircle size={20} className="group-hover:scale-110 transition-transform" />
+                      <span className="font-semibold text-sm">שלח שאלון Signals OS בוואטסאפ</span>
+                    </a>
+                  ) : (
+                    <div className="p-3 rounded-xl bg-gray-500/5 border border-gray-500/15 text-gray-500 text-sm text-center">
+                      אין מספר טלפון — לא ניתן לשלוח בוואטסאפ
                     </div>
-                    <span className={`text-xs font-mono w-8 text-end ${isPrimary ? 'text-white font-bold' : 'text-gray-500'}`}>
-                      {score}
+                  )}
+
+                  {/* Copy link button */}
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(questionnaireUrl);
+                      const btn = document.getElementById('signals-copy-btn');
+                      if (btn) { btn.textContent = '✓ הלינק הועתק!'; setTimeout(() => { btn.textContent = '🔗 העתק לינק לשאלון'; }, 2000); }
+                    }}
+                    id="signals-copy-btn"
+                    className="w-full text-center px-4 py-2.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-300 text-sm hover:bg-violet-500/20 transition-all"
+                  >
+                    🔗 העתק לינק לשאלון
+                  </button>
+
+                  {/* Preview of the message */}
+                  <details className="group">
+                    <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-400 flex items-center gap-1.5">
+                      <ChevronDown size={12} className="group-open:rotate-180 transition-transform" />
+                      תצוגה מקדימה של ההודעה
+                    </summary>
+                    <div className="mt-2 p-3 rounded-xl bg-white/[0.02] border border-white/5 text-xs text-gray-400 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto custom-scrollbar" dir="rtl">
+                      {waMessage}
+                    </div>
+                  </details>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* === STATE 2: Has personality data — Show intelligence === */}
+        {personality && (() => {
+          const primaryCfg = ARCHETYPE_CONFIG[personality.primaryArchetype] || ARCHETYPE_CONFIG.WINNER;
+          const secondaryCfg = ARCHETYPE_CONFIG[personality.secondaryArchetype] || ARCHETYPE_CONFIG.STAR;
+          const archetypes: Archetype[] = ['WINNER', 'STAR', 'DREAMER', 'HEART', 'ANCHOR'];
+          const maxScore = Math.max(...Object.values(personality.scores), 1);
+
+          return (
+            <div className="mt-4">
+              {/* Row 1: Archetype badges + confidence + churn */}
+              <div className="flex flex-wrap items-center gap-3 mb-6">
+                <div className={`flex items-center gap-2 px-4 py-2 rounded-xl ${primaryCfg.bgColor} border ${primaryCfg.borderColor}`}>
+                  <span className="text-xl">{primaryCfg.icon}</span>
+                  <div>
+                    <div className={`text-sm font-bold ${primaryCfg.color}`}>{primaryCfg.nameHe}</div>
+                    <div className="text-[10px] text-gray-500 uppercase">ראשי</div>
+                  </div>
+                </div>
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${secondaryCfg.bgColor} border ${secondaryCfg.borderColor}`}>
+                  <span className="text-lg">{secondaryCfg.icon}</span>
+                  <div>
+                    <div className={`text-xs font-semibold ${secondaryCfg.color}`}>{secondaryCfg.nameHe}</div>
+                    <div className="text-[10px] text-gray-500 uppercase">משני</div>
+                  </div>
+                </div>
+                <Badge variant={personality.confidenceLevel === 'HIGH' ? 'success' : personality.confidenceLevel === 'MEDIUM' ? 'warning' : 'danger'}>
+                  ביטחון: {CONFIDENCE_HE[personality.confidenceLevel] || personality.confidenceLevel}
+                </Badge>
+                <Badge variant={personality.churnRisk === 'LOW' ? 'success' : personality.churnRisk === 'MEDIUM' ? 'warning' : 'danger'}>
+                  סיכון נטישה: {CHURN_RISK_HE[personality.churnRisk] || personality.churnRisk}
+                </Badge>
+              </div>
+
+              {/* Row 2: Score bars */}
+              <div className="space-y-2.5 mb-6">
+                {archetypes.map(arch => {
+                  const score = personality.scores[arch] || 0;
+                  const pct = (score / maxScore) * 100;
+                  const cfg = ARCHETYPE_CONFIG[arch];
+                  const isPrimary = arch === personality.primaryArchetype;
+                  return (
+                    <div key={arch} className="flex items-center gap-3">
+                      <span className="text-sm w-16 text-gray-400 shrink-0">{cfg.icon} {cfg.nameHe}</span>
+                      <div className="flex-1 h-2.5 bg-white/5 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${isPrimary ? 'opacity-100' : 'opacity-50'}`}
+                          style={{ width: `${pct}%`, backgroundColor: cfg.barColor }}
+                        />
+                      </div>
+                      <span className={`text-xs font-mono w-8 text-end ${isPrimary ? 'text-white font-bold' : 'text-gray-500'}`}>
+                        {score}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Row 3: Smart tags */}
+              {personality.smartTags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-6">
+                  {personality.smartTags.map(tag => (
+                    <span key={tag} className="px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-300 text-xs border border-violet-500/20">
+                      {tag}
                     </span>
-                  </div>
-                );
-              })}
+                  ))}
+                </div>
+              )}
+
+              {/* Row 4: Sales Cheat Sheet (expandable) */}
+              {Object.keys(personality.salesCheatSheet).length > 0 && (
+                <div className="border border-white/5 rounded-xl mb-3 overflow-hidden">
+                  <button
+                    onClick={() => setSalesSheetExpanded(!salesSheetExpanded)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Target size={14} className="text-amber-400" />
+                      <span className="text-sm font-medium text-gray-200">גיליון מכירות</span>
+                    </div>
+                    {salesSheetExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                  </button>
+                  {salesSheetExpanded && (
+                    <div className="px-4 pb-4 space-y-0">
+                      {Object.entries(personality.salesCheatSheet).map(([key, value]) => (
+                        <div key={key} className="flex gap-3 py-2 border-b border-white/5 last:border-0">
+                          <span className="text-xs text-gray-500 w-28 shrink-0">{SALES_SHEET_LABELS[key] || key}</span>
+                          <span className="text-xs text-gray-300">{Array.isArray(value) ? value.join(', ') : value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Row 5: Retention Cheat Sheet (expandable) */}
+              {Object.keys(personality.retentionCheatSheet).length > 0 && (
+                <div className="border border-white/5 rounded-xl mb-3 overflow-hidden">
+                  <button
+                    onClick={() => setRetentionSheetExpanded(!retentionSheetExpanded)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Shield size={14} className="text-cyan-400" />
+                      <span className="text-sm font-medium text-gray-200">גיליון שימור</span>
+                    </div>
+                    {retentionSheetExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                  </button>
+                  {retentionSheetExpanded && (
+                    <div className="px-4 pb-4 space-y-0">
+                      {Object.entries(personality.retentionCheatSheet).map(([key, value]) => (
+                        <div key={key} className="flex gap-3 py-2 border-b border-white/5 last:border-0">
+                          <span className="text-xs text-gray-500 w-28 shrink-0">{RETENTION_SHEET_LABELS[key] || key}</span>
+                          <span className="text-xs text-gray-300">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Row 6: Link to full report */}
+              {personality.resultUrl && (
+                <div className="mt-4 pt-4 border-t border-white/5">
+                  <a
+                    href={personality.resultUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary text-xs hover:underline flex items-center gap-1.5"
+                  >
+                    <ExternalLink size={12} /> צפה בדוח המלא ב-Signals OS
+                  </a>
+                </div>
+              )}
             </div>
-
-            {/* Row 3: Smart tags */}
-            {personality.smartTags.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-6">
-                {personality.smartTags.map(tag => (
-                  <span key={tag} className="px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-300 text-xs border border-violet-500/20">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Row 4: Sales Cheat Sheet (expandable) */}
-            {Object.keys(personality.salesCheatSheet).length > 0 && (
-              <div className="border border-white/5 rounded-xl mb-3 overflow-hidden">
-                <button
-                  onClick={() => setSalesSheetExpanded(!salesSheetExpanded)}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <Target size={14} className="text-amber-400" />
-                    <span className="text-sm font-medium text-gray-200">גיליון מכירות</span>
-                  </div>
-                  {salesSheetExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
-                </button>
-                {salesSheetExpanded && (
-                  <div className="px-4 pb-4 space-y-0">
-                    {Object.entries(personality.salesCheatSheet).map(([key, value]) => (
-                      <div key={key} className="flex gap-3 py-2 border-b border-white/5 last:border-0">
-                        <span className="text-xs text-gray-500 w-28 shrink-0">{SALES_SHEET_LABELS[key] || key}</span>
-                        <span className="text-xs text-gray-300">{Array.isArray(value) ? value.join(', ') : value}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Row 5: Retention Cheat Sheet (expandable) */}
-            {Object.keys(personality.retentionCheatSheet).length > 0 && (
-              <div className="border border-white/5 rounded-xl mb-3 overflow-hidden">
-                <button
-                  onClick={() => setRetentionSheetExpanded(!retentionSheetExpanded)}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <Shield size={14} className="text-cyan-400" />
-                    <span className="text-sm font-medium text-gray-200">גיליון שימור</span>
-                  </div>
-                  {retentionSheetExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
-                </button>
-                {retentionSheetExpanded && (
-                  <div className="px-4 pb-4 space-y-0">
-                    {Object.entries(personality.retentionCheatSheet).map(([key, value]) => (
-                      <div key={key} className="flex gap-3 py-2 border-b border-white/5 last:border-0">
-                        <span className="text-xs text-gray-500 w-28 shrink-0">{RETENTION_SHEET_LABELS[key] || key}</span>
-                        <span className="text-xs text-gray-300">{value}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Row 6: Link to full report */}
-            {personality.resultUrl && (
-              <div className="mt-4 pt-4 border-t border-white/5">
-                <a
-                  href={personality.resultUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary text-xs hover:underline flex items-center gap-1.5"
-                >
-                  <ExternalLink size={12} /> צפה בדוח המלא ב-Signals OS
-                </a>
-              </div>
-            )}
-          </Card>
-        );
-      })()}
+          );
+        })()}
+      </Card>
 
       {/* Notes History (manual only — AI summaries shown in separate section) */}
       <Card id="lead-notes-section">
