@@ -105,7 +105,21 @@ const Settings: React.FC = () => {
                 <Input label="יעד הכנסות חודשי (₪)" type="number" value={localSettings.targetMonthlyRevenue} onChange={e => setLocalSettings({...localSettings, targetMonthlyRevenue: Number(e.target.value)})} />
                 <Input label="יעד רווח חודשי (₪)" type="number" value={localSettings.targetMonthlyGrossProfit} onChange={e => setLocalSettings({...localSettings, targetMonthlyGrossProfit: Number(e.target.value)})} />
             </div>
-            <Input label="משכורת שכיר חודשית (₪)" type="number" value={localSettings.employeeSalary || ''} onFocus={e => { if (e.target.value === '0') e.target.value = ''; }} onChange={e => setLocalSettings({...localSettings, employeeSalary: Number(e.target.value) || 0})} />
+            {/* Toggle שכיר */}
+            <div className="flex items-center justify-between bg-[#0B1121] p-4 rounded-xl border border-white/5">
+              <span className="text-gray-200 text-sm font-medium">שכיר/ה?</span>
+              <button
+                role="switch"
+                aria-checked={localSettings.isSalaried}
+                onClick={() => setLocalSettings({...localSettings, isSalaried: !localSettings.isSalaried, employeeSalary: !localSettings.isSalaried ? localSettings.employeeSalary : 0})}
+                className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${localSettings.isSalaried ? 'bg-green-500' : 'bg-gray-600'}`}
+              >
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${localSettings.isSalaried ? '-translate-x-1.5' : '-translate-x-6'}`} />
+              </button>
+            </div>
+            {localSettings.isSalaried && (
+              <Input label="משכורת שכיר חודשית (₪)" type="number" value={localSettings.employeeSalary || ''} onFocus={e => { if (e.target.value === '0') e.target.value = ''; }} onChange={e => setLocalSettings({...localSettings, employeeSalary: Number(e.target.value) || 0})} />
+            )}
             <div className="flex justify-end pt-4 border-t border-white/5">
                 <Button onClick={handleSaveSettings} icon={<Save size={18} />}>שמור שינויים</Button>
             </div>

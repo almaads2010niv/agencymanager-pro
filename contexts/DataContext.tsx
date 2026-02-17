@@ -147,12 +147,13 @@ interface PaymentRow {
 }
 
 interface SettingsRow {
-  id?: number;
+  tenant_id: string;
   agency_name: string;
   owner_name: string;
   target_monthly_revenue: number;
   target_monthly_gross_profit: number;
   employee_salary: number;
+  is_salaried: boolean;
   canva_api_key?: string | null;
   canva_template_id?: string | null;
   gemini_api_key?: string | null;
@@ -452,14 +453,14 @@ const transformPaymentFromDB = (row: PaymentRow): Payment => ({
 });
 
 const transformSettingsToDB = (settings: AgencySettings, tid: string | null) => ({
-  // Use tenant_id as the unique key — each tenant gets exactly one settings row
-  // No more hardcoded id:1 that conflicts across tenants!
+  // tenant_id is now the PK — each tenant gets exactly one settings row
   tenant_id: tid || '00000000-0000-0000-0000-000000000000',
   agency_name: settings.agencyName,
   owner_name: settings.ownerName,
   target_monthly_revenue: settings.targetMonthlyRevenue,
   target_monthly_gross_profit: settings.targetMonthlyGrossProfit,
   employee_salary: settings.employeeSalary || 0,
+  is_salaried: settings.isSalaried || false,
   // Note: API keys are NOT included here — they are saved via saveApiKeys() directly
 });
 
@@ -469,6 +470,7 @@ const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
   targetMonthlyRevenue: row.target_monthly_revenue,
   targetMonthlyGrossProfit: row.target_monthly_gross_profit,
   employeeSalary: row.employee_salary || 0,
+  isSalaried: row.is_salaried || false,
   // Security: only send boolean flags to frontend, never actual keys
   hasCanvaKey: !!(row.canva_api_key && row.canva_api_key.length > 0),
   hasGeminiKey: !!(row.gemini_api_key && row.gemini_api_key.length > 0),

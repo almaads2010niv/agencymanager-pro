@@ -21,6 +21,7 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   targetMonthlyRevenue: 50000,
   targetMonthlyGrossProfit: 30000,
   employeeSalary: 20000,
+  isSalaried: false,
   hasCanvaKey: false,
   hasGeminiKey: false,
   hasSignalsWebhookSecret: false,

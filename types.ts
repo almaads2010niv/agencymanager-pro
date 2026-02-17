@@ -165,6 +165,7 @@ export interface AgencySettings {
   targetMonthlyRevenue: number;
   targetMonthlyGrossProfit: number;
   employeeSalary: number;
+  isSalaried: boolean;
   // Security: only boolean flags reach the frontend — actual keys stay server-side
   hasCanvaKey: boolean;
   hasGeminiKey: boolean;
