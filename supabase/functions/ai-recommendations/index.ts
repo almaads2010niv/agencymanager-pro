@@ -258,41 +258,50 @@ ${pdfInstruction}
       })
     }
 
-    // 7. If PDF was uploaded and no personality exists in DB, extract structured personality data
+    // 7. If PDF was uploaded, extract structured personality data and save/update
     let extractedPersonality = null
-    if (pdfFileData && !personality) {
+    if (pdfFileData) {
       // Ask Gemini to extract structured personality data from the PDF
+      // NOTE: We always extract (even if personality exists) to update with latest PDF data
       const extractPrompt = `מצורף דוח אבחון אישיות Signals OS בפורמט PDF.
-חלץ ממנו את הנתונים הבאים בפורמט JSON בלבד (ללא markdown, ללא backticks):
+חלץ ממנו את **כל** הנתונים בפורמט JSON בלבד (ללא markdown, ללא backticks).
+
+חשוב מאוד: שמור את הטקסט **המלא** מהדוח — אל תתמצת ואל תקצר! העתק פסקאות שלמות כפי שהן.
 
 {
   "primary_archetype": "WINNER|STAR|DREAMER|HEART|ANCHOR",
   "secondary_archetype": "WINNER|STAR|DREAMER|HEART|ANCHOR",
   "confidence_level": "HIGH|MEDIUM|LOW",
   "churn_risk": "HIGH|MEDIUM|LOW",
-  "scores": { "WINNER": 0-100, "STAR": 0-100, "DREAMER": 0-100, "HEART": 0-100, "ANCHOR": 0-100 },
+  "scores": { "WINNER": 0-10, "STAR": 0-10, "DREAMER": 0-10, "HEART": 0-10, "ANCHOR": 0-10 },
   "smart_tags": ["תגית1", "תגית2"],
   "sales_cheat_sheet": {
-    "how_to_speak": "תיאור קצר",
-    "what_not_to_do": "תיאור קצר",
+    "how_to_speak": "הטקסט המלא מהדוח על איך לדבר עם הנבדק, כולל טון ושאלות מכיילות",
+    "what_not_to_do": "הטקסט המלא מהדוח על מה לא לעשות — כל הנקודות",
     "closing_speed": "מהיר|בינוני|איטי",
-    "best_offers": "תיאור קצר",
-    "best_social_proof": "תיאור קצר",
-    "red_flags": "תיאור קצר",
-    "followup_plan": "תיאור קצר",
+    "best_offers": "הטקסט המלא על סוג ההצעות שיעבדו הכי טוב",
+    "best_social_proof": "הטקסט המלא על הוכחות חברתיות מומלצות",
+    "red_flags": "הטקסט המלא על דגלים אדומים וסיכונים",
+    "followup_plan": "הטקסט המלא על תוכנית מעקב ומיקוד onboarding",
+    "closing_line": "משפט הסגירה המומלץ מהדוח — ציטוט מדויק",
+    "calibration_questions": "כל השאלות המכיילות מהדוח, מופרדות ב-|",
+    "fomo_message": "הודעת FOMO מהדוח אם קיימת",
+    "call_script": "תסריט השיחה המלא מהדוח — פתיחה, שאלות, מכירה, סגירה",
     "recommended_channels": ["ערוץ1"]
   },
   "retention_cheat_sheet": {
-    "onboarding_focus": "תיאור קצר",
-    "habit_building": "תיאור קצר",
-    "community_hook": "תיאור קצר",
-    "risk_moments": "תיאור קצר",
-    "save_offer": "תיאור קצר",
-    "cadence": "תיאור קצר"
-  }
+    "onboarding_focus": "הטקסט המלא על מיקוד onboarding",
+    "habit_building": "הטקסט המלא על בניית הרגלים",
+    "community_hook": "הטקסט המלא על וו קהילתי",
+    "risk_moments": "הטקסט המלא על רגעי סיכון ונטישה, כולל מסגרת הזמן",
+    "save_offer": "הטקסט המלא על הצעת הצלה",
+    "cadence": "הטקסט המלא על תדירות קשר מומלצת"
+  },
+  "business_report": "הטקסט המלא של 'דוח מודיעין עסקי' — כל הפסקאות כפי שהן, כולל שורת פרופיל, סיכון נטישה, המלצות מכירה, שאלות מכיילות, מה לא לעשות, משפט סגירה, מיקוד onboarding, תסריט שיחה",
+  "user_report": "הטקסט המלא של 'דוח משתמש' — כל הפסקאות כפי שהן"
 }
 
-אם אין מספיק מידע בדוח לשדה מסוים, בצע הערכה מבוססת על מה שכן יש.
+אם אין מספיק מידע בדוח לשדה מסוים, כתוב מחרוזת ריקה "".
 החזר רק JSON תקני, בלי שום טקסט נוסף.`
 
       try {
@@ -309,7 +318,7 @@ ${pdfInstruction}
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               contents: [{ parts: extractParts }],
-              generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+              generationConfig: { temperature: 0.2, maxOutputTokens: 8192 },
             }),
           }
         )
@@ -342,6 +351,11 @@ ${pdfInstruction}
       if (extractedPersonality && pdfLeadId) {
         const ep = extractedPersonality
         const now = new Date().toISOString()
+
+        // Build rich sales_cheat_sheet — include all new fields from expanded extraction
+        const salesSheet = ep.sales_cheat_sheet || {}
+        const retentionSheet = ep.retention_cheat_sheet || {}
+
         const upsertData = {
           id: crypto.randomUUID(),
           lead_id: pdfLeadId,
@@ -357,10 +371,10 @@ ${pdfInstruction}
           churn_risk: ep.churn_risk || 'MEDIUM',
           scores: ep.scores || {},
           smart_tags: ep.smart_tags || [],
-          user_report: null,
-          business_report: null,
-          sales_cheat_sheet: ep.sales_cheat_sheet || {},
-          retention_cheat_sheet: ep.retention_cheat_sheet || {},
+          user_report: ep.user_report || null,
+          business_report: ep.business_report || null,
+          sales_cheat_sheet: salesSheet,
+          retention_cheat_sheet: retentionSheet,
           result_url: null,
           lang: 'he',
           questionnaire_version: 'pdf-import',

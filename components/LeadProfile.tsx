@@ -61,6 +61,10 @@ const SALES_SHEET_LABELS: Record<string, string> = {
   best_offers: 'הצעות מומלצות',
   best_social_proof: 'הוכחה חברתית',
   red_flags: 'דגלים אדומים',
+  closing_line: 'משפט סגירה',
+  calibration_questions: 'שאלות מכיילות',
+  fomo_message: 'יצירת FOMO',
+  call_script: 'תסריט שיחה',
   recommended_channels: 'ערוצים מומלצים',
 };
 
@@ -170,6 +174,8 @@ const LeadProfile: React.FC = () => {
   // Signals OS personality data for this lead
   const personality = signalsPersonalities.find(p => p.leadId === leadId);
   const [salesSheetExpanded, setSalesSheetExpanded] = useState(false);
+  const [businessReportExpanded, setBusinessReportExpanded] = useState(false);
+  const [userReportExpanded, setUserReportExpanded] = useState(false);
   const [retentionSheetExpanded, setRetentionSheetExpanded] = useState(false);
 
   // Helper to get user name from allUsers
@@ -1195,12 +1201,16 @@ ${questionnaireUrl}
                   </button>
                   {salesSheetExpanded && (
                     <div className="px-4 pb-4 space-y-0">
-                      {Object.entries(personality.salesCheatSheet).map(([key, value]) => (
-                        <div key={key} className="flex gap-3 py-2 border-b border-white/5 last:border-0">
-                          <span className="text-xs text-gray-500 w-28 shrink-0">{SALES_SHEET_LABELS[key] || key}</span>
-                          <span className="text-xs text-gray-300">{Array.isArray(value) ? value.join(', ') : value}</span>
-                        </div>
-                      ))}
+                      {Object.entries(personality.salesCheatSheet).map(([key, value]) => {
+                        const displayValue = Array.isArray(value) ? value.join(', ') : String(value || '');
+                        const isLong = displayValue.length > 80;
+                        return (
+                          <div key={key} className={`${isLong ? 'flex flex-col gap-1' : 'flex gap-3'} py-2 border-b border-white/5 last:border-0`}>
+                            <span className={`text-xs text-gray-500 ${isLong ? '' : 'w-28'} shrink-0 font-medium`}>{SALES_SHEET_LABELS[key] || key}</span>
+                            <span className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">{displayValue}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1221,12 +1231,58 @@ ${questionnaireUrl}
                   </button>
                   {retentionSheetExpanded && (
                     <div className="px-4 pb-4 space-y-0">
-                      {Object.entries(personality.retentionCheatSheet).map(([key, value]) => (
-                        <div key={key} className="flex gap-3 py-2 border-b border-white/5 last:border-0">
-                          <span className="text-xs text-gray-500 w-28 shrink-0">{RETENTION_SHEET_LABELS[key] || key}</span>
-                          <span className="text-xs text-gray-300">{value}</span>
-                        </div>
-                      ))}
+                      {Object.entries(personality.retentionCheatSheet).map(([key, value]) => {
+                        const displayValue = String(value || '');
+                        const isLong = displayValue.length > 80;
+                        return (
+                          <div key={key} className={`${isLong ? 'flex flex-col gap-1' : 'flex gap-3'} py-2 border-b border-white/5 last:border-0`}>
+                            <span className={`text-xs text-gray-500 ${isLong ? '' : 'w-28'} shrink-0 font-medium`}>{RETENTION_SHEET_LABELS[key] || key}</span>
+                            <span className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">{displayValue}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Row 5b: Business Report (full text — expandable) */}
+              {personality.businessReport && (
+                <div className="border border-white/5 rounded-xl mb-3 overflow-hidden">
+                  <button
+                    onClick={() => setBusinessReportExpanded(!businessReportExpanded)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileText size={14} className="text-emerald-400" />
+                      <span className="text-sm font-medium text-gray-200">דוח מודיעין עסקי</span>
+                    </div>
+                    {businessReportExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                  </button>
+                  {businessReportExpanded && (
+                    <div className="px-4 pb-4">
+                      <p className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto custom-scrollbar">{personality.businessReport}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Row 5c: User Report (full text — expandable) */}
+              {personality.userReport && (
+                <div className="border border-white/5 rounded-xl mb-3 overflow-hidden">
+                  <button
+                    onClick={() => setUserReportExpanded(!userReportExpanded)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileText size={14} className="text-violet-400" />
+                      <span className="text-sm font-medium text-gray-200">דוח אישי</span>
+                    </div>
+                    {userReportExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                  </button>
+                  {userReportExpanded && (
+                    <div className="px-4 pb-4">
+                      <p className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto custom-scrollbar">{personality.userReport}</p>
                     </div>
                   )}
                 </div>
