@@ -123,15 +123,26 @@ const KnowledgeBase: React.FC = () => {
           setFormTitle(file.name.replace(/\.[^.]+$/, ''));
         }
 
-        // AI Summarize if Gemini key available
+        // AI Summarize if Gemini key available — send the actual file
         if (settings.hasGeminiKey) {
           setIsSummarizing(true);
           try {
-            const { data: fnData, error: fnError } = await supabase.functions.invoke('summarize-document', {
-              body: { textContent: formContent || `קובץ: ${file.name}`, fileName: file.name },
-            });
+            const summaryFormData = new FormData();
+            summaryFormData.append('file', file);
+            summaryFormData.append('fileName', file.name);
+            if (formContent) summaryFormData.append('textContent', formContent);
 
-            if (!fnError && fnData?.success) {
+            const { data: { session } } = await supabase.auth.getSession();
+            const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/summarize-document`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${session?.access_token}`,
+              },
+              body: summaryFormData,
+            });
+            const fnData = await res.json();
+
+            if (fnData?.success) {
               setFormSummary(fnData.summary || '');
               if (fnData.suggestedCategory) setFormCategory(fnData.suggestedCategory);
               if (fnData.suggestedTags?.length) setFormTags(fnData.suggestedTags.join(', '));
