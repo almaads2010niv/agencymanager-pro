@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { KnowledgeArticle } from '../types';
-import { Plus, Search, BookOpen, FileText, Upload, Trash2, Edit3, Tag, Sparkles, File, X } from 'lucide-react';
+import { Plus, Search, BookOpen, FileText, Upload, Trash2, Edit3, Tag, Sparkles, File, X, Download, ExternalLink } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select, Textarea } from './ui/Form';
@@ -336,14 +336,29 @@ const KnowledgeBase: React.FC = () => {
                     <span className="text-[10px] text-gray-600">
                       {article.createdByName} · {new Date(article.createdAt).toLocaleDateString('he-IL')}
                     </span>
-                    {isAdmin && (
-                      <button
-                        onClick={e => { e.stopPropagation(); setDeleteConfirm(article.id); }}
-                        className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-all"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {article.fileUrl && (
+                        <a
+                          href={article.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          download={article.fileName}
+                          onClick={e => e.stopPropagation()}
+                          className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-primary transition-all"
+                          title={`הורד ${article.fileName}`}
+                        >
+                          <Download size={14} />
+                        </a>
+                      )}
+                      {isAdmin && (
+                        <button
+                          onClick={e => { e.stopPropagation(); setDeleteConfirm(article.id); }}
+                          className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </Card>
@@ -373,6 +388,17 @@ const KnowledgeBase: React.FC = () => {
               <div className="flex items-center gap-3">
                 <File size={20} className="text-primary" />
                 <span className="text-sm text-white flex-1 truncate">{uploadedFileName}</span>
+                <a
+                  href={uploadedFileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download={uploadedFileName}
+                  className="text-primary hover:text-primary/80 transition-colors flex items-center gap-1 text-xs shrink-0"
+                  title="הורד קובץ"
+                >
+                  <Download size={14} />
+                  <span>הורד</span>
+                </a>
                 <button
                   onClick={() => { setUploadedFileUrl(null); setUploadedFileName(''); setUploadedFileType(''); }}
                   className="text-gray-500 hover:text-red-400"
