@@ -696,3 +696,45 @@
   Psychological Pricing, Client Cloning, Auto Case Studies, Churn Prediction,
   Meeting Prep Briefing, Revenue Attribution, Engagement Scoring,
   Win/Loss Analysis, Micro-Commitment Funnel
+
+---
+
+## סשן 24 (19.02.2026) — מיילים על חתימת הצעת מחיר + אימות דומיין
+
+**מה ביקשת:**
+1. "מפליא אותי שפיתחת הצעת מחיר חכמה, מונפשת, חתימה דיגיטלית ולא חשבת על מייל שיוציא את ההצעה החתומה" — חסר מייל בחתימת הצעה
+2. "חתימה על הצעה לא מתקבלת! לא נשלחת ללקוח ולא לדואר שלי" — HTTP 400 ב-webhook
+3. "אני מאשר הכל. אל תשלח לי הודעות אישור. רק הודעה סופית שהכל בוצע" — עבודה אוטונומית
+
+**מה עשיתי:**
+
+### 1. תיקון HTTP 400 ב-proposal-webhook
+- **בעיה:** הקליינט שולח `{ signature: { name, email, ... } }` אבל ה-webhook ציפה למבנה שטוח
+- **תיקון:** `const sig = body.signature || body` — תומך בשני הפורמטים
+
+### 2. מערכת מיילים מלאה עם Resend API
+- **SQL Migration:** עמודות `resend_api_key` + `notification_email` בטבלת settings
+- **Types + Constants:** `hasResendKey`, `notificationEmail` ב-AgencySettings
+- **DataContext:** `saveResendApiKey()` — שמירת מפתח Resend (כמו Telegram)
+- **Settings.tsx:** כרטיס "Resend Email" חדש עם שדות API key + notification email
+
+### 3. שכתוב מלא של proposal-webhook (~398 שורות)
+- **sendResendEmail()** — helper function לשליחה
+- **buildAgencyNotificationEmail()** — מייל RTL עברי ממותג לבעל הסוכנות:
+  - שם ליד, עסק, חבילה שנבחרה, פרטי חתימה, לינק להצעה
+- **buildClientConfirmationEmail()** — מייל RTL עברי ממותג ללקוח החותם:
+  - תודה, חבילה שנבחרה, שלבים הבאים, פרטי סוכנות
+- שני מיילים: (1) לnotification_email (בעל סוכנות), (2) לemail של החותם
+- צבעי מותג מsettings, שם סוכנות, לוגו
+
+### 4. אימות דומיין alma-ads.co.il ב-Resend
+- כתובת שולח **זמנית**: `onboarding@resend.dev` (עובד ללא אימות DNS)
+- הוספת הדומיין alma-ads.co.il ב-Resend (אזור EU Ireland)
+- DNS records שנוצרו:
+  - DKIM: TXT, `resend._domainkey`
+  - SPF: MX + TXT על `send`
+  - DMARC: TXT על `_dmarc`
+- **נשאר:** להוסיף DNS records בממשק הדומיין (Hostinger), אחרי אימות — להחליף חזרה ל-`niv@alma-ads.co.il`
+
+### Edge Functions deployed: proposal-webhook
+### Commits: cd34d8c (תיקון 400), 2bc460a (מיילים)

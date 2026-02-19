@@ -32,9 +32,10 @@ async function sendResendEmail(
   fromName?: string
 ): Promise<void> {
   try {
+    // TODO: After verifying alma-ads.co.il domain in Resend, change to niv@alma-ads.co.il
     const fromAddress = fromName
-      ? `${fromName} <niv@alma-ads.co.il>`
-      : 'Alma Ads <niv@alma-ads.co.il>'
+      ? `${fromName} <onboarding@resend.dev>`
+      : 'Alma Ads <onboarding@resend.dev>'
 
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
