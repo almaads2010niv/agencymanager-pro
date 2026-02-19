@@ -9,7 +9,7 @@ import { formatCurrency, formatDate, formatDateTime, formatPhoneForWhatsApp } fr
 import { MESSAGE_PURPOSES } from '../constants';
 import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink, Upload, Loader2, Zap, Users, Star, AlertTriangle, MessageSquare, ListChecks, Printer } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import { getBrandConfig, generatePersonalityPdf } from '../utils/pdfGenerator';
+import { getBrandConfig, generatePersonalityPdf, generateCustomPdf } from '../utils/pdfGenerator';
 import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
@@ -153,9 +153,20 @@ const LeadProfile: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<Lead> | null>(null);
 
+  // AI Notebook state
+  const [notebookOpen, setNotebookOpen] = useState(false);
+  const [notebookMessages, setNotebookMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [notebookInput, setNotebookInput] = useState('');
+  const [notebookLoading, setNotebookLoading] = useState(false);
+  const notebookEndRef = useRef<HTMLDivElement>(null);
+
   // Competitor scout state
   const [scoutLoading, setScoutLoading] = useState(false);
   const [scoutExpanded, setScoutExpanded] = useState(false);
+
+  // PDF dropdown state
+  const [pdfDropdownOpen, setPdfDropdownOpen] = useState(false);
+  const pdfDropdownRef = useRef<HTMLDivElement>(null);
 
   // Delete lead state
   const [confirmDeleteLead, setConfirmDeleteLead] = useState(false);
@@ -168,6 +179,7 @@ const LeadProfile: React.FC = () => {
     { id: 'transcripts', label: 'תמלולי שיחות' },
     { id: 'ai-recommendations', label: 'המלצות AI' },
     { id: 'ai-summaries', label: 'סיכומי AI' },
+    { id: 'notebook', label: 'AI Notebook' },
     { id: 'whatsapp', label: 'הודעות WhatsApp' },
     { id: 'activity', label: 'היסטוריית פעילות' },
   ];
@@ -415,6 +427,17 @@ const LeadProfile: React.FC = () => {
     }
   };
 
+  // Close PDF dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (pdfDropdownRef.current && !pdfDropdownRef.current.contains(e.target as Node)) {
+        setPdfDropdownOpen(false);
+      }
+    };
+    if (pdfDropdownOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [pdfDropdownOpen]);
+
   // ===== Auto-trigger AI recommendations when personality data arrives =====
   useEffect(() => {
     if (!personality || !lead || !user || autoRecTriggered) return;
@@ -425,6 +448,50 @@ const LeadProfile: React.FC = () => {
     handleGetRecommendations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personality?.receivedAt]);
+
+  // AI Notebook: Send message
+  const handleNotebookSend = async () => {
+    if (!notebookInput.trim() || notebookLoading || !leadId) return;
+    const userMessage = notebookInput.trim();
+    setNotebookInput('');
+    setNotebookMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setNotebookLoading(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-notebook`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            entityId: leadId,
+            entityType: 'lead',
+            message: userMessage,
+            chatHistory: notebookMessages.slice(-10),
+          }),
+        }
+      );
+
+      const result = await response.json();
+      if (result.success && result.reply) {
+        setNotebookMessages(prev => [...prev, { role: 'assistant', content: result.reply }]);
+      } else {
+        setNotebookMessages(prev => [...prev, { role: 'assistant', content: `❌ ${result.error || 'שגיאה'}` }]);
+      }
+    } catch {
+      setNotebookMessages(prev => [...prev, { role: 'assistant', content: '❌ שגיאה בתקשורת עם AI' }]);
+    } finally {
+      setNotebookLoading(false);
+      setTimeout(() => notebookEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
+  };
 
   const handleGenerateProposal = async () => {
     if (!lead) return;
@@ -760,24 +827,76 @@ const LeadProfile: React.FC = () => {
             מחק ליד
           </Button>
         )}
-        {/* PDF Export — Personality Report */}
-        {personality?.businessIntelV2 && (
+        {/* PDF Export Dropdown */}
+        <div className="relative" ref={pdfDropdownRef}>
           <Button
             variant="ghost"
             icon={<Printer size={16} />}
-            className="text-gray-400 hover:text-white"
-            onClick={() => {
-              const brand = getBrandConfig(settings);
-              generatePersonalityPdf({
-                personality: personality!,
-                entityName: lead.leadName,
-                entityType: 'lead',
-              }, brand);
-            }}
+            className={`${pdfDropdownOpen ? 'bg-primary/20 text-primary' : 'text-gray-400 hover:text-white'}`}
+            onClick={() => setPdfDropdownOpen(!pdfDropdownOpen)}
           >
-            PDF אישיותי
+            ייצוא PDF
           </Button>
-        )}
+          {pdfDropdownOpen && (
+            <div className="absolute left-0 top-full mt-1 bg-[#0D1526] border border-white/10 rounded-xl shadow-2xl py-1 min-w-[200px] z-[60]">
+              <button
+                onClick={() => {
+                  setPdfDropdownOpen(false);
+                  const brand = getBrandConfig(settings);
+                  const sections: Array<{ title: string; content: string }> = [];
+                  // Contact info
+                  const contactLines: string[] = [];
+                  if (lead.phone) contactLines.push(`טלפון: ${lead.phone}`);
+                  if (lead.email) contactLines.push(`אימייל: ${lead.email}`);
+                  if (lead.businessName) contactLines.push(`עסק: ${lead.businessName}`);
+                  if (lead.source) contactLines.push(`מקור: ${lead.source}`);
+                  if (lead.assignedTo) contactLines.push(`אחראי: ${getUserName(lead.assignedTo) || ''}`);
+                  if (contactLines.length > 0) sections.push({ title: 'פרטי קשר', content: contactLines.join('\n') });
+                  // Services
+                  if (activeServiceLabels.length > 0) sections.push({ title: 'שירותים מבוקשים', content: activeServiceLabels.join(', ') });
+                  // Budget
+                  if (lead.estimatedBudget) sections.push({ title: 'תקציב משוער', content: `₪${lead.estimatedBudget.toLocaleString('he-IL')}` });
+                  // Notes
+                  if (lead.notes) sections.push({ title: 'הערות', content: lead.notes });
+                  // Recent CRM notes
+                  const recentNotes = leadNotesFiltered.slice(0, 5).map(n => `${n.createdByName} (${formatDate(n.createdAt)}): ${n.content}`).join('\n\n');
+                  if (recentNotes) sections.push({ title: 'הערות אחרונות', content: recentNotes });
+                  generateCustomPdf({
+                    title: `סיכום ליד — ${lead.leadName}`,
+                    subtitle: lead.businessName || undefined,
+                    kpis: [
+                      { label: 'סטטוס', value: lead.status, color: '#14b8a6' },
+                      ...(lead.estimatedBudget ? [{ label: 'תקציב', value: `₪${lead.estimatedBudget.toLocaleString('he-IL')}`, color: '#3b82f6' }] : []),
+                      ...(activeServiceLabels.length > 0 ? [{ label: 'שירותים', value: String(activeServiceLabels.length), color: '#f59e0b' }] : []),
+                    ],
+                    sections,
+                  }, brand);
+                }}
+                className="w-full text-right px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition-colors flex items-center gap-2"
+              >
+                <FileText size={14} className="text-blue-400" />
+                📋 סיכום ליד
+              </button>
+              {personality?.businessIntelV2 && (
+                <button
+                  onClick={() => {
+                    setPdfDropdownOpen(false);
+                    const brand = getBrandConfig(settings);
+                    generatePersonalityPdf({
+                      personality: personality!,
+                      entityName: lead.leadName,
+                      entityType: 'lead',
+                    }, brand);
+                  }}
+                  className="w-full text-right px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition-colors flex items-center gap-2"
+                >
+                  <Brain size={14} className="text-purple-400" />
+                  🧠 דוח אישיותי
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Proposal Error */}
@@ -2213,6 +2332,88 @@ ${questionnaireUrl}
         )}
       </Card>
       </div>{/* end ai-summaries order wrapper */}
+
+      <div style={{ order: getLeadOrder('notebook') }}>
+      {/* AI Notebook */}
+      <Card>
+        <div className="flex items-center justify-between">
+          <CardHeader title="AI Notebook" subtitle="צ'אט חכם עם הקשר CRM" />
+          <Button
+            variant="ghost"
+            onClick={() => setNotebookOpen(!notebookOpen)}
+            icon={notebookOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          >
+            {notebookOpen ? 'סגור' : 'פתח'}
+          </Button>
+        </div>
+
+        {notebookOpen && (
+          <div className="mt-3">
+            {/* Chat Messages */}
+            <div className="h-72 overflow-y-auto custom-scrollbar space-y-2 p-3 rounded-xl bg-[#0B1121] border border-white/5 mb-3">
+              {notebookMessages.length === 0 && (
+                <div className="text-center py-10">
+                  <Brain size={32} className="mx-auto text-violet-400/30 mb-2" />
+                  <p className="text-gray-600 text-sm">שאל כל שאלה על הליד...</p>
+                  <div className="flex flex-wrap justify-center gap-2 mt-4">
+                    {['מה הסטטוס הנוכחי?', 'איך לדבר עם הליד?', 'מה הצרכים שלו?', 'תמליץ על פעולות'].map(q => (
+                      <button
+                        key={q}
+                        onClick={() => { setNotebookInput(q); }}
+                        className="text-[10px] px-3 py-1.5 rounded-full bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-colors"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {notebookMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-start' : 'justify-end'}`}>
+                  <div className={`max-w-[80%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap ${
+                    msg.role === 'user'
+                      ? 'bg-primary/10 text-gray-200'
+                      : 'bg-violet-500/10 text-gray-200'
+                  }`}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {notebookLoading && (
+                <div className="flex justify-end">
+                  <div className="px-3 py-2 rounded-xl bg-violet-500/10">
+                    <Sparkles size={14} className="text-violet-400 animate-pulse" />
+                  </div>
+                </div>
+              )}
+              <div ref={notebookEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="flex gap-2">
+              <input
+                value={notebookInput}
+                onChange={e => setNotebookInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleNotebookSend(); } }}
+                placeholder="שאל שאלה על הליד..."
+                className="flex-1 px-3 py-2 rounded-xl bg-[#0B1121] border border-white/10 text-gray-200 text-sm placeholder-gray-600 focus:outline-none focus:border-violet-500/50"
+                disabled={notebookLoading || !settings.hasGeminiKey}
+              />
+              <Button
+                onClick={handleNotebookSend}
+                disabled={notebookLoading || !notebookInput.trim() || !settings.hasGeminiKey}
+                icon={<Send size={14} />}
+              >
+                שלח
+              </Button>
+            </div>
+            {!settings.hasGeminiKey && (
+              <p className="text-xs text-gray-500 mt-1">נדרש מפתח Gemini בהגדרות</p>
+            )}
+          </div>
+        )}
+      </Card>
+      </div>{/* end notebook order wrapper */}
 
       {/* WhatsApp Messages */}
       <div style={{ order: getLeadOrder('whatsapp') }}>

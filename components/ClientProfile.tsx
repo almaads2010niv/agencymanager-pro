@@ -90,6 +90,10 @@ const ClientProfile: React.FC = () => {
   const [v2ActiveDoor, setV2ActiveDoor] = useState<string | null>(null);
   const [scoutLoading, setScoutLoading] = useState(false);
   const [scoutExpanded, setScoutExpanded] = useState(false);
+  // PDF dropdown state
+  const [pdfDropdownOpen, setPdfDropdownOpen] = useState(false);
+  const pdfDropdownRef = useRef<HTMLDivElement>(null);
+
   // AI Notebook state
   const [notebookOpen, setNotebookOpen] = useState(false);
   const [notebookMessages, setNotebookMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
@@ -152,6 +156,17 @@ const ClientProfile: React.FC = () => {
     if (diffDays < 7) return `לפני ${diffDays} ימים`;
     return formatDate(dateStr);
   };
+
+  // Close PDF dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (pdfDropdownRef.current && !pdfDropdownRef.current.contains(e.target as Node)) {
+        setPdfDropdownOpen(false);
+      }
+    };
+    if (pdfDropdownOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [pdfDropdownOpen]);
 
   // Load files when clientId changes
   useEffect(() => {
@@ -623,67 +638,80 @@ const ClientProfile: React.FC = () => {
           </Button>
         )}
         {/* PDF Export Dropdown */}
-        <div className="relative group">
-          <Button variant="ghost" icon={<Printer size={16} />} className="text-gray-400 hover:text-white">
-            PDF
+        <div className="relative" ref={pdfDropdownRef}>
+          <Button
+            variant="ghost"
+            icon={<Printer size={16} />}
+            className={`${pdfDropdownOpen ? 'bg-primary/20 text-primary' : 'text-gray-400 hover:text-white'}`}
+            onClick={() => setPdfDropdownOpen(!pdfDropdownOpen)}
+          >
+            ייצוא PDF
           </Button>
-          <div className="absolute left-0 top-full mt-1 bg-[#0D1526] border border-white/10 rounded-xl shadow-2xl py-1 min-w-[180px] z-50 hidden group-hover:block">
-            <button
-              onClick={() => {
-                const brand = getBrandConfig(settings);
-                generateWorkPlanPdf({
-                  client,
-                  services: client.services.map(sk => {
-                    const svc = services.find(s => s.serviceKey === sk);
-                    return svc ? svc.label : sk;
-                  }),
-                  deals: clientDeals,
-                  monthlyPayments: clientPayments,
-                }, brand);
-              }}
-              className="w-full text-right px-4 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors"
-            >
-              📋 תוכנית עבודה
-            </button>
-            <button
-              onClick={() => {
-                const brand = getBrandConfig(settings);
-                const nowMs = Date.now();
-                const joinMs = new Date(client.joinDate).getTime();
-                const months = Math.max(1, Math.round((nowMs - joinMs) / (1000 * 60 * 60 * 24 * 30.44)));
-                const totalDealValue = clientDeals.reduce((s, d) => s + d.dealAmount, 0);
-                const cumRetainer = client.monthlyRetainer * months;
-                generateFinancialSummaryPdf({
-                  client,
-                  deals: clientDeals,
-                  payments: clientPayments,
-                  expenses: clientExpenses.map(e => ({ date: e.expenseDate, supplier: e.supplierName, amount: e.amount, type: e.expenseType })),
-                  monthsActive: months,
-                  ltv: cumRetainer + totalDealValue,
-                }, brand);
-              }}
-              className="w-full text-right px-4 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors"
-            >
-              💰 סיכום כספי
-            </button>
-            {personality?.businessIntelV2 && (
+          {pdfDropdownOpen && (
+            <div className="absolute left-0 top-full mt-1 bg-[#0D1526] border border-white/10 rounded-xl shadow-2xl py-1 min-w-[200px] z-[60]">
               <button
                 onClick={() => {
+                  setPdfDropdownOpen(false);
                   const brand = getBrandConfig(settings);
-                  if (personality) {
-                    generatePersonalityPdf({
-                      personality,
-                      entityName: client.clientName,
-                      entityType: 'client',
-                    }, brand);
-                  }
+                  generateWorkPlanPdf({
+                    client,
+                    services: client.services.map(sk => {
+                      const svc = services.find(s => s.serviceKey === sk);
+                      return svc ? svc.label : sk;
+                    }),
+                    deals: clientDeals,
+                    monthlyPayments: clientPayments,
+                  }, brand);
                 }}
-                className="w-full text-right px-4 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors"
+                className="w-full text-right px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition-colors flex items-center gap-2"
               >
-                🧠 דוח אישיותי
+                <FileText size={14} className="text-blue-400" />
+                📋 תוכנית עבודה
               </button>
-            )}
-          </div>
+              <button
+                onClick={() => {
+                  setPdfDropdownOpen(false);
+                  const brand = getBrandConfig(settings);
+                  const nowMs = Date.now();
+                  const joinMs = new Date(client.joinDate).getTime();
+                  const months = Math.max(1, Math.round((nowMs - joinMs) / (1000 * 60 * 60 * 24 * 30.44)));
+                  const totalDealValue = clientDeals.reduce((s, d) => s + d.dealAmount, 0);
+                  const cumRetainer = client.monthlyRetainer * months;
+                  generateFinancialSummaryPdf({
+                    client,
+                    deals: clientDeals,
+                    payments: clientPayments,
+                    expenses: clientExpenses.map(e => ({ date: e.expenseDate, supplier: e.supplierName, amount: e.amount, type: e.expenseType })),
+                    monthsActive: months,
+                    ltv: cumRetainer + totalDealValue,
+                  }, brand);
+                }}
+                className="w-full text-right px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition-colors flex items-center gap-2"
+              >
+                <FileText size={14} className="text-emerald-400" />
+                💰 סיכום כספי
+              </button>
+              {personality?.businessIntelV2 && (
+                <button
+                  onClick={() => {
+                    setPdfDropdownOpen(false);
+                    const brand = getBrandConfig(settings);
+                    if (personality) {
+                      generatePersonalityPdf({
+                        personality,
+                        entityName: client.clientName,
+                        entityType: 'client',
+                      }, brand);
+                    }
+                  }}
+                  className="w-full text-right px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition-colors flex items-center gap-2"
+                >
+                  <Brain size={14} className="text-purple-400" />
+                  🧠 דוח אישיותי
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
