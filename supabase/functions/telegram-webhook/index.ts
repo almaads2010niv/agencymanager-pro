@@ -96,14 +96,27 @@ async function callGemini(
   parts.push({ text: prompt })
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`
-  const res = await fetch(geminiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts }],
-      generationConfig: { temperature, maxOutputTokens: maxTokens },
-    }),
-  })
+
+  let res: Response
+  try {
+    res = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        generationConfig: { temperature, maxOutputTokens: maxTokens },
+      }),
+    })
+  } catch (fetchErr) {
+    console.error('Gemini fetch error:', fetchErr)
+    return ''
+  }
+
+  if (!res.ok) {
+    const errText = await res.text()
+    console.error(`Gemini HTTP ${res.status}:`, errText.substring(0, 500))
+    return ''
+  }
 
   const data = await res.json()
 
@@ -113,14 +126,26 @@ async function callGemini(
     return ''
   }
 
-  const result = (data.candidates?.[0]?.content?.parts || [])
-    .filter((p: { text?: string; thought?: boolean }) => p.text && !p.thought)
-    .map((p: { text: string }) => p.text)
-    .join('')
-    .trim()
+  // Check for blocked content
+  if (data.candidates?.[0]?.finishReason === 'SAFETY') {
+    console.error('Gemini content blocked by safety filters')
+    return ''
+  }
 
-  if (!result && data.candidates?.[0]) {
-    console.error('Gemini empty result. Parts:', JSON.stringify(data.candidates[0].content?.parts?.slice(0, 3)))
+  const allParts = data.candidates?.[0]?.content?.parts || []
+
+  // Filter out thinking parts (gemini-3-pro has thinking parts with thought: true)
+  const textParts = allParts.filter((p: { text?: string; thought?: boolean }) => p.text && !p.thought)
+  const result = textParts.map((p: { text: string }) => p.text).join('').trim()
+
+  if (!result) {
+    // If all parts are thinking-only, try to use them as fallback
+    const anyText = allParts.filter((p: { text?: string }) => p.text).map((p: { text: string }) => p.text).join('').trim()
+    if (anyText) {
+      console.warn('Gemini: only thinking parts found, using as fallback')
+      return anyText
+    }
+    console.error('Gemini empty result. Candidates:', JSON.stringify(data.candidates?.slice(0, 1)).substring(0, 500))
   }
 
   return result
@@ -1479,26 +1504,33 @@ Deno.serve(async (req) => {
           // Upload to Knowledge Base
           if (wantsKnowledge) {
             try {
-              const fileName = `telegram_${Date.now()}.jpg`
+              const storageName = `telegram_${Date.now()}.jpg`
               const { error: uploadErr } = await adminClient.storage
                 .from('knowledge')
-                .upload(fileName, imgBytes.buffer, { contentType: 'image/jpeg', upsert: false })
+                .upload(storageName, imgBytes.buffer, { contentType: 'image/jpeg', upsert: false })
 
               if (uploadErr) {
                 console.error('Knowledge upload error:', uploadErr)
                 uploadResult = '\n\n⚠️ שגיאה בהעלאה למאגר הידע: ' + uploadErr.message
               } else {
-                // Create knowledge article with AI analysis
-                const articleTitle = text?.replace(/מאגר|ידע|שמור|שים/gi, '').trim() || 'תמונה מטלגרם'
+                // Generate signed URL (1 year expiry) for download
+                const { data: signedUrlData } = await adminClient.storage
+                  .from('knowledge')
+                  .createSignedUrl(storageName, 365 * 24 * 3600)
+                const downloadUrl = signedUrlData?.signedUrl || storageName
+
+                // Use the caption as title directly
+                const articleTitle = text?.trim() || `תמונה מטלגרם — ${new Date().toLocaleDateString('he-IL')}`
+
                 await adminClient.from('knowledge_articles').insert({
                   id: crypto.randomUUID(),
-                  title: articleTitle || `תמונה מטלגרם — ${new Date().toLocaleDateString('he-IL')}`,
+                  title: articleTitle,
                   content: analysis || 'תמונה שנשלחה מטלגרם',
                   summary: (analysis || '').substring(0, 200),
                   category: 'כללי',
                   tags: ['טלגרם', 'תמונה'],
-                  file_url: fileName,
-                  file_name: fileName,
+                  file_url: downloadUrl,
+                  file_name: storageName,
                   file_type: 'image/jpeg',
                   is_ai_generated: false,
                   created_by: 'telegram',
@@ -1571,15 +1603,40 @@ Deno.serve(async (req) => {
               if (uploadErr) {
                 responseText = `⚠️ שגיאה בהעלאת מסמך: ${uploadErr.message}`
               } else {
-                const articleTitle = text?.replace(/מאגר|ידע|שמור|שים/gi, '').trim() || fileName
+                // Generate signed URL (1 year expiry) for download
+                const { data: signedUrlData } = await adminClient.storage
+                  .from('knowledge')
+                  .createSignedUrl(safeName, 365 * 24 * 3600)
+                const downloadUrl = signedUrlData?.signedUrl || safeName
+
+                // Use the caption as title directly (don't strip Hebrew keywords)
+                const articleTitle = text?.trim() || fileName
+
+                // Try AI extraction if the document is a supported type (PDF, text)
+                let aiSummary = ''
+                const isTextType = mimeType.includes('text') || mimeType.includes('pdf') || mimeType.includes('json')
+                if (geminiKey && isTextType && docBytes.length < 500_000) {
+                  try {
+                    const docBase64 = btoa(docBytes.reduce((s, b) => s + String.fromCharCode(b), ''))
+                    aiSummary = await callGemini(
+                      geminiKey,
+                      'סכם את תוכן המסמך הזה בעברית. תן סיכום קצר (2-3 משפטים) ונקודות מפתח.',
+                      GEMINI_MODEL,
+                      0.3,
+                      1024,
+                      { mimeType, data: docBase64 }
+                    )
+                  } catch { /* ignore AI errors — still save the doc */ }
+                }
+
                 await adminClient.from('knowledge_articles').insert({
                   id: crypto.randomUUID(),
-                  title: articleTitle || `מסמך מטלגרם — ${new Date().toLocaleDateString('he-IL')}`,
-                  content: `מסמך שנשלח מטלגרם: ${fileName}`,
-                  summary: `קובץ: ${fileName}`,
+                  title: articleTitle,
+                  content: aiSummary || `מסמך: ${fileName}`,
+                  summary: aiSummary ? aiSummary.substring(0, 200) : `קובץ: ${fileName}`,
                   category: 'כללי',
                   tags: ['טלגרם', 'מסמך'],
-                  file_url: safeName,
+                  file_url: downloadUrl,
                   file_name: fileName,
                   file_type: mimeType,
                   is_ai_generated: false,
@@ -1589,7 +1646,9 @@ Deno.serve(async (req) => {
                   updated_at: new Date().toISOString(),
                   tenant_id: tenantId,
                 })
+
                 responseText = `✅ <b>המסמך נשמר במאגר הידע!</b> 📚\n📄 ${fileName}`
+                if (aiSummary) responseText += `\n\n<b>📝 סיכום:</b>\n${aiSummary.substring(0, 500)}`
               }
             } catch (err) {
               console.error('Document knowledge save error:', err)
@@ -1607,7 +1666,7 @@ Deno.serve(async (req) => {
               if (uploadErr) {
                 responseText = `⚠️ שגיאה בהעלאת קבלה: ${uploadErr.message}`
               } else {
-                responseText = `✅ <b>הקבלה/חשבונית הועלתה!</b> 🧾\n📄 ${fileName}\nנתיב: ${safeName}\nאפשר לשייך אותה להוצאה דרך האתר.`
+                responseText = `✅ <b>הקבלה/חשבונית הועלתה!</b> 🧾\n📄 ${fileName}\nאפשר לשייך אותה להוצאה דרך האתר.`
               }
             } catch (err) {
               console.error('Document receipt save error:', err)

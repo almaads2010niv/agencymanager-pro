@@ -1692,6 +1692,20 @@ ${questionnaireUrl}
                 <Button
                   onClick={async () => {
                     setScoutLoading(true);
+                    // Build rich context from lead data, notes, and transcripts
+                    const contextParts: string[] = [];
+                    if (lead.facebookUrl) contextParts.push(`Facebook: ${lead.facebookUrl}`);
+                    if (lead.instagramUrl) contextParts.push(`Instagram: ${lead.instagramUrl}`);
+                    if (lead.notes) contextParts.push(`הערות: ${lead.notes.substring(0, 300)}`);
+                    if (lead.sourceChannel) contextParts.push(`מקור: ${lead.sourceChannel}`);
+                    if (lead.quotedMonthlyValue) contextParts.push(`הצעת מחיר: ₪${lead.quotedMonthlyValue}`);
+                    // Add recent notes for more context
+                    const recentNotes = leadNotesFiltered.slice(0, 3).map(n => n.content.substring(0, 100)).join('; ');
+                    if (recentNotes) contextParts.push(`הערות אחרונות: ${recentNotes}`);
+                    // Add transcript summaries for industry context
+                    const recentSummaries = leadTranscripts.slice(0, 2).map(ct => ct.summary?.substring(0, 150)).filter(Boolean).join('; ');
+                    if (recentSummaries) contextParts.push(`סיכומי שיחות: ${recentSummaries}`);
+
                     await runCompetitorScout({
                       entityId: leadId!,
                       entityType: 'lead',
@@ -1702,10 +1716,7 @@ ${questionnaireUrl}
                         const svc = services.find(s => s.serviceKey === sk);
                         return svc ? svc.label : sk;
                       }),
-                      additionalContext: [
-                        lead.facebookUrl ? `Facebook: ${lead.facebookUrl}` : '',
-                        lead.instagramUrl ? `Instagram: ${lead.instagramUrl}` : '',
-                      ].filter(Boolean).join(', ') || undefined,
+                      additionalContext: contextParts.join('\n') || undefined,
                     });
                     setScoutLoading(false);
                     setScoutExpanded(true);

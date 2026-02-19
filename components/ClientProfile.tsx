@@ -1652,6 +1652,16 @@ const ClientProfile: React.FC = () => {
                 <Button
                   onClick={async () => {
                     setScoutLoading(true);
+                    // Build rich context for competitor analysis
+                    const scoutContext: string[] = [];
+                    if (client.facebookUrl) scoutContext.push(`Facebook: ${client.facebookUrl}`);
+                    if (client.instagramUrl) scoutContext.push(`Instagram: ${client.instagramUrl}`);
+                    if (client.notes) scoutContext.push(`הערות: ${client.notes.substring(0, 300)}`);
+                    const recentClientNotes = clientNotesFiltered.slice(0, 3).map(n => n.content.substring(0, 100)).join('; ');
+                    if (recentClientNotes) scoutContext.push(`הערות אחרונות: ${recentClientNotes}`);
+                    const recentClientSummaries = clientTranscripts.slice(0, 2).map(ct => ct.summary?.substring(0, 150)).filter(Boolean).join('; ');
+                    if (recentClientSummaries) scoutContext.push(`סיכומי שיחות: ${recentClientSummaries}`);
+
                     await runCompetitorScout({
                       entityId: clientId!,
                       entityType: 'client',
@@ -1662,10 +1672,7 @@ const ClientProfile: React.FC = () => {
                         const svc = services.find(s => s.serviceKey === sk);
                         return svc ? svc.label : sk;
                       }),
-                      additionalContext: [
-                        client.facebookUrl ? `Facebook: ${client.facebookUrl}` : '',
-                        client.instagramUrl ? `Instagram: ${client.instagramUrl}` : '',
-                      ].filter(Boolean).join(', ') || undefined,
+                      additionalContext: scoutContext.join('\n') || undefined,
                     });
                     setScoutLoading(false);
                     setScoutExpanded(true);
