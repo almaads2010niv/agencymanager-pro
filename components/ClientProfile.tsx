@@ -10,6 +10,7 @@ import { formatCurrency, formatDate, formatDateTime, getMonthName, formatPhoneFo
 import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle, User, Send, Clock, ChevronDown, ChevronUp, Sparkles, Plus, Mic, Edit3, Target, Brain, Shield, Zap, AlertTriangle, MessageSquare, ListChecks, CheckCircle, Users, Printer, Globe } from 'lucide-react';
 import { MESSAGE_PURPOSES } from '../constants';
 import { getBrandConfig, generateWorkPlanPdf, generateFinancialSummaryPdf, generatePersonalityPdf, generateStrategyPdf } from '../utils/pdfGenerator';
+import { generateAnimatedStrategy } from '../utils/animatedStrategy';
 import { supabase } from '../lib/supabaseClient';
 import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
@@ -1940,23 +1941,41 @@ const ClientProfile: React.FC = () => {
                           </div>
                         )}
 
-                        {/* Actions: PDF + Delete */}
+                        {/* Actions: Export + Delete */}
                         <div className="flex items-center justify-between border-t border-white/5 pt-3 mt-3">
-                          <Button
-                            variant="ghost"
-                            icon={<Printer size={14} />}
-                            onClick={() => {
-                              const brand = getBrandConfig(settings);
-                              generateStrategyPdf({
-                                entityName: strategy.entityName,
-                                entityType: 'client',
-                                planData: strategy.planData,
-                                createdAt: strategy.createdAt,
-                              }, brand);
-                            }}
-                          >
-                            ייצוא PDF
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="ghost"
+                              icon={<Printer size={14} />}
+                              onClick={() => {
+                                const brand = getBrandConfig(settings);
+                                generateStrategyPdf({
+                                  entityName: strategy.entityName,
+                                  entityType: 'client',
+                                  planData: strategy.planData,
+                                  createdAt: strategy.createdAt,
+                                }, brand);
+                              }}
+                            >
+                              PDF
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              icon={<Zap size={14} />}
+                              className="text-violet-400 hover:text-violet-300"
+                              onClick={() => {
+                                const brand = getBrandConfig(settings);
+                                generateAnimatedStrategy({
+                                  entityName: strategy.entityName,
+                                  entityType: 'client',
+                                  planData: strategy.planData,
+                                  createdAt: strategy.createdAt,
+                                }, brand);
+                              }}
+                            >
+                              מונפש
+                            </Button>
+                          </div>
                           {isAdmin && (
                             <button
                               onClick={() => setConfirmDeleteStrategyId(strategy.id)}

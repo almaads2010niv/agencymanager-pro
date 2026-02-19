@@ -10,6 +10,7 @@ import { MESSAGE_PURPOSES } from '../constants';
 import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink, Upload, Loader2, Zap, Users, Star, AlertTriangle, MessageSquare, ListChecks, Printer } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { getBrandConfig, generatePersonalityPdf, generateCustomPdf, generateStrategyPdf } from '../utils/pdfGenerator';
+import { generateAnimatedStrategy } from '../utils/animatedStrategy';
 import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
@@ -2638,23 +2639,41 @@ ${questionnaireUrl}
                           </div>
                         )}
 
-                        {/* Actions: PDF + Delete */}
+                        {/* Actions: Export + Delete */}
                         <div className="flex items-center justify-between border-t border-white/5 pt-3 mt-3">
-                          <Button
-                            variant="ghost"
-                            icon={<Printer size={14} />}
-                            onClick={() => {
-                              const brand = getBrandConfig(settings);
-                              generateStrategyPdf({
-                                entityName: strategy.entityName,
-                                entityType: 'lead',
-                                planData: strategy.planData,
-                                createdAt: strategy.createdAt,
-                              }, brand);
-                            }}
-                          >
-                            ייצוא PDF
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="ghost"
+                              icon={<Printer size={14} />}
+                              onClick={() => {
+                                const brand = getBrandConfig(settings);
+                                generateStrategyPdf({
+                                  entityName: strategy.entityName,
+                                  entityType: 'lead',
+                                  planData: strategy.planData,
+                                  createdAt: strategy.createdAt,
+                                }, brand);
+                              }}
+                            >
+                              PDF
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              icon={<Zap size={14} />}
+                              className="text-violet-400 hover:text-violet-300"
+                              onClick={() => {
+                                const brand = getBrandConfig(settings);
+                                generateAnimatedStrategy({
+                                  entityName: strategy.entityName,
+                                  entityType: 'lead',
+                                  planData: strategy.planData,
+                                  createdAt: strategy.createdAt,
+                                }, brand);
+                              }}
+                            >
+                              מונפש
+                            </Button>
+                          </div>
                           {isAdmin && (
                             <button
                               onClick={() => setConfirmDeleteStrategyId(strategy.id)}
