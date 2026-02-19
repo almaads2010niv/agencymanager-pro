@@ -195,6 +195,8 @@ interface SettingsRow {
   signals_webhook_secret?: string | null;
   telegram_bot_token?: string | null;
   telegram_chat_id?: string | null;
+  resend_api_key?: string | null;
+  notification_email?: string | null;
   logo_storage_path?: string | null;
   brand_primary_color?: string | null;
   brand_secondary_color?: string | null;
@@ -304,6 +306,7 @@ export interface DataContextType extends AppData {
   saveApiKeys: (keys: { canvaApiKey?: string; canvaTemplateId?: string; geminiApiKey?: string }) => Promise<void>;
   saveSignalsWebhookSecret: (secret: string) => Promise<void>;
   saveTelegramBotToken: (token: string) => Promise<void>;
+  saveResendApiKey: (apiKey: string) => Promise<void>;
 
   uploadLogo: (file: File) => Promise<string | null>;
   deleteLogo: () => Promise<void>;
@@ -546,6 +549,8 @@ const transformSettingsToDB = (settings: AgencySettings, tid: string | null) => 
   proposal_phases_template: settings.proposalPhasesTemplate ? JSON.stringify(settings.proposalPhasesTemplate) : null,
   proposal_packages_template: settings.proposalPackagesTemplate ? JSON.stringify(settings.proposalPackagesTemplate) : null,
   proposal_terms_template: settings.proposalTermsTemplate ? JSON.stringify(settings.proposalTermsTemplate) : null,
+  // Notification email (non-secret, saved with regular settings)
+  notification_email: settings.notificationEmail || null,
   // Note: API keys are NOT included here — they are saved via saveApiKeys() directly
 });
 
@@ -563,6 +568,8 @@ const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
   hasSignalsWebhookSecret: !!(row.signals_webhook_secret && row.signals_webhook_secret.length > 0),
   hasTelegramBotToken: !!(row.telegram_bot_token && row.telegram_bot_token.length > 0),
   telegramChatId: row.telegram_chat_id || undefined,
+  hasResendKey: !!(row.resend_api_key && row.resend_api_key.length > 0),
+  notificationEmail: row.notification_email || undefined,
   // PDF Branding
   logoStoragePath: row.logo_storage_path || undefined,
   brandPrimaryColor: row.brand_primary_color || '#14b8a6',
@@ -2676,6 +2683,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Save Resend API Key
+  const saveResendApiKey = async (apiKey: string) => {
+    try {
+      const { error } = await supabase
+        .from('settings')
+        .update({ resend_api_key: apiKey || null })
+        .eq('tenant_id', tenantId);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          hasResendKey: !!apiKey,
+        },
+      }));
+    } catch (err) {
+      showError('שגיאה בשמירת מפתח Resend');
+      throw err;
+    }
+  };
+
   // Upload logo to storage and save path to settings
   const uploadLogo = async (file: File): Promise<string | null> => {
     try {
@@ -2896,7 +2926,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addIdea, updateIdea, deleteIdea,
       addKnowledgeArticle, updateKnowledgeArticle, deleteKnowledgeArticle, uploadKnowledgeFile,
       uploadReceiptImage, getReceiptUrl,
-      updateServices, updateSettings, saveApiKeys, saveSignalsWebhookSecret, saveTelegramBotToken,
+      updateServices, updateSettings, saveApiKeys, saveSignalsWebhookSecret, saveTelegramBotToken, saveResendApiKey,
       uploadLogo, deleteLogo,
       runCompetitorScout, deleteCompetitorReport,
       importData, exportData

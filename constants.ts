@@ -26,6 +26,7 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   hasGeminiKey: false,
   hasSignalsWebhookSecret: false,
   hasTelegramBotToken: false,
+  hasResendKey: false,
   brandPrimaryColor: '#14b8a6',
   brandSecondaryColor: '#0f766e',
   brandAccentColor: '#f59e0b',

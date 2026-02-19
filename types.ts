@@ -179,6 +179,8 @@ export interface AgencySettings {
   hasSignalsWebhookSecret: boolean;
   hasTelegramBotToken: boolean;
   telegramChatId?: string;
+  hasResendKey: boolean;
+  notificationEmail?: string;
   // PDF Branding
   logoStoragePath?: string;
   logoUrl?: string; // resolved public URL for the logo (computed, not stored)

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
 import { useAuth, ALL_PAGES, PagePermission } from '../contexts/AuthContext';
-import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown, KeyRound, Sparkles, Palette, Brain, Copy, Check, ImageIcon, X, Send, FileText } from 'lucide-react';
+import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown, KeyRound, Sparkles, Palette, Brain, Copy, Check, ImageIcon, X, Send, FileText, Mail } from 'lucide-react';
 import type { ProposalPhase, ProposalPackage } from '../types';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
@@ -10,7 +10,7 @@ import { Badge } from './ui/Badge';
 import { Modal } from './ui/Modal';
 
 const Settings: React.FC = () => {
-  const { settings, services, updateSettings, updateServices, exportData, importData, saveApiKeys, saveSignalsWebhookSecret, saveTelegramBotToken, uploadLogo, deleteLogo } = useData();
+  const { settings, services, updateSettings, updateServices, exportData, importData, saveApiKeys, saveSignalsWebhookSecret, saveTelegramBotToken, saveResendApiKey, uploadLogo, deleteLogo } = useData();
   const { isAdmin, user, allUsers, refreshUsers, addUser, removeUser, updateUserRole, updateUserPermissions, updateUserDisplayName } = useAuth();
   const [localSettings, setLocalSettings] = useState(settings);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -38,6 +38,8 @@ const Settings: React.FC = () => {
   const [logoUploading, setLogoUploading] = useState(false);
   const [telegramToken, setTelegramToken] = useState('');
   const [telegramTokenSaved, setTelegramTokenSaved] = useState(false);
+  const [resendApiKey, setResendApiKey] = useState('');
+  const [resendKeySaved, setResendKeySaved] = useState(false);
   // Service editing state
   const [editingServiceKey, setEditingServiceKey] = useState<string | null>(null);
   const [editingServiceLabel, setEditingServiceLabel] = useState('');
@@ -740,6 +742,47 @@ const Settings: React.FC = () => {
                     setTelegramToken('');
                   }
                 }} icon={<Save size={16} />} variant="ghost">שמור טוקן</Button>
+              </div>
+            </div>
+
+            {/* Resend Email */}
+            <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5 space-y-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Mail size={18} className="text-rose-400" />
+                  <span className="text-white font-bold text-sm">Resend Email</span>
+                </div>
+                {settings.hasResendKey && <span className="text-emerald-400 text-xs">✓ מפתח מוגדר</span>}
+              </div>
+              <Input
+                label="API Key (מ-resend.com)"
+                type="password"
+                value={resendApiKey}
+                onChange={e => { setResendApiKey(e.target.value); setResendKeySaved(false); }}
+                placeholder={settings.hasResendKey ? '••••••• (מפתח קיים)' : 'הדבק את מפתח ה-API'}
+              />
+              <Input
+                label="אימייל לקבלת התראות (חתימת הצעה וכו׳)"
+                value={localSettings.notificationEmail || ''}
+                onChange={e => setLocalSettings({...localSettings, notificationEmail: e.target.value})}
+                placeholder="niv@alma-ads.co.il"
+              />
+              <div className="text-xs text-gray-500">
+                בעת חתימה על הצעת מחיר, ישלח אימייל אוטומטי ללקוח ולכתובת ההתראות שהגדרת.
+              </div>
+              {resendKeySaved && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-sm">
+                  מפתח Resend נשמר בהצלחה ✓
+                </div>
+              )}
+              <div className="flex justify-end pt-2">
+                <Button onClick={async () => {
+                  if (resendApiKey) {
+                    await saveResendApiKey(resendApiKey);
+                    setResendKeySaved(true);
+                    setResendApiKey('');
+                  }
+                }} icon={<Save size={16} />} variant="ghost">שמור מפתח</Button>
               </div>
             </div>
 
