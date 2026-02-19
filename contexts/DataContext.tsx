@@ -2165,33 +2165,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const publishStrategyPage = async (id: string, html: string): Promise<string | null> => {
     try {
-      const storagePath = `${tenantId || 'default'}/${id}.html`;
-      const blob = new Blob([html], { type: 'text/html' });
-      const file = new File([blob], `${id}.html`, { type: 'text/html' });
+      // Store HTML content in DB and serve via Vercel API route
+      const publicUrl = `${window.location.origin}/api/s/${id}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('strategy-pages')
-        .upload(storagePath, file, { upsert: true, contentType: 'text/html; charset=UTF-8' });
+      const { error: updateError } = await supabase
+        .from('strategy_plans')
+        .update({
+          html_content: html,
+          public_url: publicUrl,
+        })
+        .eq('id', id);
 
-      if (uploadError) throw uploadError;
+      if (updateError) throw updateError;
 
-      const { data: publicUrlData } = supabase.storage
-        .from('strategy-pages')
-        .getPublicUrl(storagePath);
-
-      const publicUrl = publicUrlData?.publicUrl || null;
-
-      if (publicUrl) {
-        await supabase
-          .from('strategy_plans')
-          .update({ public_url: publicUrl })
-          .eq('id', id);
-
-        setData(prev => ({
-          ...prev,
-          strategyPlans: prev.strategyPlans.map(s => s.id === id ? { ...s, publicUrl } : s),
-        }));
-      }
+      setData(prev => ({
+        ...prev,
+        strategyPlans: prev.strategyPlans.map(s => s.id === id ? { ...s, publicUrl } : s),
+      }));
 
       return publicUrl;
     } catch (err) {
@@ -2255,13 +2245,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteProposal = async (id: string) => {
     try {
-      // Remove published HTML from storage if exists
-      const proposal = data.proposals.find(p => p.id === id);
-      if (proposal?.publicUrl) {
-        const storagePath = `${tenantId || 'default'}/${id}.html`;
-        await supabase.storage.from('proposal-pages').remove([storagePath]);
-      }
-
       const { error } = await supabase
         .from('proposals')
         .delete()
@@ -2283,33 +2266,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const publishProposalPage = async (id: string, html: string): Promise<string | null> => {
     try {
-      const storagePath = `${tenantId || 'default'}/${id}.html`;
-      const blob = new Blob([html], { type: 'text/html' });
-      const file = new File([blob], `${id}.html`, { type: 'text/html' });
+      // Store HTML content in DB and serve via Vercel API route
+      const publicUrl = `${window.location.origin}/api/p/${id}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('proposal-pages')
-        .upload(storagePath, file, { upsert: true, contentType: 'text/html; charset=UTF-8' });
+      const { error: updateError } = await supabase
+        .from('proposals')
+        .update({
+          html_content: html,
+          public_url: publicUrl,
+          status: 'sent',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
 
-      if (uploadError) throw uploadError;
+      if (updateError) throw updateError;
 
-      const { data: publicUrlData } = supabase.storage
-        .from('proposal-pages')
-        .getPublicUrl(storagePath);
-
-      const publicUrl = publicUrlData?.publicUrl || null;
-
-      if (publicUrl) {
-        await supabase
-          .from('proposals')
-          .update({ public_url: publicUrl, status: 'sent', updated_at: new Date().toISOString() })
-          .eq('id', id);
-
-        setData(prev => ({
-          ...prev,
-          proposals: prev.proposals.map(p => p.id === id ? { ...p, publicUrl, status: 'sent' as ProposalStatus, updatedAt: new Date().toISOString() } : p),
-        }));
-      }
+      setData(prev => ({
+        ...prev,
+        proposals: prev.proposals.map(p => p.id === id ? { ...p, publicUrl, status: 'sent' as ProposalStatus, updatedAt: new Date().toISOString() } : p),
+      }));
 
       return publicUrl;
     } catch (err) {
