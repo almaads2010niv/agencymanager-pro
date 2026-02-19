@@ -1,6 +1,6 @@
 ===============================================================================
                     AgencyManager Pro - Project Story
-                    Last Updated: 2026-02-15
+                    Last Updated: 2026-02-19
 ===============================================================================
 
 OVERVIEW
@@ -1014,7 +1014,7 @@ AI / Gemini:
   WARNING: responseMimeType/thinkingConfig/responseSchema NOT supported in 2.5-flash REST API
   Audio uses Gemini Files API (resumable upload -> file_uri)
 
-Edge Functions (10 total):
+Edge Functions (11 total):
   create-user -> Admin account creation (+ role + tenantId)
   manage-tenants -> Super admin tenant CRUD (list/create/update/add-user/remove-user/update-tenant-user)
   ai-recommendations -> AI advice via Gemini 3 Pro
@@ -1022,6 +1022,7 @@ Edge Functions (10 total):
   generate-whatsapp-messages -> 3 message variants via Gemini 2.0 Flash-Lite
   transcribe-audio -> Audio -> text via Gemini Files API (2.5 Flash)
   generate-proposal -> PDF via Canva Connect API
+  generate-strategy -> AI strategy & action plan via Gemini 3 Pro
   process-receipt -> Receipt OCR via Gemini 2.0 Flash Vision
   generate-idea -> AI idea generation via Gemini 2.0 Flash-Lite
   summarize-document -> AI document summarization via Gemini 2.0 Flash-Lite
@@ -1043,8 +1044,9 @@ Supabase Tables (all have tenant_id uuid FK + FORCE RLS):
   ideas (id, title, description, status, priority, client_id, category, tags, assigned_to, due_date, sort_order)
   knowledge_articles (id, title, content, summary, category, tags, file_url, is_ai_generated)
   user_roles (user_id, email, role, display_name, page_permissions, tenant_id)
+  strategy_plans (id, client_id, lead_id, entity_name, plan_data JSONB, raw_text, public_url, created_by, created_by_name)
   signals_personality (+ tenant_id_fk uuid FK — separate from text tenant_id)
-  storage.buckets: contracts, recordings, receipts, knowledge
+  storage.buckets: contracts, recordings, receipts, knowledge, logos, strategy-pages
 
 Styling:
   Tailwind CSS via CDN (not PostCSS build)
@@ -1329,3 +1331,293 @@ FILES CREATED:
 
 Commits: faf132f, a5f9290, bc427d8
 Pushed to GitHub -> Vercel auto-deployed.
+
+===============================================================================
+SESSION 20 (2026-02-19) - PDF Fixes + AI Notebook + Strategy & Action Plan
+===============================================================================
+
+WHAT HAPPENED:
+Multiple features implemented in one session: fixed PDF visibility, added
+AI Notebook to LeadProfile, built complete Strategy & Action Plan feature
+(replaces user's manual ChatGPT->Canva workflow), added animated HTML export
+for strategies.
+
+CHANGES:
+
+1. PDF DROPDOWN VISIBILITY FIX
+   - Problem: PDF dropdown in ClientProfile used CSS `group-hover:block` —
+     invisible on touch/click
+   - Fix: Converted to click-toggle with `pdfDropdownOpen` state +
+     click-outside handler
+   - Changed label from "PDF" to "ייצוא PDF" with colored icons per option
+   - Added full PDF dropdown to LeadProfile (was just conditional personality PDF)
+   - New "Lead Brief" option uses generateCustomPdf
+
+2. AI NOTEBOOK IN LEAD PROFILE
+   - Was missing from LeadProfile (only existed in ClientProfile)
+   - Added: state, handleNotebookSend handler, full chat UI with quick prompts
+   - Added 'notebook' to LEAD_SECTIONS for section reorder
+
+3. STRATEGY & ACTION PLAN — NEW FEATURE (Full E2E)
+   Replaces Niv's manual workflow: meeting -> dictation -> ChatGPT -> Canva -> PDF
+
+   a) DATABASE: New `strategy_plans` table
+      - id, client_id, lead_id, entity_name, plan_data (JSONB), raw_text
+      - RLS: SELECT/INSERT all authenticated, DELETE admin only
+
+   b) TYPES: 7 new interfaces
+      - StrategyAction, StrategyPhase, StrategySituationAnalysis, StrategyKPI
+      - StrategyPlanData, StrategyPlan (added to AppData)
+
+   c) EDGE FUNCTION: generate-strategy (~465 lines)
+      - Auth + tenant lookup + Gemini API key from settings
+      - Server-side CRM context gathering (like ai-notebook pattern):
+        client/lead profile, notes (30), transcripts (10), recommendations (5),
+        WhatsApp (20), personality, competitor reports, financials
+      - Hebrew prompt: senior marketing consultant analysis
+      - Structured JSON output: summary, situationAnalysis (5 categories),
+        actionPlan (3 phases: 30/60/90 days), KPIs
+      - gemini-3-pro-preview, temp 0.5, 8192 tokens
+      - 3-level JSON parsing fallback + raw_text storage
+
+   d) DATA CONTEXT: addStrategyPlan + deleteStrategyPlan CRUD
+      - StrategyPlanRow interface, transform functions with safeJsonParse
+      - Added to Promise.all data loading
+
+   e) PDF GENERATOR: generateStrategyPdf()
+      - Custom buildColoredList + buildPhaseSection helpers
+      - Branded header, summary KPIs, situation analysis, phase tables, KPI grid
+
+   f) UI: Strategy block in ClientProfile + LeadProfile
+      - 'strategy' section with expandable strategy cards
+      - Generate button, loading state, error handling
+      - Color-coded situation analysis grid (green/red/blue/amber)
+      - Phase blocks with numbered actions, owner badges, KPI metrics
+      - PDF + Animated export buttons, admin-only delete
+
+4. ANIMATED STRATEGY EXPORT
+   - File: utils/animatedStrategy.ts (~450 lines)
+   - Standalone animated HTML page generator
+   - CSS animations: scroll-triggered reveals via IntersectionObserver
+   - SVG arrow connectors between phases with dash flow animation
+   - Floating gradient glow backgrounds with brand colors
+   - Print-friendly CSS fallback, Heebo font, RTL Hebrew
+   - Opens in new window via window.open() + document.write()
+
+EDGE FUNCTIONS DEPLOYED:
+  generate-strategy (new)
+
+SQL MIGRATION:
+  supabase/migrations/20260219150000_add_strategy_plans.sql
+
+NEW FILES:
+- supabase/migrations/20260219150000_add_strategy_plans.sql
+- supabase/functions/generate-strategy/index.ts
+- utils/animatedStrategy.ts
+
+FILES MODIFIED:
+- types.ts (strategy interfaces + AppData)
+- contexts/DataContext.tsx (strategy CRUD + loading)
+- utils/pdfGenerator.ts (generateStrategyPdf)
+- components/ClientProfile.tsx (PDF fix + strategy section)
+- components/LeadProfile.tsx (PDF fix + AI notebook + strategy section)
+
+Commits: 06e8aad, 037a40c, 5d35281
+Pushed to GitHub -> Vercel auto-deployed.
+
+===============================================================================
+SESSION 21 (2026-02-19) - Strategy Edit/Publish + KPI Colors + Logo Removal
+===============================================================================
+
+WHAT HAPPENED:
+Four user-requested fixes: (1) dark KPI cards on Clients page, (2) explicit
+logo removal option, (3) shareable public links for animated strategy pages,
+(4) editable strategy content before sharing.
+
+CHANGES:
+
+1. CLIENTS PAGE KPI CARDS — COLOR FIX
+   - Problem: Cards used `bg-[#151C2C]` — too dark, nearly invisible
+   - Fix: Changed to `bg-surface/80 backdrop-blur-md border-white/10`
+     (glass style)
+   - Added hover border effects (emerald for income, primary for profit)
+   - Labels upgraded from text-gray-500 to text-gray-400
+
+2. LOGO REMOVAL — EXPLICIT BUTTON
+   - Problem: Delete was a tiny red X on hover, easy to miss
+   - Fix: Added proper "הסר לוגו" Button with variant="danger" and Trash2 icon
+   - Only shows when logo exists
+   - Removed the hover-only X button
+
+3. SHAREABLE STRATEGY LINKS
+   - New `strategy-pages` Supabase storage bucket (public, HTML, 5MB)
+   - `public_url` column added to strategy_plans table
+   - `publishStrategyPage()` function in DataContext:
+     - Builds HTML via buildAnimatedStrategyHtml()
+     - Uploads to Supabase Storage as {tenantId}/{planId}.html
+     - Gets public URL, saves to DB, copies to clipboard
+   - "פרסם לינק" button in strategy actions (both profiles)
+   - Public URL display bar with copy button when published
+   - "עדכן לינק" re-publishes with latest content
+   - Delete strategy also cleans up storage file
+
+4. STRATEGY EDIT MODAL
+   - `updateStrategyPlan()` function in DataContext (DB update + state)
+   - Full edit modal (size="xl") in both ClientProfile + LeadProfile:
+     - Executive summary textarea
+     - Situation analysis: 5 textarea fields (line-separated items)
+     - Action plan phases: edit/delete phases, edit/delete/add actions
+     - KPIs: edit/delete rows
+   - Auto re-publishes animated page if public URL exists on save
+   - `buildAnimatedStrategyHtml()` extracted as separate export from
+     animatedStrategy.ts
+
+5. ANIMATED STRATEGY REFACTOR
+   - Refactored: main function split into `buildAnimatedStrategyHtml()`
+     (returns string) and `generateAnimatedStrategy()` (opens window, calls build)
+   - Both exported for different use cases
+
+SQL MIGRATION:
+  20260219160000_strategy_public_url.sql
+  - ALTER TABLE strategy_plans ADD COLUMN public_url TEXT
+  - CREATE storage bucket strategy-pages (public, HTML)
+  - Storage policies (public read, auth insert/delete)
+  - UPDATE policy for strategy_plans
+
+FILES MODIFIED:
+- types.ts (publicUrl on StrategyPlan)
+- contexts/DataContext.tsx (publishStrategyPage, updateStrategyPlan, storage cleanup)
+- components/ClientProfile.tsx (KPI color fix, logo removal, strategy edit modal,
+  publish/update link, public URL display)
+- components/LeadProfile.tsx (strategy edit modal, publish/update link, public URL display)
+- components/Settings.tsx (logo removal button)
+- utils/animatedStrategy.ts (split into buildAnimatedStrategyHtml + generateAnimatedStrategy)
+
+Commits: 019ee44
+Pushed to GitHub -> Vercel auto-deployed.
+
+===============================================================================
+SESSION 22 (2026-02-19) - Vercel API Route Proxy + Animated Proposal Fixes
+===============================================================================
+
+WHAT HAPPENED:
+Critical fix for published proposal links showing gibberish/text. Supabase
+Storage enforces text/plain Content-Type for HTML files (sandbox CSP security).
+Solution: store HTML in DB, serve via Vercel serverless functions with correct
+Content-Type headers.
+
+CHANGES:
+
+1. VERCEL API ROUTE PROXY (Critical Fix)
+   - Problem: Supabase Storage serves HTML as text/plain with sandbox CSP
+   - Root cause: Security feature, cannot be overridden
+   - Solution: Store HTML in DB column, serve via Vercel serverless functions
+
+   a) SQL Migration: Added html_content TEXT column to proposals + strategy_plans
+   b) api/p/[id].ts — Vercel serverless function for proposals
+      - Reads html_content from proposals table via Supabase client
+      - Returns with Content-Type: text/html; charset=UTF-8
+      - Cache-Control: public, max-age=3600, s-maxage=86400
+      - Hebrew 404 page on not found
+   c) api/s/[id].ts — Same for strategy_plans
+   d) vercel.json — API route rewrites before SPA catch-all:
+      /api/p/:id → /api/p/[id]
+      /api/s/:id → /api/s/[id]
+   e) DataContext.tsx — Updated publishProposalPage + publishStrategyPage:
+      - Now stores HTML in html_content column
+      - Public URL = /api/p/{id} or /api/s/{id} (Vercel URL)
+      - Removed Supabase Storage upload/cleanup
+   f) Vercel env var: SUPABASE_SERVICE_ROLE_KEY added
+
+2. ANIMATED PROPOSAL — SOCIAL PROOF FIXES (from previous session)
+   - Fixed logo visibility in dark sections (white/light filter)
+   - Fixed testimonial count to match actual array length
+   - Reordered carousel dots/indicators
+
+SQL MIGRATION:
+  20260219170538_add_html_content_columns.sql
+
+NEW FILES:
+- api/p/[id].ts (Vercel serverless function)
+- api/s/[id].ts (Vercel serverless function)
+- supabase/migrations/20260219170538_add_html_content_columns.sql
+
+FILES MODIFIED:
+- vercel.json (API rewrites)
+- contexts/DataContext.tsx (publish functions rewritten)
+
+Commits: 00e9bd9
+Pushed to GitHub -> Vercel auto-deployed.
+
+===============================================================================
+SESSION 23 (2026-02-19) - Duplicate Proposals + Testimonials + Telegram Fix
+===============================================================================
+
+WHAT HAPPENED:
+Three feature additions + Telegram bot overhaul:
+1. Proposal duplication button
+2. Testimonial improvements (reorder, swipe, read more)
+3. 15 breakthrough CRM ideas documented
+4. Telegram bot fixes (name search, audio transcription, error handling)
+
+CHANGES:
+
+1. PROPOSAL DUPLICATION ("שכפל")
+   - New "שכפל" button in LeadProfile.tsx next to "ערוך"
+   - Uses existing addProposal() with copied proposalData
+   - Copies: proposalData, leadId
+   - Resets: id (new), status='draft', no publicUrl/signature
+   - Name: appends " (העתק)" to proposal name
+
+2. TESTIMONIAL REORDER
+   - Reordered PROPOSAL_TESTIMONIALS array in proposalSocialProof.ts
+   - New order: B-Cure → Great Shape → UFC → SMOOVEE → rest
+
+3. TESTIMONIAL SWIPE (Mobile Touch)
+   - Touch events on .testi-viewport: touchstart/touchmove/touchend
+   - Horizontal swipe detection (>50px threshold)
+   - Distinguishes horizontal swipe from vertical scroll
+   - Resets auto-rotation timer after each swipe
+
+4. TESTIMONIAL "READ MORE"
+   - CSS: -webkit-line-clamp: 3 on .testi-content (truncation)
+   - .testi-content.expanded removes clamp
+   - JS: checkTruncation() after 500ms — shows "קרא עוד" button only when content overflows
+   - Toggle: expanded class + "קרא עוד" / "הצג פחות" text swap
+
+5. TELEGRAM BOT OVERHAUL
+   a) Smart Entity Search (findEntity helper):
+      - Searches BOTH lead_name/client_name AND business_name
+      - Bidirectional matching: "search includes name" AND "name includes search"
+      - Used across ALL action functions (add_note, reschedule, update_field,
+        update_lead_status, update_client_status, add_deal, reminder, signals)
+      - Fixes: "מאור רילקס קלאב" now finds lead "מאור" with business "רילקס קלאב"
+   b) Audio-as-Document Detection:
+      - Documents with audio MIME types (audio/*) or audio extensions (.m4a, .mp3, etc.)
+        now routed to transcription instead of knowledge base
+      - Passes correct MIME type to Gemini (not hardcoded audio/ogg)
+   c) Better Error Handling:
+      - Main catch block now sends error message to user via Telegram
+      - Audio document errors include file size in error message
+   d) Deployed: telegram-webhook Edge Function
+
+6. 15 BREAKTHROUGH IDEAS
+   - Written to NIV_IDEAS.txt Part 9
+   - Ideas: Deal Momentum Score, Revenue Intelligence, Ghost Lead Detection,
+     Client Health Heatmap, A/B Proposal Testing, Conversation Intelligence,
+     Psychological Pricing, Client Cloning, Auto Case Studies, Churn Prediction,
+     Meeting Prep Briefing, Revenue Attribution, Engagement Scoring,
+     Win/Loss Analysis, Micro-Commitment Funnel
+
+FILES MODIFIED:
+- components/LeadProfile.tsx (duplicate button + ProposalStatus import)
+- utils/proposalSocialProof.ts (testimonial reorder)
+- utils/animatedProposal.ts (swipe + read more CSS/HTML/JS)
+- supabase/functions/telegram-webhook/index.ts (smart search + audio routing + errors)
+- NIV_IDEAS.txt (Part 9 — 15 ideas)
+- PROJECT_STORY.txt (sessions 22-23)
+- NIV_PROMPT.md (sessions 22-23)
+- MEMORY.md (updated sections)
+
+Pushed to GitHub -> Vercel auto-deployed.
+Telegram webhook Edge Function redeployed.

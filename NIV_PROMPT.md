@@ -554,3 +554,145 @@
 - לוגו של הסוכנות/עסק בראש המסמך (העלאה ב-Settings)
 - פלטת צבעים מותאמת per-tenant (primary, secondary, accent)
 - עיצוב לפי דוגמת "תוכנית עבודה — סטודיו נירית ממן"
+
+---
+
+## סשן 21 (19.02.2026) — תיקוני PDF + אסטרטגיה + עמודים מונפשים + עריכה
+
+**מה ביקשת:**
+1. תיקון נראות כפתורי PDF — לא גלויים
+2. הוספת AI Notebook ללידים (חסר)
+3. בלוק "אסטרטגיה ותוכנית עבודה" — מחליף את הflow הידני (ChatGPT → Canva → PDF)
+4. עמוד מונפש שיתווסף לבלוק האסטרטגיה (לא נפרד)
+5. תיקון צבעים כהים של קוביות KPI בעמוד לקוחות
+6. כפתור מפורש להסרת לוגו
+7. לינק ייעודי שניתן לשתף עם הלקוח לעמוד מונפש
+8. אפשרות עריכה של תוכנית אסטרטגית לפני שליחה ללקוח
+9. עדכון קבצי MEMORY + PROJECT_STORY + NIV_PROMPT
+
+**מה עשיתי:**
+
+### PDF Dropdown:
+- שינוי מ-hover dropdown ל-click toggle עם state
+- שינוי שם מ"PDF" ל"ייצוא PDF"
+- הוספת dropdown מלא ללידים (היה רק כפתור בודד)
+
+### AI Notebook בלידים:
+- הוספת state, handler, UI מלא עם quick prompts
+- הוספה ל-LEAD_SECTIONS לסדר בלוקים
+
+### אסטרטגיה ותוכנית עבודה (פיצ'ר חדש מלא):
+- **DB:** טבלת strategy_plans עם plan_data JSONB
+- **Edge Function:** generate-strategy (~465 שורות)
+  - איסוף כל המידע מה-CRM בצד שרת
+  - prompt בעברית ליועץ אסטרטגי בכיר
+  - gemini-3-pro-preview, JSON מובנה עם fallback
+- **Types:** 7 interfaces חדשים (StrategyPlan, StrategyPlanData וכו')
+- **DataContext:** CRUD מלא (add, update, delete, publish)
+- **PDF:** generateStrategyPdf עם helpers מותאמים
+- **UI:** בלוק מלא בלקוחות + לידים עם כרטיסים מתרחבים
+
+### עמוד מונפש:
+- utils/animatedStrategy.ts (~450 שורות)
+- אנימציות CSS + IntersectionObserver + חיצי SVG
+- צבעי מותג, Heebo, RTL, print-friendly
+- נפתח בחלון חדש
+
+### תיקון קוביות KPI:
+- שינוי מ-bg-[#151C2C] ל-bg-surface/80 backdrop-blur-md (סגנון glass)
+- הוספת hover borders צבעוניים
+
+### הסרת לוגו:
+- הסרת כפתור X קטן ב-hover
+- הוספת כפתור "הסר לוגו" מפורש עם variant="danger"
+
+### לינקים שיתופיים:
+- באקט storage חדש: strategy-pages (public, HTML)
+- עמודה public_url בטבלת strategy_plans
+- publishStrategyPage() — העלאת HTML לstorage, קבלת URL ציבורי
+- כפתור "פרסם לינק" + תצוגת URL + העתקה ללוח
+- "עדכן לינק" מחדש את ה-HTML כשיש שינויים
+
+### מודל עריכת אסטרטגיה:
+- updateStrategyPlan() ב-DataContext
+- מודל עריכה מלא (size="xl"):
+  - תקציר מנהלים
+  - ניתוח מצב (5 שדות textarea)
+  - שלבי תוכנית (עריכה/מחיקה/הוספת פעולות)
+  - KPIs (עריכה/מחיקה)
+- אוטו-פרסום מחדש אם יש URL ציבורי
+
+### Edge Functions:
+- generate-strategy (חדש)
+
+### קבצים שנוצרו:
+- supabase/migrations/20260219150000_add_strategy_plans.sql
+- supabase/migrations/20260219160000_strategy_public_url.sql
+- supabase/functions/generate-strategy/index.ts
+- utils/animatedStrategy.ts
+
+---
+
+## סשן 22 (19.02.2026) — תיקון לינקים ציבוריים (Vercel API Proxy)
+
+**מה ביקשת:**
+- לינקים ציבוריים להצעות ותוכניות אסטרטגיות מציגים ג'יבריש/טקסט רגיל
+
+**מה עשיתי:**
+
+### תיקון קריטי — Vercel API Route Proxy:
+- **בעיה:** Supabase Storage שומר על Content-Type: text/plain + sandbox CSP לקבצי HTML
+- **פתרון:** שמירת HTML בעמודה חדשה `html_content` ב-DB, הגשה דרך Vercel serverless functions
+- API routes חדשים: `/api/p/[id]` (הצעות) + `/api/s/[id]` (אסטרטגיה)
+- `vercel.json` עודכן עם rewrites לפני SPA catch-all
+- `publishProposalPage` + `publishStrategyPage` עברו לשמירה ב-DB + URL של Vercel
+- הוספת `SUPABASE_SERVICE_ROLE_KEY` ל-Vercel env vars
+
+### קבצים חדשים:
+- api/p/[id].ts, api/s/[id].ts
+- supabase/migrations/20260219170538_add_html_content_columns.sql
+
+---
+
+## סשן 23 (19.02.2026) — שכפול הצעות + המלצות + סוויפ + טלגרם
+
+**מה ביקשת:**
+1. אפשרות לשכפל הצעת מחיר קיימת
+2. סידור מחדש של ההמלצות, סוויפ באצבע, "קרא עוד"
+3. 15 רעיונות פורצי דרך ל-CRM
+4. תיקון בוט טלגרם — לא מוצא לידים בשם, לא מגיב לאודיו
+
+**מה עשיתי:**
+
+### שכפול הצעת מחיר:
+- כפתור "שכפל" ב-LeadProfile ליד כפתור "ערוך"
+- מעתיק proposalData, מאפס id/status/publicUrl
+- שם חדש: "שם הצעה (העתק)"
+
+### סידור המלצות מחדש:
+- בי קיור → גרייט שייפ → UFC → SMOOVEE → שאר
+
+### סוויפ באצבע:
+- touch events על קרוסלת ההמלצות
+- זיהוי תנועה אופקית vs גלילה אנכית
+- סף 50px לסוויפ, מאפס טיימר אוטומטי
+
+### "קרא עוד":
+- CSS line-clamp ל-3 שורות
+- checkTruncation() בודק overflow אחרי 500ms
+- כפתור toggle "קרא עוד" / "הצג פחות"
+
+### תיקון בוט טלגרם:
+- **חיפוש חכם (findEntity):** חיפוש ב-lead_name + business_name + client_name + business_name
+- חיפוש דו-כיווני: "חיפוש מכיל שם" וגם "שם מכיל חיפוש"
+- **אודיו כמסמך:** קבצי אודיו (.m4a, .mp3 וכו') שנשלחים כמסמכים מנותבים לתמלול
+- **טיפול בשגיאות:** הודעת שגיאה נשלחת למשתמש במקום שקט
+- פונקציות שעודכנו: add_note, reschedule, update_field, update_lead_status, update_client_status, add_deal, reminder, signals_profile
+
+### 15 רעיונות פורצי דרך:
+- נכתבו ל-NIV_IDEAS.txt Part 9
+- Deal Momentum Score, Revenue Intelligence, Ghost Lead Detection,
+  Client Health Heatmap, Smart Proposal A/B, Conversation Intelligence,
+  Psychological Pricing, Client Cloning, Auto Case Studies, Churn Prediction,
+  Meeting Prep Briefing, Revenue Attribution, Engagement Scoring,
+  Win/Loss Analysis, Micro-Commitment Funnel

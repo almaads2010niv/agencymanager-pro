@@ -204,7 +204,8 @@ export function buildAnimatedProposalHtml(config: ProposalPageConfig, brand: Pro
     return `
       <div class="testi-card" data-testi="${i}">
         <div class="testi-stars">${stars}</div>
-        <div class="testi-content">"${esc(t.content)}"</div>
+        <div class="testi-content" id="testiContent${i}">"${esc(t.content)}"</div>
+        <button class="testi-read-more" data-testi-toggle="${i}">קרא עוד</button>
         <div class="testi-author">
           <div class="testi-name">${esc(t.name)}</div>
           <div class="testi-role">${esc(t.role)}</div>
@@ -792,7 +793,21 @@ export function buildAnimatedProposalHtml(config: ProposalPageConfig, brand: Pro
   .testi-content {
     font-size: 16px; color: var(--text-muted); line-height: 1.8;
     font-style: italic; max-width: 600px; margin: 0 auto 20px;
+    overflow: hidden; display: -webkit-box;
+    -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    transition: all 0.3s ease;
   }
+  .testi-content.expanded {
+    -webkit-line-clamp: unset; display: block;
+  }
+  .testi-read-more {
+    display: none; color: var(--primary); font-size: 13px;
+    font-weight: 600; cursor: pointer; margin: 0 auto 16px;
+    font-style: normal; background: none; border: none;
+    font-family: 'Heebo', sans-serif; padding: 4px 0;
+    transition: color 0.2s;
+  }
+  .testi-read-more:hover { color: var(--accent); }
   .testi-author { border-top: 1px solid var(--border); padding-top: 16px; }
   .testi-name { font-size: 16px; font-weight: 700; color: var(--text); }
   .testi-role { font-size: 12px; color: var(--primary); font-weight: 500; margin-top: 2px; }
@@ -1287,6 +1302,73 @@ export function buildAnimatedProposalHtml(config: ProposalPageConfig, brand: Pro
     }
 
     if (testiCount > 1) resetTestiAuto();
+
+    // ── Touch / Swipe for Testimonials ──
+    var testiViewport = document.querySelector('.testi-viewport');
+    var touchStartX = 0;
+    var touchStartY = 0;
+    var touchDeltaX = 0;
+    var isSwiping = false;
+    var swipeThreshold = 50;
+
+    if (testiViewport && testiCount > 1) {
+      testiViewport.addEventListener('touchstart', function(e) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchDeltaX = 0;
+        isSwiping = false;
+      }, { passive: true });
+
+      testiViewport.addEventListener('touchmove', function(e) {
+        var dx = e.touches[0].clientX - touchStartX;
+        var dy = e.touches[0].clientY - touchStartY;
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
+          isSwiping = true;
+          touchDeltaX = dx;
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      testiViewport.addEventListener('touchend', function() {
+        if (isSwiping && Math.abs(touchDeltaX) > swipeThreshold) {
+          if (touchDeltaX < 0) {
+            showTesti(currentTesti + 1);
+          } else {
+            showTesti(currentTesti - 1);
+          }
+          resetTestiAuto();
+        }
+        isSwiping = false;
+        touchDeltaX = 0;
+      }, { passive: true });
+    }
+
+    // ── Read More Toggle ──
+    var testiContents = document.querySelectorAll('.testi-content');
+    var readMoreBtns = document.querySelectorAll('.testi-read-more');
+
+    function checkTruncation() {
+      testiContents.forEach(function(el, i) {
+        if (el.scrollHeight > el.clientHeight + 2) {
+          var btn = document.querySelector('[data-testi-toggle="' + i + '"]');
+          if (btn) btn.style.display = 'block';
+        }
+      });
+    }
+    setTimeout(checkTruncation, 500);
+
+    readMoreBtns.forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var idx = this.getAttribute('data-testi-toggle');
+        var content = document.getElementById('testiContent' + idx);
+        if (content) {
+          var isExpanded = content.classList.contains('expanded');
+          content.classList.toggle('expanded');
+          this.textContent = isExpanded ? 'קרא עוד' : 'הצג פחות';
+        }
+      });
+    });
 
     // ── Full Terms Modal ──
     var openTermsBtn = document.getElementById('openFullTerms');

@@ -4,7 +4,7 @@ import { useTenantNav } from '../hooks/useTenantNav';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, NoteType, Archetype, BusinessIntelV2, HeroCard, ActionItem, QuickScript, ScriptDoor, FullFiveDoorScript, ProfileBriefing } from '../types';
-import type { Lead, StrategyPlan, Proposal, ProposalData, ProposalPackage, ProposalPhase } from '../types';
+import type { Lead, StrategyPlan, Proposal, ProposalData, ProposalPackage, ProposalPhase, ProposalStatus } from '../types';
 import { formatCurrency, formatDate, formatDateTime, formatPhoneForWhatsApp } from '../utils';
 import { MESSAGE_PURPOSES } from '../constants';
 import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink, Upload, Loader2, Zap, Users, Star, AlertTriangle, MessageSquare, ListChecks, Printer, Link2, Copy, Check } from 'lucide-react';
@@ -3215,6 +3215,25 @@ ${questionnaireUrl}
                             icon={<Edit3 size={14} />}
                           >
                             עריכה
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={async () => {
+                              try {
+                                await addProposal({
+                                  leadId: leadId!,
+                                  proposalName: prop.proposalName + ' (העתק)',
+                                  proposalData: prop.proposalData,
+                                  status: 'draft' as ProposalStatus,
+                                  createdBy: user?.id || '',
+                                  createdByName: currentUserName,
+                                });
+                              } catch { /* Error shown by addProposal */ }
+                            }}
+                            icon={<Copy size={14} />}
+                          >
+                            שכפל
                           </Button>
                           <Button
                             size="sm"

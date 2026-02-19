@@ -473,29 +473,33 @@ What to build:
     * Objection handling scripts
   - Adapt to business domain (not just agencies)
 
----------- FEATURE #5: PDF Analysis + Work Plan ----------
+---------- FEATURE #5: PDF Analysis + Work Plan --- FULLY COMPLETE ----------
 
 Priority: 4
 Source: Copy PDF generation method from Signals OS (generatePdf.ts + heeboFont.ts)
+Status: FULLY COMPLETE (implemented across multiple sessions)
 
-What to build:
-  - 2 PDF document types:
-    1. "Current State Analysis" — AI analyzes all lead data, transcripts, notes
-    2. "Work Plan Proposal" — AI generates strategy, services, timeline, pricing
+What was built:
+  - 4 PDF document types (expanded from original 2):
+    1. "Work Plan" — AI-generated strategy with services, timeline, pricing
+    2. "Financial Summary" — revenue, expenses, profitability analysis
+    3. "Personality Profile" — Signals archetype + behavioral insights
+    4. "Strategy & Action Plan" — GPT-style phased action plans with milestones
   - PDF design (based on Niv's reference document):
-    * Business logo at top (tenant's logo OR client's logo)
-    * Color palette configurable per tenant in Settings
+    * Business logo at top (tenant's logo, uploaded in Settings)
+    * Color palette configurable per tenant in Settings (primary, secondary, accent)
     * Clean Hebrew RTL layout with Heebo font
     * Sections with headers, content blocks, tables
     * Professional footer with agency name + date
   - Branding system:
     * Logo upload in Settings (stored in storage bucket)
     * Color palette picker (primary, secondary, accent)
-    * Future businesses can set their own logo + colors
-  - Method: window.print() with hidden HTML (proven method from Signals OS)
-  - Edge Function generates content, frontend renders + prints to PDF
-  - Option to combine both documents into single PDF
-  - Available from LeadProfile after intro call + notes/transcript
+    * Applied to all PDF exports
+  - Strategy & Action Plan extras:
+    * Animated HTML export with scroll effects
+    * Editable strategy with shareable public links
+    * generateStrategyPdf with phased action plans
+  - Available from LeadProfile and ClientProfile
 
 ---------- FEATURE #3: Competitor Scout (Auto Analysis) ----------
 
@@ -580,10 +584,10 @@ PHASE A — Platform Features:
   Step 1.  #7 Dynamic Services        -> Settings CRUD, templates, multi-business
   Step 2.  #8 Purchase History + LTV  -> ClientProfile block, timeline, charts
   Step 3.  #2 Dynamic Call Scripts    -> 5-door UI from V2 data + on-demand gen
-  Step 4.  #5 PDF Documents           -> window.print(), logo+colors branding
-  Step 5.  #3 Competitor Scout        -> Edge Function + search API
-  Step 6.  #4 AI Notebook             -> Phase 1 simple, then Phase 2 RAG
-  Step 7.  #1 Telegram Bot            -> Most complex, voice+image+text routing
+  Step 4.  #5 PDF Documents           -> DONE. Branded PDF generation (work plan, financial summary, personality, strategy), logo upload + color palette in Settings, generateStrategyPdf with phased action plans, animated HTML export, editable strategy with shareable public links.
+  Step 5.  #3 Competitor Scout        -> DONE. Edge Function + competitor reports in LeadProfile/ClientProfile.
+  Step 6.  #4 AI Notebook             -> DONE. Per-client/lead context brain, server-side CRM gathering, chat interface in profile.
+  Step 7.  #1 Telegram Bot            -> DONE. Voice+image+text routing, NLP intent detection, entity recognition, Telegram webhook Edge Function.
   Step 8.  #6 Salesforce Features     -> Ongoing alongside everything
 
 PHASE B — AI Agent Army (from original roadmap):
@@ -591,6 +595,88 @@ PHASE B — AI Agent Army (from original roadmap):
   Wave 2.  #19 Competitor Scout (enhanced), #3 Churn, #4 Creative, #15 Upsell
   Wave 3.  #20 AI Notebook (enhanced), #10 Monthly, #17 Playbook, #18 Scheduler
   Wave 4.  #21 Super Agent
+
+===============================================================================
+PART 9 — 15 BREAKTHROUGH CRM IDEAS (Session 23, 2026-02-19)
+===============================================================================
+
+Ideas only — no code development. Things top companies do.
+
+1. DEAL MOMENTUM SCORE
+   Real-time score (0-100) per lead combining: communication frequency,
+   response time, message sentiment, proposal view count. Score drop → auto alert.
+   (HubSpot/Gong pattern)
+
+2. REVENUE INTELLIGENCE DASHBOARD
+   Financial intel board predicting monthly revenue: lead close probability ×
+   deal size, historical seasonality, churn risk of existing clients. Waterfall
+   chart: "what needs to happen to hit target"
+
+3. GHOST LEAD DETECTION
+   Auto-detect leads that disappeared mid-process. AI analyzes patterns:
+   "3 calls, got proposal, 5 days silence" → generates Win-Back message
+   matched to archetype (Signals) with FOMO triggers.
+
+4. CLIENT HEALTH HEATMAP
+   All clients on one axis (health) with green/yellow/red colors. Combines:
+   time since last call, note sentiment, campaign performance, payment timing.
+   "One glance at entire portfolio"
+
+5. SMART PROPOSAL A/B TESTING
+   Send 2 proposal versions to same lead (e.g., discount vs bonus package).
+   Track: which opened first, view time, which got signed. Cumulative learning
+   "what works with WINNER vs DREAMER"
+
+6. CONVERSATION INTELLIGENCE
+   NLP analysis of all calls/transcripts: auto-detect objections (price/time/
+   confidence), map recurring questions, "danger words" indicating churn.
+   Weekly report: "8 price objections this week"
+
+7. PSYCHOLOGICAL PRICING ENGINE
+   Pricing engine using Signals profile: WINNER sees "ROI in 60 days",
+   HEART sees "peace of mind package", DREAMER sees "growth package".
+   Auto-framing same price in different language per archetype.
+
+8. CLIENT CLONING
+   "Find me 10 more leads like my most profitable client". AI analyzes:
+   industry, business size, archetype, acquisition channel, service type →
+   generates ICP (Ideal Customer Profile) + suggests acquisition channels.
+
+9. AUTOMATED CASE STUDIES
+   AI auto-generates case study from CRM data: "Client X arrived as DREAMER,
+   in 3 months we grew leads by 40%, here's the data". Ready to send to
+   similar leads. "Social proof that sells itself"
+
+10. CHURN PREDICTION WITH SAVE PLAYBOOK
+    Model predicts churn 30 days ahead (interaction decline, complaints,
+    payment delays) + auto save playbook: discount/upgrade/retention call
+    matched to archetype.
+
+11. SMART MEETING PREP BRIEFING
+    5 minutes before a call, AMP generates brief: "who you're talking to
+    (archetype + strengths/weaknesses), last call summary, 3 topics to raise,
+    likely objection, recommended close"
+
+12. REVENUE ATTRIBUTION MAP
+    Track "where every shekel came from": ad channel → lead → client →
+    monthly revenue. Shows real ROI per-channel. "Facebook brought 20 leads
+    but 2 clients (₪14K/mo), Google brought 5 leads but 4 clients (₪28K/mo)"
+
+13. ENGAGEMENT SCORING PER TOUCHPOINT
+    Every interaction gets a score: opened proposal (+5), replied within hour
+    (+10), requested call (+20), cancelled meeting (-15). Score accumulates
+    and affects Momentum Score and queue priority.
+
+14. WIN/LOSS ANALYSIS ENGINE
+    AI analyzes every closed (and lost) deal: "why did we close? why did we
+    lose?" Identifies patterns: "80% of WINNERs close after 2nd call",
+    "DREAMERs who get discount in first 7 days close at 60%"
+
+15. MICRO-COMMITMENT FUNNEL
+    Instead of "sign the proposal", build micro-commitment path: proposal →
+    "confirm received" → "choose preferred package" → "schedule summary call"
+    → "sign". Each small step increases close rate. Cialdini's Commitment
+    Principle in action.
 
 ===============================================================================
 END OF IDEAS FILE

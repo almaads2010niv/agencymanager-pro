@@ -290,6 +290,65 @@ async function recognizeIntent(geminiKey: string, text: string): Promise<CRMInte
   }
 }
 
+// ── Smart Entity Search Helper ───────────────────────────────
+// Searches both name and business_name fields, handles partial matches
+interface EntityMatch {
+  id: string
+  name: string
+  type: 'client' | 'lead'
+}
+
+async function findEntity(
+  adminClient: ReturnType<typeof createClient>,
+  tenantId: string,
+  entityName: string,
+  entityType?: 'client' | 'lead'
+): Promise<{ matches: EntityMatch[]; error?: string }> {
+  const searchTerms = entityName.trim()
+  if (!searchTerms) return { matches: [], error: 'שם ריק' }
+
+  const matches: EntityMatch[] = []
+
+  // Search clients (unless specifically looking for leads)
+  if (entityType !== 'lead') {
+    const { data: clients } = await adminClient
+      .from('clients')
+      .select('client_id, client_name, business_name')
+      .eq('tenant_id', tenantId)
+
+    for (const c of clients || []) {
+      const nameMatch = c.client_name?.toLowerCase().includes(searchTerms.toLowerCase())
+      const bizMatch = c.business_name?.toLowerCase().includes(searchTerms.toLowerCase())
+      // Also try: search term contains the client name or business name
+      const reverseNameMatch = searchTerms.toLowerCase().includes(c.client_name?.toLowerCase() || '---')
+      const reverseBizMatch = c.business_name && searchTerms.toLowerCase().includes(c.business_name.toLowerCase())
+      if (nameMatch || bizMatch || reverseNameMatch || reverseBizMatch) {
+        matches.push({ id: c.client_id, name: c.client_name, type: 'client' })
+      }
+    }
+  }
+
+  // Search leads (unless specifically looking for clients)
+  if (entityType !== 'client') {
+    const { data: leads } = await adminClient
+      .from('leads')
+      .select('lead_id, lead_name, business_name')
+      .eq('tenant_id', tenantId)
+
+    for (const l of leads || []) {
+      const nameMatch = l.lead_name?.toLowerCase().includes(searchTerms.toLowerCase())
+      const bizMatch = l.business_name?.toLowerCase().includes(searchTerms.toLowerCase())
+      const reverseNameMatch = searchTerms.toLowerCase().includes(l.lead_name?.toLowerCase() || '---')
+      const reverseBizMatch = l.business_name && searchTerms.toLowerCase().includes(l.business_name.toLowerCase())
+      if (nameMatch || bizMatch || reverseNameMatch || reverseBizMatch) {
+        matches.push({ id: l.lead_id, name: l.lead_name, type: 'lead' })
+      }
+    }
+  }
+
+  return { matches }
+}
+
 // ── CRM Action Executors ─────────────────────────────────────
 
 async function executeAddNote(
@@ -304,57 +363,39 @@ async function executeAddNote(
     return '❌ לא הצלחתי לזהות את שם הלקוח/ליד או את תוכן ההערה.\nנסה: "תרשום אצל <שם>: <הערה>"'
   }
 
-  // Search clients first
-  const { data: clients } = await adminClient
-    .from('clients')
-    .select('client_id, client_name')
-    .eq('tenant_id', tenantId)
-    .ilike('client_name', `%${entityName}%`)
-    .limit(3)
+  const { matches } = await findEntity(adminClient, tenantId, entityName)
 
-  if (clients?.length === 1) {
-    await adminClient.from('client_notes').insert({
-      id: crypto.randomUUID(),
-      client_id: clients[0].client_id,
-      content: noteContent,
-      created_by: 'telegram',
-      created_by_name: 'Telegram Bot 🤖',
-      created_at: new Date().toISOString(),
-      note_type: 'manual',
-      tenant_id: tenantId,
-    })
-    return `✅ <b>הערה נוספה ללקוח ${clients[0].client_name}</b>\n📝 ${noteContent}`
+  if (matches.length === 1) {
+    const m = matches[0]
+    if (m.type === 'client') {
+      await adminClient.from('client_notes').insert({
+        id: crypto.randomUUID(),
+        client_id: m.id,
+        content: noteContent,
+        created_by: 'telegram',
+        created_by_name: 'Telegram Bot 🤖',
+        created_at: new Date().toISOString(),
+        note_type: 'manual',
+        tenant_id: tenantId,
+      })
+      return `✅ <b>הערה נוספה ללקוח ${m.name}</b>\n📝 ${noteContent}`
+    } else {
+      await adminClient.from('lead_notes').insert({
+        id: crypto.randomUUID(),
+        lead_id: m.id,
+        content: noteContent,
+        created_by: 'telegram',
+        created_by_name: 'Telegram Bot 🤖',
+        created_at: new Date().toISOString(),
+        note_type: 'manual',
+        tenant_id: tenantId,
+      })
+      return `✅ <b>הערה נוספה לליד ${m.name}</b>\n📝 ${noteContent}`
+    }
   }
 
-  // Search leads
-  const { data: leads } = await adminClient
-    .from('leads')
-    .select('lead_id, lead_name')
-    .eq('tenant_id', tenantId)
-    .ilike('lead_name', `%${entityName}%`)
-    .limit(3)
-
-  if (leads?.length === 1) {
-    await adminClient.from('lead_notes').insert({
-      id: crypto.randomUUID(),
-      lead_id: leads[0].lead_id,
-      content: noteContent,
-      created_by: 'telegram',
-      created_by_name: 'Telegram Bot 🤖',
-      created_at: new Date().toISOString(),
-      note_type: 'manual',
-      tenant_id: tenantId,
-    })
-    return `✅ <b>הערה נוספה לליד ${leads[0].lead_name}</b>\n📝 ${noteContent}`
-  }
-
-  // Multiple matches
-  const allMatches = [
-    ...(clients || []).map(c => c.client_name),
-    ...(leads || []).map(l => l.lead_name),
-  ]
-  if (allMatches.length > 1) {
-    return `⚠️ נמצאו כמה תוצאות עבור "${entityName}":\n${allMatches.map(n => `• ${n}`).join('\n')}\nנסה להיות יותר ספציפי.`
+  if (matches.length > 1) {
+    return `⚠️ נמצאו כמה תוצאות עבור "${entityName}":\n${matches.map(m => `• ${m.name} (${m.type === 'client' ? 'לקוח' : 'ליד'})`).join('\n')}\nנסה להיות יותר ספציפי.`
   }
 
   return `❌ לא נמצא לקוח או ליד בשם "${entityName}"`
@@ -380,61 +421,29 @@ async function executeReschedule(
     return `❌ לא הצלחתי להבין את התאריך "${dateStr}". נסה: מחר, יום חמישי, עוד שבוע, או 15/03`
   }
 
-  // Search leads first (more likely to reschedule leads)
-  const { data: leads } = await adminClient
-    .from('leads')
-    .select('lead_id, lead_name, next_contact_date')
-    .eq('tenant_id', tenantId)
-    .ilike('lead_name', `%${entityName}%`)
-    .limit(3)
+  const { matches } = await findEntity(adminClient, tenantId, entityName)
 
-  if (leads?.length === 1) {
-    const oldDate = leads[0].next_contact_date
-      ? new Date(leads[0].next_contact_date).toLocaleDateString('he-IL')
-      : 'לא נקבע'
-
-    const { error } = await adminClient
-      .from('leads')
-      .update({ next_contact_date: `${parsedDate}T10:00:00.000Z` })
-      .eq('lead_id', leads[0].lead_id)
-
-    if (error) return `❌ שגיאה בעדכון: ${error.message}`
-
-    const newDateFormatted = new Date(parsedDate).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })
-    return `✅ <b>פגישה עם ${leads[0].lead_name} הוזֿזה</b>\n📅 ${oldDate} → <b>${newDateFormatted}</b>`
+  if (matches.length === 1) {
+    const m = matches[0]
+    if (m.type === 'lead') {
+      const { data: leadData } = await adminClient.from('leads').select('next_contact_date').eq('lead_id', m.id).single()
+      const oldDate = leadData?.next_contact_date ? new Date(leadData.next_contact_date).toLocaleDateString('he-IL') : 'לא נקבע'
+      const { error } = await adminClient.from('leads').update({ next_contact_date: `${parsedDate}T10:00:00.000Z` }).eq('lead_id', m.id)
+      if (error) return `❌ שגיאה בעדכון: ${error.message}`
+      const newDateFormatted = new Date(parsedDate).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })
+      return `✅ <b>פגישה עם ${m.name} הוזזה</b>\n📅 ${oldDate} → <b>${newDateFormatted}</b>`
+    } else {
+      const { data: clientData } = await adminClient.from('clients').select('next_review_date').eq('client_id', m.id).single()
+      const oldDate = clientData?.next_review_date ? new Date(clientData.next_review_date).toLocaleDateString('he-IL') : 'לא נקבע'
+      const { error } = await adminClient.from('clients').update({ next_review_date: `${parsedDate}T10:00:00.000Z` }).eq('client_id', m.id)
+      if (error) return `❌ שגיאה בעדכון: ${error.message}`
+      const newDateFormatted = new Date(parsedDate).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })
+      return `✅ <b>פגישה עם ${m.name} הוזזה</b>\n📅 ${oldDate} → <b>${newDateFormatted}</b>`
+    }
   }
 
-  // Search clients
-  const { data: clients } = await adminClient
-    .from('clients')
-    .select('client_id, client_name, next_review_date')
-    .eq('tenant_id', tenantId)
-    .ilike('client_name', `%${entityName}%`)
-    .limit(3)
-
-  if (clients?.length === 1) {
-    const oldDate = clients[0].next_review_date
-      ? new Date(clients[0].next_review_date).toLocaleDateString('he-IL')
-      : 'לא נקבע'
-
-    const { error } = await adminClient
-      .from('clients')
-      .update({ next_review_date: `${parsedDate}T10:00:00.000Z` })
-      .eq('client_id', clients[0].client_id)
-
-    if (error) return `❌ שגיאה בעדכון: ${error.message}`
-
-    const newDateFormatted = new Date(parsedDate).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })
-    return `✅ <b>פגישה עם ${clients[0].client_name} הוזזה</b>\n📅 ${oldDate} → <b>${newDateFormatted}</b>`
-  }
-
-  // Multiple matches
-  const allMatches = [
-    ...(leads || []).map(l => l.lead_name),
-    ...(clients || []).map(c => c.client_name),
-  ]
-  if (allMatches.length > 1) {
-    return `⚠️ נמצאו כמה תוצאות:\n${allMatches.map(n => `• ${n}`).join('\n')}\nנסה להיות יותר ספציפי.`
+  if (matches.length > 1) {
+    return `⚠️ נמצאו כמה תוצאות:\n${matches.map(m => `• ${m.name} (${m.type === 'client' ? 'לקוח' : 'ליד'})`).join('\n')}\nנסה להיות יותר ספציפי.`
   }
 
   return `❌ לא נמצא לקוח או ליד בשם "${entityName}"`
@@ -471,45 +480,23 @@ async function executeUpdateField(
 
   const dbValue = fieldConfig.isNumber ? Number(fieldValue.replace(/[^\d.]/g, '')) : fieldValue
 
-  // Search leads
-  const { data: leads } = await adminClient
-    .from('leads')
-    .select('lead_id, lead_name')
-    .eq('tenant_id', tenantId)
-    .ilike('lead_name', `%${entityName}%`)
-    .limit(3)
+  const { matches } = await findEntity(adminClient, tenantId, entityName)
 
-  if (leads?.length === 1) {
-    const { error } = await adminClient
-      .from('leads')
-      .update({ [fieldConfig.lead_col]: dbValue })
-      .eq('lead_id', leads[0].lead_id)
-
-    if (error) return `❌ שגיאה בעדכון: ${error.message}`
-    return `✅ <b>ליד ${leads[0].lead_name} עודכן</b>\n${fieldConfig.label}: <b>${fieldValue}</b>`
+  if (matches.length === 1) {
+    const m = matches[0]
+    if (m.type === 'lead') {
+      const { error } = await adminClient.from('leads').update({ [fieldConfig.lead_col]: dbValue }).eq('lead_id', m.id)
+      if (error) return `❌ שגיאה בעדכון: ${error.message}`
+      return `✅ <b>ליד ${m.name} עודכן</b>\n${fieldConfig.label}: <b>${fieldValue}</b>`
+    } else {
+      const { error } = await adminClient.from('clients').update({ [fieldConfig.client_col]: dbValue }).eq('client_id', m.id)
+      if (error) return `❌ שגיאה בעדכון: ${error.message}`
+      return `✅ <b>לקוח ${m.name} עודכן</b>\n${fieldConfig.label}: <b>${fieldValue}</b>`
+    }
   }
 
-  // Search clients
-  const { data: clients } = await adminClient
-    .from('clients')
-    .select('client_id, client_name')
-    .eq('tenant_id', tenantId)
-    .ilike('client_name', `%${entityName}%`)
-    .limit(3)
-
-  if (clients?.length === 1) {
-    const { error } = await adminClient
-      .from('clients')
-      .update({ [fieldConfig.client_col]: dbValue })
-      .eq('client_id', clients[0].client_id)
-
-    if (error) return `❌ שגיאה בעדכון: ${error.message}`
-    return `✅ <b>לקוח ${clients[0].client_name} עודכן</b>\n${fieldConfig.label}: <b>${fieldValue}</b>`
-  }
-
-  const allMatches = [...(leads || []).map(l => l.lead_name), ...(clients || []).map(c => c.client_name)]
-  if (allMatches.length > 1) {
-    return `⚠️ נמצאו כמה תוצאות:\n${allMatches.map(n => `• ${n}`).join('\n')}\nנסה להיות יותר ספציפי.`
+  if (matches.length > 1) {
+    return `⚠️ נמצאו כמה תוצאות:\n${matches.map(m => `• ${m.name} (${m.type === 'client' ? 'לקוח' : 'ליד'})`).join('\n')}\nנסה להיות יותר ספציפי.`
   }
 
   return `❌ לא נמצא לקוח או ליד בשם "${entityName}"`
@@ -528,32 +515,19 @@ async function executeAddDeal(
     return '❌ לא הצלחתי לזהות פרטי הפרויקט.\nנסה: "פרויקט חדש לניב: בניית אתר 5000 שקל"'
   }
 
-  // Find client
-  const { data: clients } = await adminClient
-    .from('clients')
-    .select('client_id, client_name')
-    .eq('tenant_id', tenantId)
-    .ilike('client_name', `%${entityName}%`)
-    .limit(3)
+  // Find client/lead using smart search
+  const { matches } = await findEntity(adminClient, tenantId, entityName)
 
   let clientId = ''
   let clientName = entityName
 
-  if (clients?.length === 1) {
-    clientId = clients[0].client_id
-    clientName = clients[0].client_name
-  } else {
-    // Try leads
-    const { data: leads } = await adminClient
-      .from('leads')
-      .select('lead_id, lead_name')
-      .eq('tenant_id', tenantId)
-      .ilike('lead_name', `%${entityName}%`)
-      .limit(1)
-    if (leads?.length) {
-      clientId = leads[0].lead_id
-      clientName = leads[0].lead_name
-    }
+  if (matches.length === 1) {
+    clientId = matches[0].id
+    clientName = matches[0].name
+  } else if (matches.length > 1) {
+    // Use first match
+    clientId = matches[0].id
+    clientName = matches[0].name
   }
 
   const { error } = await adminClient.from('deals').insert({
@@ -639,33 +613,29 @@ async function executeUpdateLeadStatus(
     return `❌ סטטוס לא תקין: "${newStatus}"\nסטטוסים אפשריים: ${validStatuses.join(', ')}`
   }
 
-  const { data: leads } = await adminClient
-    .from('leads')
-    .select('lead_id, lead_name, status')
-    .eq('tenant_id', tenantId)
-    .ilike('lead_name', `%${entityName}%`)
-    .limit(3)
+  const { matches } = await findEntity(adminClient, tenantId, entityName, 'lead')
 
-  if (!leads?.length) {
+  if (!matches.length) {
     return `❌ לא נמצא ליד בשם "${entityName}"`
   }
-  if (leads.length > 1) {
-    return `⚠️ נמצאו ${leads.length} לידים:\n${leads.map(l => `• ${l.lead_name} (${l.status})`).join('\n')}\nנסה להיות יותר ספציפי.`
+  if (matches.length > 1) {
+    return `⚠️ נמצאו ${matches.length} לידים:\n${matches.map(m => `• ${m.name}`).join('\n')}\nנסה להיות יותר ספציפי.`
   }
 
-  const lead = leads[0]
-  const oldStatus = lead.status
+  const m = matches[0]
+  const { data: leadData } = await adminClient.from('leads').select('status').eq('lead_id', m.id).single()
+  const oldStatus = leadData?.status || ''
 
   const { error } = await adminClient
     .from('leads')
     .update({ status: newStatus })
-    .eq('lead_id', lead.lead_id)
+    .eq('lead_id', m.id)
 
   if (error) {
     return `❌ שגיאה בעדכון: ${error.message}`
   }
 
-  return `✅ <b>ליד ${lead.lead_name} עודכן</b>\n📊 ${oldStatus} ← → <b>${newStatus}</b>`
+  return `✅ <b>ליד ${m.name} עודכן</b>\n📊 ${oldStatus} ← → <b>${newStatus}</b>`
 }
 
 async function executeUpdateClientStatus(
@@ -685,33 +655,29 @@ async function executeUpdateClientStatus(
     return `❌ סטטוס לא תקין: "${newStatus}"\nסטטוסים אפשריים: ${validStatuses.join(', ')}`
   }
 
-  const { data: clients } = await adminClient
-    .from('clients')
-    .select('client_id, client_name, status')
-    .eq('tenant_id', tenantId)
-    .ilike('client_name', `%${entityName}%`)
-    .limit(3)
+  const { matches } = await findEntity(adminClient, tenantId, entityName, 'client')
 
-  if (!clients?.length) {
+  if (!matches.length) {
     return `❌ לא נמצא לקוח בשם "${entityName}"`
   }
-  if (clients.length > 1) {
-    return `⚠️ נמצאו ${clients.length} לקוחות:\n${clients.map(c => `• ${c.client_name} (${c.status})`).join('\n')}\nנסה להיות יותר ספציפי.`
+  if (matches.length > 1) {
+    return `⚠️ נמצאו ${matches.length} לקוחות:\n${matches.map(m => `• ${m.name}`).join('\n')}\nנסה להיות יותר ספציפי.`
   }
 
-  const client = clients[0]
-  const oldStatus = client.status
+  const m = matches[0]
+  const { data: clientData } = await adminClient.from('clients').select('status').eq('client_id', m.id).single()
+  const oldStatus = clientData?.status || ''
 
   const { error } = await adminClient
     .from('clients')
     .update({ status: newStatus })
-    .eq('client_id', client.client_id)
+    .eq('client_id', m.id)
 
   if (error) {
     return `❌ שגיאה בעדכון: ${error.message}`
   }
 
-  return `✅ <b>לקוח ${client.client_name} עודכן</b>\n📊 ${oldStatus} ← → <b>${newStatus}</b>`
+  return `✅ <b>לקוח ${m.name} עודכן</b>\n📊 ${oldStatus} ← → <b>${newStatus}</b>`
 }
 
 async function executeSearch(
@@ -844,22 +810,27 @@ async function executeSignalsProfile(
   }
 
   if (!matchedProfiles?.length) {
-    // Also try searching by lead_name/client_name to find linked profiles
-    const { data: leads } = await adminClient
-      .from('leads')
-      .select('lead_id, lead_name')
-      .ilike('lead_name', `%${entityName}%`)
-      .limit(1)
+    // Also try searching by lead_name/client_name/business_name to find linked profiles
+    const { matches: entityMatches } = await findEntity(adminClient, tenantId, entityName)
 
-    if (leads?.length) {
-      const { data: linkedProfiles } = await adminClient
-        .from('signals_personality')
-        .select('*')
-        .eq('lead_id', leads[0].lead_id)
-        .order('received_at', { ascending: false })
-        .limit(1)
-
-      if (linkedProfiles?.length) matchedProfiles = linkedProfiles
+    for (const em of entityMatches) {
+      if (em.type === 'lead') {
+        const { data: linkedProfiles } = await adminClient
+          .from('signals_personality')
+          .select('*')
+          .eq('lead_id', em.id)
+          .order('received_at', { ascending: false })
+          .limit(1)
+        if (linkedProfiles?.length) { matchedProfiles = linkedProfiles; break }
+      } else {
+        const { data: linkedProfiles } = await adminClient
+          .from('signals_personality')
+          .select('*')
+          .eq('client_id', em.id)
+          .order('received_at', { ascending: false })
+          .limit(1)
+        if (linkedProfiles?.length) { matchedProfiles = linkedProfiles; break }
+      }
     }
 
     if (!matchedProfiles?.length) {
@@ -1056,22 +1027,10 @@ async function executeReminder(
   let leadId: string | null = null
 
   if (entityName) {
-    const { data: clients } = await adminClient
-      .from('clients')
-      .select('client_id')
-      .eq('tenant_id', tenantId)
-      .ilike('client_name', `%${entityName}%`)
-      .limit(1)
-    if (clients?.length) clientId = clients[0].client_id
-
-    if (!clientId) {
-      const { data: leads } = await adminClient
-        .from('leads')
-        .select('lead_id')
-        .eq('tenant_id', tenantId)
-        .ilike('lead_name', `%${entityName}%`)
-        .limit(1)
-      if (leads?.length) leadId = leads[0].lead_id
+    const { matches } = await findEntity(adminClient, tenantId, entityName)
+    if (matches.length >= 1) {
+      if (matches[0].type === 'client') clientId = matches[0].id
+      else leadId = matches[0].id
     }
   }
 
@@ -1111,16 +1070,19 @@ async function transcribeAndExecute(
   geminiKey: string,
   audioBase64: string,
   adminClient: ReturnType<typeof createClient>,
-  tenantId: string
+  tenantId: string,
+  audioMimeType = 'audio/ogg'
 ): Promise<{ response: string; action: string; transcription: string }> {
   // Step 1: Transcribe (use quality model for accurate transcription)
+  // Normalize MIME type — Gemini supports audio/ogg, audio/mp3, audio/wav, audio/mp4, audio/mpeg
+  const normalizedMime = audioMimeType.startsWith('audio/') ? audioMimeType : 'audio/ogg'
   const transcription = await callGemini(
     geminiKey,
     'תמלל את ההקלטה הזאת לעברית. תן רק את התמלול, בלי הסברים נוספים.',
     GEMINI_QUALITY,
     0.2,
     1024,
-    { mimeType: 'audio/ogg', data: audioBase64 }
+    { mimeType: normalizedMime, data: audioBase64 }
   )
 
   if (!transcription) {
@@ -1582,7 +1544,7 @@ Deno.serve(async (req) => {
       }
 
     } else if (message.document) {
-      // ── Document — save to Knowledge Base or Receipts ──────────
+      // ── Document — detect audio files and route to transcription ──
       messageType = 'document'
       const doc = message.document
       if (doc?.file_id) {
@@ -1590,7 +1552,28 @@ Deno.serve(async (req) => {
         const fileName = doc.file_name || `document_${Date.now()}`
         const mimeType = doc.mime_type || 'application/octet-stream'
 
-        if (fileUrl) {
+        // Check if this is an audio file sent as a document
+        const isAudioFile = mimeType.startsWith('audio/') ||
+          /\.(m4a|mp3|wav|ogg|opus|aac|wma|flac|webm)$/i.test(fileName)
+
+        if (isAudioFile && fileUrl && geminiKey) {
+          // Route audio documents to transcription (same as voice messages)
+          messageType = 'voice'
+          try {
+            const audioRes = await fetch(fileUrl)
+            const audioBuffer = await audioRes.arrayBuffer()
+            const audioBase64 = btoa(
+              new Uint8Array(audioBuffer).reduce((s, b) => s + String.fromCharCode(b), '')
+            )
+            const result = await transcribeAndExecute(geminiKey, audioBase64, adminClient, tenantId, mimeType)
+            responseText = result.response
+            actionTaken = result.action
+          } catch (audioErr) {
+            console.error('Audio document transcription error:', audioErr)
+            responseText = `❌ שגיאה בתמלול קובץ אודיו: ${audioErr instanceof Error ? audioErr.message : 'שגיאה לא ידועה'}\nגודל הקובץ: ${(doc.file_size || 0) > 1024 * 1024 ? `${((doc.file_size || 0) / (1024 * 1024)).toFixed(1)}MB` : `${((doc.file_size || 0) / 1024).toFixed(0)}KB`}`
+            actionTaken = 'voice_error'
+          }
+        } else if (fileUrl) {
           const docRes = await fetch(fileUrl)
           const docBuffer = await docRes.arrayBuffer()
           const docBytes = new Uint8Array(docBuffer)
@@ -1741,6 +1724,24 @@ ${text ? `הקשר מהמשתמש: "${text}"` : ''}
     return new Response('OK', { status: 200 })
   } catch (err) {
     console.error('Telegram webhook error:', err)
+    // Try to send error message to user so they know something went wrong
+    try {
+      const update = await req.clone().json().catch(() => null)
+      const msg = update?.message || update?.edited_message
+      if (msg?.chat?.id) {
+        const { data: settings } = await createClient(
+          Deno.env.get('SUPABASE_URL')!,
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+        ).from('settings').select('telegram_bot_token').limit(1).single()
+        if (settings?.telegram_bot_token) {
+          await sendTelegramMessage(
+            settings.telegram_bot_token,
+            String(msg.chat.id),
+            `⚠️ שגיאה בעיבוד ההודעה: ${err instanceof Error ? err.message : 'שגיאה לא ידועה'}\nנסה שוב.`
+          )
+        }
+      }
+    } catch { /* ignore error-on-error */ }
     return new Response('OK', { status: 200 }) // Always return 200 to Telegram
   }
 })

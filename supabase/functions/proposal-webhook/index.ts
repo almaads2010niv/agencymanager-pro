@@ -125,9 +125,16 @@ Deno.serve(async (req) => {
     }
 
     // ── Default action: signature submission ──────────────────
-    const { name, idNumber, email, signatureImage, selectedPackage } = body
+    // Support both nested (body.signature.*) and flat (body.*) field formats
+    const sig = body.signature || body
+    const name = sig.name
+    const idNumber = sig.idNumber
+    const email = sig.email
+    const signatureImage = sig.signatureImage
+    const selectedPackage = sig.selectedPackage
 
     if (!name || !idNumber || !email || !signatureImage || !selectedPackage) {
+      console.error('Missing fields. body keys:', Object.keys(body), 'sig keys:', Object.keys(sig))
       return new Response(
         JSON.stringify({ error: 'Missing required fields: name, idNumber, email, signatureImage, selectedPackage' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -140,7 +147,7 @@ Deno.serve(async (req) => {
       email,
       signatureImage,
       selectedPackage,
-      signedAt: new Date().toISOString(),
+      signedAt: sig.signedAt || new Date().toISOString(),
     }
 
     const { error: updateError } = await adminClient
