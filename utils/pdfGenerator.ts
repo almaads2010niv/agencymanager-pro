@@ -597,3 +597,116 @@ export function generateCustomPdf(data: CustomDocData, brand: BrandConfig): void
   const fullHtml = wrapInPrintDocument(html, data.title);
   openPreviewWindow(fullHtml);
 }
+
+// ── 5. Strategy & Action Plan (אסטרטגיה ותוכנית עבודה) ──────────────────
+
+import type { StrategyPlanData } from '../types';
+
+export interface StrategyPdfData {
+  entityName: string;
+  entityType: 'client' | 'lead';
+  planData: StrategyPlanData;
+  createdAt: string;
+}
+
+function buildColoredList(brand: BrandConfig, title: string, items: string[], emoji: string, color: string): string {
+  if (!items || items.length === 0) return '';
+  const listItems = items.map(item =>
+    `<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;flex-direction:row-reverse;">
+      <span style="flex-shrink:0;">${emoji}</span>
+      <span style="font-size:10px;color:#475569;line-height:1.6;text-align:right;">${escapeHtml(item)}</span>
+    </div>`
+  ).join('');
+
+  return `
+    <div style="margin:10px 0;page-break-inside:avoid;">
+      <div style="font-size:11px;font-weight:600;color:${color};margin-bottom:6px;text-align:right;">${escapeHtml(title)}</div>
+      ${listItems}
+    </div>
+  `;
+}
+
+function buildPhaseSection(brand: BrandConfig, phase: { phaseLabel: string; phaseSummary: string; actions: Array<{ number: number; title: string; description: string; owner: string; kpi: string }> }, phaseColor: string): string {
+  // Phase header band
+  let html = `
+    <div style="margin:18px 28px 8px;page-break-inside:avoid;">
+      <div style="background:linear-gradient(to left,${phaseColor},${phaseColor}cc);padding:10px 16px;border-radius:8px;margin-bottom:8px;">
+        <div style="font-size:13px;font-weight:700;color:#ffffff;text-align:right;">${escapeHtml(phase.phaseLabel)}</div>
+        <div style="font-size:9px;color:#ffffffcc;margin-top:2px;text-align:right;">${escapeHtml(phase.phaseSummary)}</div>
+      </div>
+    </div>
+  `;
+
+  // Actions table
+  if (phase.actions?.length) {
+    const headers = ['#', 'פעולה', 'תיאור', 'אחראי', 'מדד הצלחה'];
+    const rows = phase.actions.map(a => [
+      String(a.number),
+      a.title,
+      a.description,
+      a.owner,
+      a.kpi,
+    ]);
+    html += buildTable(headers, rows, brand);
+  }
+
+  return html;
+}
+
+export function generateStrategyPdf(data: StrategyPdfData, brand: BrandConfig): void {
+  const { planData, entityName, entityType } = data;
+  const entityLabel = entityType === 'client' ? 'לקוח' : 'ליד';
+  const title = `אסטרטגיה ותוכנית עבודה — ${entityName}`;
+
+  let html = buildHeader(brand, title, `${entityLabel} · ${new Date(data.createdAt).toLocaleDateString('he-IL')}`);
+
+  // Summary KPIs
+  const totalActions = planData.actionPlan.reduce((sum, p) => sum + (p.actions?.length || 0), 0);
+  html += buildKpiRow([
+    { label: 'שלבים', value: String(planData.actionPlan.length), color: brand.primaryColor },
+    { label: 'פעולות', value: String(totalActions), color: '#3b82f6' },
+    { label: 'מדדים', value: String(planData.kpis?.length || 0), color: '#f59e0b' },
+  ]);
+
+  // Executive Summary
+  if (planData.summary) {
+    html += buildSection(brand, 'סיכום מנהלים', escapeHtml(planData.summary));
+  }
+
+  // Situation Analysis
+  const sa = planData.situationAnalysis;
+  if (sa) {
+    html += `<div style="margin:14px 28px;page-break-inside:avoid;">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-direction:row-reverse;">
+        <div style="width:3px;height:16px;background:${brand.primaryColor};border-radius:2px;flex-shrink:0;"></div>
+        <span style="font-size:13px;font-weight:600;color:#1e293b;">ניתוח מצב קיים</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>${buildColoredList(brand, 'מה עובד', sa.whatsWorking, '✅', '#16a34a')}</div>
+        <div>${buildColoredList(brand, 'מה לא עובד', sa.whatsNotWorking, '❌', '#dc2626')}</div>
+        <div>${buildColoredList(brand, 'הזדמנויות', sa.opportunities, '💡', '#2563eb')}</div>
+        <div>${buildColoredList(brand, 'סיכונים', sa.risks, '⚠️', '#d97706')}</div>
+      </div>
+      ${buildColoredList(brand, 'תלויות', sa.dependencies, '🔗', '#6b7280')}
+    </div>`;
+  }
+
+  // Action Plan Phases
+  const phaseColors = ['#0d9488', '#3b82f6', '#8b5cf6', '#ec4899'];
+  for (let i = 0; i < planData.actionPlan.length; i++) {
+    html += buildPhaseSection(brand, planData.actionPlan[i], phaseColors[i % phaseColors.length]);
+  }
+
+  // KPIs
+  if (planData.kpis?.length) {
+    html += buildSection(brand, 'מדדי הצלחה (KPIs)', '');
+    const kpiHeaders = ['מדד', 'יעד', 'מסגרת זמן'];
+    const kpiRows = planData.kpis.map(k => [k.label, k.target, k.timeframe]);
+    html += buildTable(kpiHeaders, kpiRows, brand);
+  }
+
+  html += buildFooter(brand);
+
+  const fullHtml = wrapInPrintDocument(html, title);
+  openPreviewWindow(fullHtml);
+}

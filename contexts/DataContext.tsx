@@ -5,7 +5,7 @@ import {
   ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript, AIRecommendation,
   WhatsAppMessage, NoteType, SignalsPersonality, Archetype, ConfidenceLevel, ChurnRisk,
   BusinessIntelV2, CalendarEvent, CalendarEventType, Idea, IdeaStatus, IdeaPriority, KnowledgeArticle,
-  CompetitorReport, CompetitorAnalysis
+  CompetitorReport, CompetitorAnalysis, StrategyPlan
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -99,6 +99,18 @@ interface AIRecommendationRow {
   client_id: string | null;
   lead_id: string | null;
   recommendation: string;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+}
+
+interface StrategyPlanRow {
+  id: string;
+  client_id: string | null;
+  lead_id: string | null;
+  entity_name: string;
+  plan_data: Record<string, unknown>;
+  raw_text: string | null;
   created_by: string;
   created_by_name: string;
   created_at: string;
@@ -234,6 +246,10 @@ export interface DataContextType extends AppData {
 
   addAIRecommendation: (rec: Omit<AIRecommendation, 'id' | 'createdAt'>) => Promise<void>;
   deleteAIRecommendation: (id: string) => Promise<void>;
+
+  strategyPlans: StrategyPlan[];
+  addStrategyPlan: (plan: Omit<StrategyPlan, 'id' | 'createdAt'>) => Promise<void>;
+  deleteStrategyPlan: (id: string) => Promise<void>;
 
   addWhatsAppMessage: (msg: Omit<WhatsAppMessage, 'id' | 'sentAt'>) => Promise<void>;
   deleteWhatsAppMessage: (id: string) => Promise<void>;
@@ -635,6 +651,45 @@ const transformAIRecommendationFromDB = (row: AIRecommendationRow): AIRecommenda
   createdAt: row.created_at,
 });
 
+const transformStrategyPlanToDB = (plan: StrategyPlan) => ({
+  id: plan.id,
+  client_id: plan.clientId || null,
+  lead_id: plan.leadId || null,
+  entity_name: plan.entityName,
+  plan_data: plan.planData,
+  raw_text: plan.rawText || null,
+  created_by: plan.createdBy,
+  created_by_name: plan.createdByName,
+  created_at: plan.createdAt,
+});
+
+const transformStrategyPlanFromDB = (row: StrategyPlanRow): StrategyPlan => {
+  let planData;
+  try {
+    const raw = typeof row.plan_data === 'string' ? JSON.parse(row.plan_data) : row.plan_data;
+    planData = raw && typeof raw === 'object' && 'summary' in raw ? raw : {
+      summary: '', situationAnalysis: { whatsWorking: [], whatsNotWorking: [], dependencies: [], risks: [], opportunities: [] },
+      actionPlan: [], kpis: []
+    };
+  } catch {
+    planData = {
+      summary: '', situationAnalysis: { whatsWorking: [], whatsNotWorking: [], dependencies: [], risks: [], opportunities: [] },
+      actionPlan: [], kpis: []
+    };
+  }
+  return {
+    id: row.id,
+    clientId: row.client_id || undefined,
+    leadId: row.lead_id || undefined,
+    entityName: row.entity_name || '',
+    planData,
+    rawText: row.raw_text || undefined,
+    createdBy: row.created_by,
+    createdByName: row.created_by_name || '',
+    createdAt: row.created_at,
+  };
+};
+
 const transformWhatsAppMessageToDB = (msg: WhatsAppMessage) => ({
   id: msg.id,
   client_id: msg.clientId || null,
@@ -921,6 +976,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ideas: [],
     knowledgeArticles: [],
     competitorReports: [],
+    strategyPlans: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -978,7 +1034,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes, signalsPersonalitiesRes, calendarEventsRes, ideasRes, knowledgeRes, competitorReportsRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes, signalsPersonalitiesRes, calendarEventsRes, ideasRes, knowledgeRes, competitorReportsRes, strategyPlansRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
@@ -997,6 +1053,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('ideas').select('*').order('sort_order', { ascending: true }),
           supabase.from('knowledge_articles').select('*').order('created_at', { ascending: false }),
           supabase.from('competitor_reports').select('*').order('created_at', { ascending: false }),
+          supabase.from('strategy_plans').select('*').order('created_at', { ascending: false }),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -1029,6 +1086,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const ideas: Idea[] = (ideasRes?.data || []).map((row: IdeaRow) => transformIdeaFromDB(row));
         const knowledgeArticles: KnowledgeArticle[] = (knowledgeRes?.data || []).map((row: KnowledgeArticleRow) => transformKnowledgeArticleFromDB(row));
         const competitorReports: CompetitorReport[] = (competitorReportsRes?.data || []).map((row: CompetitorReportRow) => transformCompetitorReportFromDB(row));
+        const strategyPlans: StrategyPlan[] = (strategyPlansRes?.data || []).map((row: StrategyPlanRow) => transformStrategyPlanFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
         let loadedServices: Service[] = INITIAL_SERVICES;
@@ -1083,6 +1141,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ideas,
           knowledgeArticles,
           competitorReports,
+          strategyPlans,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -1907,6 +1966,53 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // --- Strategy Plans ---
+  const addStrategyPlan = async (plan: Omit<StrategyPlan, 'id' | 'createdAt'>) => {
+    const newPlan: StrategyPlan = {
+      ...plan,
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const { error } = await supabase
+        .from('strategy_plans')
+        .insert(withTenant(transformStrategyPlanToDB(newPlan), tenantId));
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        strategyPlans: [newPlan, ...prev.strategyPlans],
+      }));
+
+      logActivity('strategy_plan_created', plan.clientId ? 'client' : 'lead',
+        `תוכנית אסטרטגית נוצרה עבור ${plan.entityName}`, plan.clientId || plan.leadId);
+    } catch (err) {
+      showError('שגיאה בשמירת תוכנית אסטרטגית');
+      throw err;
+    }
+  };
+
+  const deleteStrategyPlan = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('strategy_plans')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        strategyPlans: prev.strategyPlans.filter(s => s.id !== id),
+      }));
+    } catch (err) {
+      showError('שגיאה במחיקת תוכנית אסטרטגית');
+      throw err;
+    }
+  };
+
   // --- WhatsApp Messages ---
   const addWhatsAppMessage = async (msg: Omit<WhatsAppMessage, 'id' | 'sentAt'>) => {
     const newMsg: WhatsAppMessage = {
@@ -2471,6 +2577,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         calendarEvents: parsed.calendarEvents || [],
         ideas: parsed.ideas || [],
         knowledgeArticles: parsed.knowledgeArticles || [],
+        competitorReports: parsed.competitorReports || [],
+        strategyPlans: parsed.strategyPlans || [],
       });
       return true;
     } catch (e) {
@@ -2499,6 +2607,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addLeadNote, deleteLeadNote,
       addCallTranscript, deleteCallTranscript,
       addAIRecommendation, deleteAIRecommendation,
+      addStrategyPlan, deleteStrategyPlan,
       addWhatsAppMessage, deleteWhatsAppMessage,
       uploadRecording,
       addCalendarEvent, updateCalendarEvent, deleteCalendarEvent,

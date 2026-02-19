@@ -354,6 +354,54 @@ export interface AIRecommendation {
   createdAt: string;
 }
 
+// ── Strategy Plan Types ─────────────────────────────────────
+export interface StrategyAction {
+  number: number;
+  title: string;
+  description: string;
+  owner: string;
+  kpi: string;
+}
+
+export interface StrategyPhase {
+  phaseLabel: string;
+  phaseSummary: string;
+  actions: StrategyAction[];
+}
+
+export interface StrategySituationAnalysis {
+  whatsWorking: string[];
+  whatsNotWorking: string[];
+  dependencies: string[];
+  risks: string[];
+  opportunities: string[];
+}
+
+export interface StrategyKPI {
+  label: string;
+  target: string;
+  timeframe: string;
+}
+
+export interface StrategyPlanData {
+  summary: string;
+  situationAnalysis: StrategySituationAnalysis;
+  actionPlan: StrategyPhase[];
+  kpis: StrategyKPI[];
+}
+
+export interface StrategyPlan {
+  id: string;
+  clientId?: string;
+  leadId?: string;
+  entityName: string;
+  planData: StrategyPlanData;
+  rawText?: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface WhatsAppMessage {
   id: string;
   clientId?: string;
@@ -491,4 +539,5 @@ export interface AppData {
   ideas: Idea[];
   knowledgeArticles: KnowledgeArticle[];
   competitorReports: CompetitorReport[];
+  strategyPlans: StrategyPlan[];
 }

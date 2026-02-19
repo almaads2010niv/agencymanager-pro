@@ -4,12 +4,12 @@ import { useTenantNav } from '../hooks/useTenantNav';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, NoteType, Archetype, BusinessIntelV2, HeroCard, ActionItem, QuickScript, ScriptDoor, FullFiveDoorScript, ProfileBriefing } from '../types';
-import type { Lead } from '../types';
+import type { Lead, StrategyPlan } from '../types';
 import { formatCurrency, formatDate, formatDateTime, formatPhoneForWhatsApp } from '../utils';
 import { MESSAGE_PURPOSES } from '../constants';
 import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink, Upload, Loader2, Zap, Users, Star, AlertTriangle, MessageSquare, ListChecks, Printer } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import { getBrandConfig, generatePersonalityPdf, generateCustomPdf } from '../utils/pdfGenerator';
+import { getBrandConfig, generatePersonalityPdf, generateCustomPdf, generateStrategyPdf } from '../utils/pdfGenerator';
 import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
@@ -95,6 +95,7 @@ const LeadProfile: React.FC = () => {
     aiRecommendations, addAIRecommendation, deleteAIRecommendation,
     whatsappMessages, addWhatsAppMessage, deleteWhatsAppMessage, uploadRecording,
     signalsPersonalities, competitorReports, runCompetitorScout, deleteCompetitorReport,
+    strategyPlans, addStrategyPlan, deleteStrategyPlan,
   } = useData();
 
   // Notes state
@@ -153,6 +154,12 @@ const LeadProfile: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<Lead> | null>(null);
 
+  // Strategy state
+  const [isGeneratingStrategy, setIsGeneratingStrategy] = useState(false);
+  const [strategyError, setStrategyError] = useState<string | null>(null);
+  const [expandedStrategyId, setExpandedStrategyId] = useState<string | null>(null);
+  const [confirmDeleteStrategyId, setConfirmDeleteStrategyId] = useState<string | null>(null);
+
   // AI Notebook state
   const [notebookOpen, setNotebookOpen] = useState(false);
   const [notebookMessages, setNotebookMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
@@ -180,6 +187,7 @@ const LeadProfile: React.FC = () => {
     { id: 'ai-recommendations', label: 'המלצות AI' },
     { id: 'ai-summaries', label: 'סיכומי AI' },
     { id: 'notebook', label: 'AI Notebook' },
+    { id: 'strategy', label: 'אסטרטגיה ותוכנית עבודה' },
     { id: 'whatsapp', label: 'הודעות WhatsApp' },
     { id: 'activity', label: 'היסטוריית פעילות' },
   ];
@@ -448,6 +456,46 @@ const LeadProfile: React.FC = () => {
     handleGetRecommendations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personality?.receivedAt]);
+
+  // Strategy: Generate
+  const handleGenerateStrategy = async () => {
+    if (!lead || !user) return;
+    setIsGeneratingStrategy(true);
+    setStrategyError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-strategy`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ entityId: leadId, entityType: 'lead' }),
+        }
+      );
+      const result = await res.json();
+      if (result.success && (result.plan || result.rawText)) {
+        await addStrategyPlan({
+          leadId: lead.leadId,
+          entityName: lead.businessName || lead.leadName,
+          planData: result.plan || { summary: '', situationAnalysis: { whatsWorking: [], whatsNotWorking: [], dependencies: [], risks: [], opportunities: [] }, actionPlan: [], kpis: [] },
+          rawText: result.rawText,
+          createdBy: user.id,
+          createdByName: currentUserName,
+        });
+      } else {
+        setStrategyError(result.error || 'שגיאה ביצירת אסטרטגיה');
+      }
+    } catch {
+      setStrategyError('שגיאת רשת — ודא שמפתח Gemini API מוגדר בהגדרות');
+    } finally {
+      setIsGeneratingStrategy(false);
+    }
+  };
 
   // AI Notebook: Send message
   const handleNotebookSend = async () => {
@@ -2414,6 +2462,243 @@ ${questionnaireUrl}
         )}
       </Card>
       </div>{/* end notebook order wrapper */}
+
+      <div style={{ order: getLeadOrder('strategy') }}>
+      {/* Strategy & Action Plan */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <CardHeader title={<span className="flex items-center gap-2"><Target size={18} className="text-teal-400" /> אסטרטגיה ותוכנית עבודה</span>} />
+          <Button
+            onClick={handleGenerateStrategy}
+            disabled={isGeneratingStrategy || !settings.hasGeminiKey}
+            icon={<Sparkles size={16} />}
+          >
+            {isGeneratingStrategy ? 'מנתח...' : 'צור אסטרטגיה'}
+          </Button>
+        </div>
+
+        {strategyError && (
+          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm mb-4">
+            {strategyError}
+          </div>
+        )}
+
+        {isGeneratingStrategy && (
+          <div className="flex items-center justify-center py-8 gap-3">
+            <div className="w-5 h-5 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" />
+            <span className="text-gray-400 text-sm">מנתח מצב ובונה תוכנית עבודה...</span>
+          </div>
+        )}
+
+        {(() => {
+          const leadStrategies = strategyPlans.filter(s => s.leadId === leadId);
+          if (leadStrategies.length === 0 && !isGeneratingStrategy) {
+            return (
+              <p className="text-gray-600 text-sm text-center py-6 italic">
+                לחץ על &quot;צור אסטרטגיה&quot; לקבלת ניתוח מצב מעמיק ותוכנית עבודה מבוססת כל המידע במערכת
+              </p>
+            );
+          }
+          return (
+            <div className="space-y-3">
+              {leadStrategies.map(strategy => {
+                const isExpanded = expandedStrategyId === strategy.id;
+                const pd = strategy.planData;
+                const hasPlan = pd && (pd.summary || pd.actionPlan?.length > 0);
+                return (
+                  <div key={strategy.id} className="bg-[#0B1121] rounded-xl border border-white/5 overflow-hidden">
+                    <button
+                      onClick={() => setExpandedStrategyId(isExpanded ? null : strategy.id)}
+                      className="w-full text-start p-4 hover:bg-white/[0.02] transition-colors"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <Target size={14} className="text-teal-400" />
+                          <span className="text-xs text-gray-400">{formatDateTime(strategy.createdAt)}</span>
+                          <span className="text-xs text-gray-600">· {strategy.createdByName}</span>
+                        </div>
+                        {isExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+                      </div>
+                      {!isExpanded && pd.summary && (
+                        <p className="text-gray-400 text-sm mt-1 line-clamp-2">{pd.summary}</p>
+                      )}
+                    </button>
+
+                    {isExpanded && hasPlan && (
+                      <div className="px-4 pb-4">
+                        {/* Summary */}
+                        {pd.summary && (
+                          <div className="p-3 bg-teal-500/5 border border-teal-500/10 rounded-lg mb-4">
+                            <p className="text-gray-300 text-sm leading-relaxed">{pd.summary}</p>
+                          </div>
+                        )}
+
+                        {/* Situation Analysis */}
+                        {pd.situationAnalysis && (
+                          <div className="mb-4">
+                            <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><ListChecks size={14} className="text-teal-400" /> ניתוח מצב קיים</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {pd.situationAnalysis.whatsWorking?.length > 0 && (
+                                <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-lg">
+                                  <h5 className="text-xs font-semibold text-emerald-400 mb-2">✅ מה עובד</h5>
+                                  {pd.situationAnalysis.whatsWorking.map((item, i) => (
+                                    <p key={i} className="text-gray-400 text-xs mb-1">• {item}</p>
+                                  ))}
+                                </div>
+                              )}
+                              {pd.situationAnalysis.whatsNotWorking?.length > 0 && (
+                                <div className="p-3 bg-red-500/5 border border-red-500/10 rounded-lg">
+                                  <h5 className="text-xs font-semibold text-red-400 mb-2">❌ מה לא עובד</h5>
+                                  {pd.situationAnalysis.whatsNotWorking.map((item, i) => (
+                                    <p key={i} className="text-gray-400 text-xs mb-1">• {item}</p>
+                                  ))}
+                                </div>
+                              )}
+                              {pd.situationAnalysis.opportunities?.length > 0 && (
+                                <div className="p-3 bg-blue-500/5 border border-blue-500/10 rounded-lg">
+                                  <h5 className="text-xs font-semibold text-blue-400 mb-2">💡 הזדמנויות</h5>
+                                  {pd.situationAnalysis.opportunities.map((item, i) => (
+                                    <p key={i} className="text-gray-400 text-xs mb-1">• {item}</p>
+                                  ))}
+                                </div>
+                              )}
+                              {pd.situationAnalysis.risks?.length > 0 && (
+                                <div className="p-3 bg-amber-500/5 border border-amber-500/10 rounded-lg">
+                                  <h5 className="text-xs font-semibold text-amber-400 mb-2">⚠️ סיכונים</h5>
+                                  {pd.situationAnalysis.risks.map((item, i) => (
+                                    <p key={i} className="text-gray-400 text-xs mb-1">• {item}</p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            {pd.situationAnalysis.dependencies?.length > 0 && (
+                              <div className="p-3 bg-gray-500/5 border border-gray-500/10 rounded-lg mt-3">
+                                <h5 className="text-xs font-semibold text-gray-400 mb-2">🔗 תלויות</h5>
+                                {pd.situationAnalysis.dependencies.map((item, i) => (
+                                  <p key={i} className="text-gray-400 text-xs mb-1">• {item}</p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Action Plan Phases */}
+                        {pd.actionPlan?.length > 0 && (
+                          <div className="mb-4">
+                            <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Zap size={14} className="text-teal-400" /> תוכנית עבודה</h4>
+                            <div className="space-y-4">
+                              {pd.actionPlan.map((phase, pi) => {
+                                const phaseColors = ['bg-teal-500', 'bg-blue-500', 'bg-purple-500', 'bg-pink-500'];
+                                const bgColor = phaseColors[pi % phaseColors.length];
+                                return (
+                                  <div key={pi}>
+                                    <div className={`${bgColor}/10 border ${bgColor}/20 rounded-lg p-3 mb-2`}>
+                                      <h5 className="text-sm font-semibold text-white">{phase.phaseLabel}</h5>
+                                      {phase.phaseSummary && <p className="text-xs text-gray-400 mt-1">{phase.phaseSummary}</p>}
+                                    </div>
+                                    {phase.actions?.length > 0 && (
+                                      <div className="space-y-2 me-4">
+                                        {phase.actions.map((action, ai) => (
+                                          <div key={ai} className="flex gap-3 p-2 rounded-lg hover:bg-white/[0.02]">
+                                            <div className="w-6 h-6 rounded-full bg-teal-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                              <span className="text-teal-400 text-xs font-bold">{action.number}</span>
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-center gap-2 mb-0.5">
+                                                <span className="text-sm text-gray-200 font-medium">{action.title}</span>
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-500">{action.owner}</span>
+                                              </div>
+                                              <p className="text-xs text-gray-500">{action.description}</p>
+                                              {action.kpi && <p className="text-[10px] text-teal-400/80 mt-1">📊 {action.kpi}</p>}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* KPIs */}
+                        {pd.kpis?.length > 0 && (
+                          <div className="mb-4">
+                            <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Target size={14} className="text-amber-400" /> מדדי הצלחה</h4>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                              {pd.kpis.map((kpi, ki) => (
+                                <div key={ki} className="p-2.5 bg-amber-500/5 border border-amber-500/10 rounded-lg text-center">
+                                  <div className="text-sm font-bold text-amber-400">{kpi.target}</div>
+                                  <div className="text-[10px] text-gray-400 mt-0.5">{kpi.label}</div>
+                                  <div className="text-[9px] text-gray-600">{kpi.timeframe}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Actions: PDF + Delete */}
+                        <div className="flex items-center justify-between border-t border-white/5 pt-3 mt-3">
+                          <Button
+                            variant="ghost"
+                            icon={<Printer size={14} />}
+                            onClick={() => {
+                              const brand = getBrandConfig(settings);
+                              generateStrategyPdf({
+                                entityName: strategy.entityName,
+                                entityType: 'lead',
+                                planData: strategy.planData,
+                                createdAt: strategy.createdAt,
+                              }, brand);
+                            }}
+                          >
+                            ייצוא PDF
+                          </Button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => setConfirmDeleteStrategyId(strategy.id)}
+                              className="text-red-400/60 hover:text-red-400 text-xs flex items-center gap-1"
+                            >
+                              <Trash2 size={12} /> מחיקה
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Raw text fallback */}
+                    {isExpanded && !hasPlan && strategy.rawText && (
+                      <div className="px-4 pb-4 max-h-96 overflow-y-auto custom-scrollbar">
+                        <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed">{strategy.rawText}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        {/* Delete confirm modal */}
+        {confirmDeleteStrategyId && (
+          <Modal
+            isOpen={true}
+            onClose={() => setConfirmDeleteStrategyId(null)}
+            title="מחיקת תוכנית אסטרטגית"
+          >
+            <p className="text-gray-400 mb-4">האם למחוק את התוכנית האסטרטגית?</p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" onClick={() => setConfirmDeleteStrategyId(null)}>ביטול</Button>
+              <Button variant="danger" onClick={async () => {
+                await deleteStrategyPlan(confirmDeleteStrategyId);
+                setConfirmDeleteStrategyId(null);
+              }}>מחק</Button>
+            </div>
+          </Modal>
+        )}
+      </Card>
+      </div>{/* end strategy order wrapper */}
 
       {/* WhatsApp Messages */}
       <div style={{ order: getLeadOrder('whatsapp') }}>
