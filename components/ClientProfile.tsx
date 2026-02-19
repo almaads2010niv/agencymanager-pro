@@ -18,6 +18,8 @@ import { Badge } from './ui/Badge';
 import { Modal } from './ui/Modal';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from './ui/Table';
 import VoiceRecorderButton from './VoiceRecorderButton';
+import SectionReorder from './SectionReorder';
+import { useSectionOrder } from '../hooks/useSectionOrder';
 
 const ClientProfile: React.FC = () => {
   const { clientId } = useParams<{ clientId: string }>();
@@ -94,6 +96,23 @@ const ClientProfile: React.FC = () => {
   const [notebookInput, setNotebookInput] = useState('');
   const [notebookLoading, setNotebookLoading] = useState(false);
   const notebookEndRef = useRef<HTMLDivElement>(null);
+
+  // Section reorder
+  const CLIENT_SECTIONS = [
+    { id: 'notes', label: 'הערות והיסטוריה' },
+    { id: 'transcripts', label: 'תמלולי שיחות' },
+    { id: 'ai-recommendations', label: 'המלצות AI' },
+    { id: 'ai-summaries', label: 'סיכומי AI' },
+    { id: 'signals', label: 'Signals OS' },
+    { id: 'competitor', label: 'סקאוט תחרותי' },
+    { id: 'whatsapp', label: 'הודעות WhatsApp' },
+    { id: 'notebook', label: 'AI Notebook' },
+    { id: 'financial', label: 'פרויקטים והוצאות' },
+    { id: 'activity', label: 'היסטוריית פעילות' },
+    { id: 'files', label: 'קבצים והסכמים' },
+  ];
+  const DEFAULT_CLIENT_ORDER = CLIENT_SECTIONS.map(s => s.id);
+  const { sectionOrder: clientSectionOrder, setOrder: setClientOrder, resetOrder: resetClientOrder, getOrder: getClientOrder } = useSectionOrder('client', DEFAULT_CLIENT_ORDER);
 
   // Filter notes for this client — separate manual notes from AI summaries
   const clientNotesAll = clientNotes.filter(n => n.clientId === clientId);
@@ -689,32 +708,45 @@ const ClientProfile: React.FC = () => {
                 <span className="text-gray-300">{client.email}</span>
               </div>
             )}
-            {/* Social & Web URLs */}
-            {(client.facebookUrl || client.instagramUrl || client.websiteUrl) && (
+            {/* Social & Web URLs — always show */}
+            <div className="space-y-2 pt-2 border-t border-white/5">
+              <span className="text-[10px] uppercase tracking-wider text-gray-500 font-medium">קישורים</span>
               <div className="flex flex-wrap items-center gap-2">
-                {client.facebookUrl && (
+                {client.facebookUrl ? (
                   <a href={client.facebookUrl} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 text-xs transition-all">
-                    <Globe size={12} /> Facebook
-                    <ExternalLink size={10} />
+                    <Globe size={12} /> Facebook <ExternalLink size={10} />
                   </a>
+                ) : (
+                  <button onClick={() => { setEditFormData({ ...client }); setIsEditModalOpen(true); }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-dashed border-blue-500/30 text-blue-400/50 hover:text-blue-400 hover:border-blue-500/50 text-xs transition-all">
+                    <Plus size={10} /> Facebook
+                  </button>
                 )}
-                {client.instagramUrl && (
+                {client.instagramUrl ? (
                   <a href={client.instagramUrl} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 text-xs transition-all">
-                    <Globe size={12} /> Instagram
-                    <ExternalLink size={10} />
+                    <Globe size={12} /> Instagram <ExternalLink size={10} />
                   </a>
+                ) : (
+                  <button onClick={() => { setEditFormData({ ...client }); setIsEditModalOpen(true); }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-dashed border-pink-500/30 text-pink-400/50 hover:text-pink-400 hover:border-pink-500/50 text-xs transition-all">
+                    <Plus size={10} /> Instagram
+                  </button>
                 )}
-                {client.websiteUrl && (
+                {client.websiteUrl ? (
                   <a href={client.websiteUrl} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 text-xs transition-all">
-                    <Globe size={12} /> אתר
-                    <ExternalLink size={10} />
+                    <Globe size={12} /> אתר <ExternalLink size={10} />
                   </a>
+                ) : (
+                  <button onClick={() => { setEditFormData({ ...client }); setIsEditModalOpen(true); }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-dashed border-cyan-500/30 text-cyan-400/50 hover:text-cyan-400 hover:border-cyan-500/50 text-xs transition-all">
+                    <Plus size={10} /> אתר
+                  </button>
                 )}
               </div>
-            )}
+            </div>
             <div className="flex items-center gap-3">
               <Calendar size={16} className="text-gray-400" />
               <span className="text-gray-300">הצטרף: {formatDate(client.joinDate)}</span>
@@ -784,7 +816,19 @@ const ClientProfile: React.FC = () => {
         </Card>
       </div>
 
+      {/* Section Reorder Controls */}
+      <SectionReorder
+        sections={CLIENT_SECTIONS}
+        order={clientSectionOrder}
+        onReorder={setClientOrder}
+        onReset={resetClientOrder}
+      />
+
+      {/* Sortable sections container */}
+      <div className="flex flex-col gap-6" style={{ display: 'flex', flexDirection: 'column' }}>
+
       {/* Notes History (manual only — AI summaries shown in separate section) */}
+      <div style={{ order: getClientOrder('notes') }}>
       <Card>
         <CardHeader title="הערות והיסטוריה" subtitle={`${clientNotesFiltered.length} הערות`} />
         {/* Add note form */}
@@ -838,8 +882,10 @@ const ClientProfile: React.FC = () => {
           )}
         </div>
       </Card>
+      </div>{/* end notes order wrapper */}
 
       {/* Call Transcripts Section */}
+      <div style={{ order: getClientOrder('transcripts') }}>
       <Card>
         <div className="flex items-center justify-between mb-4">
           <CardHeader title="תמלולי שיחות" subtitle={`${clientTranscripts.length} תמלולים`} />
@@ -931,8 +977,10 @@ const ClientProfile: React.FC = () => {
           </div>
         )}
       </Card>
+      </div>{/* end transcripts order wrapper */}
 
       {/* AI Recommendations */}
+      <div style={{ order: getClientOrder('ai-recommendations') }}>
       <Card>
         <div className="flex items-center justify-between mb-4">
           <CardHeader title="המלצות AI" subtitle={clientRecommendations.length > 0 ? `${clientRecommendations.length} המלצות` : 'מנוע Gemini'} />
@@ -998,8 +1046,10 @@ const ClientProfile: React.FC = () => {
           </p>
         )}
       </Card>
+      </div>{/* end ai-recommendations order wrapper */}
 
       {/* AI Summaries Section */}
+      <div style={{ order: getClientOrder('ai-summaries') }}>
       <Card>
         <div className="flex items-center justify-between mb-4">
           <CardHeader title="סיכומי AI" subtitle={clientAISummaries.length > 0 ? `${clientAISummaries.length} סיכומים` : 'סיכומים אוטומטיים'} />
@@ -1113,7 +1163,9 @@ const ClientProfile: React.FC = () => {
           </div>
         )}
       </Card>
+      </div>{/* end ai-summaries order wrapper */}
 
+      <div style={{ order: getClientOrder('whatsapp') }}>
       {/* WhatsApp Messages */}
       <Card>
         <div className="flex items-center justify-between mb-4">
@@ -1308,7 +1360,9 @@ const ClientProfile: React.FC = () => {
           </div>
         )}
       </Card>
+      </div>{/* end whatsapp order wrapper */}
 
+      <div style={{ order: getClientOrder('signals') }}>
       {/* ============ Signals OS V2 — Dynamic Call Script (Step 3) ============ */}
       {v2 && (() => {
         const hero = v2.heroCard;
@@ -1551,7 +1605,9 @@ const ClientProfile: React.FC = () => {
           </Card>
         );
       })()}
+      </div>{/* end signals order wrapper */}
 
+      <div style={{ order: getClientOrder('notebook') }}>
       {/* AI Notebook */}
       <Card>
         <div className="flex items-center justify-between">
@@ -1631,7 +1687,9 @@ const ClientProfile: React.FC = () => {
           </div>
         )}
       </Card>
+      </div>{/* end notebook order wrapper */}
 
+      <div style={{ order: getClientOrder('competitor') }}>
       {/* Competitor Scout */}
       {(() => {
         const clientReports = competitorReports.filter(r => r.entityId === clientId && r.entityType === 'client');
@@ -1787,7 +1845,9 @@ const ClientProfile: React.FC = () => {
           </Card>
         );
       })()}
+      </div>{/* end competitor order wrapper */}
 
+      <div style={{ order: getClientOrder('financial') }}>
       {/* Deals History */}
       {clientDeals.length > 0 && (
         <Card noPadding>
@@ -1905,7 +1965,9 @@ const ClientProfile: React.FC = () => {
           </Table>
         </Card>
       )}
+      </div>{/* end financial order wrapper */}
 
+      <div style={{ order: getClientOrder('activity') }}>
       {/* Activity Timeline */}
       {clientActivities.length > 0 && (
         <Card>
@@ -1925,7 +1987,9 @@ const ClientProfile: React.FC = () => {
           </div>
         </Card>
       )}
+      </div>{/* end activity order wrapper */}
 
+      <div style={{ order: getClientOrder('files') }}>
       {/* Client Files / Contracts */}
       <Card>
         <div className="flex items-center justify-between mb-4">
@@ -1982,6 +2046,8 @@ const ClientProfile: React.FC = () => {
           <p className="text-gray-500 text-sm text-center py-6 italic">אין קבצים. העלה הסכמים, חשבוניות או מסמכים.</p>
         )}
       </Card>
+      </div>{/* end files order wrapper */}
+      </div>{/* end sortable sections container */}
 
       {/* Confirm Delete File Modal */}
       <Modal isOpen={!!confirmDeleteFile} onClose={() => setConfirmDeleteFile(null)} title="מחיקת קובץ" size="md">

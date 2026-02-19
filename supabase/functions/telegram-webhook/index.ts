@@ -9,8 +9,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// ── AI Model — using Gemini 2.5 Pro for best quality ─────────
-const GEMINI_MODEL = 'gemini-3-pro-preview'
+// ── AI Models — fast model for intents, quality model for analysis ─────────
+const GEMINI_FAST = 'gemini-2.0-flash-lite'  // Fast, no thinking — for intent recognition & simple tasks
+const GEMINI_QUALITY = 'gemini-2.5-flash'     // Quality — for image analysis, document summarization
 
 // ── Types ────────────────────────────────────────────────────
 interface CRMIntent {
@@ -84,7 +85,7 @@ async function getTelegramFileUrl(botToken: string, fileId: string): Promise<str
 async function callGemini(
   geminiKey: string,
   prompt: string,
-  model = GEMINI_MODEL,
+  model = GEMINI_FAST,
   temperature = 0.2,
   maxTokens = 2048,
   inlineData?: { mimeType: string; data: string }
@@ -266,7 +267,7 @@ async function recognizeIntent(geminiKey: string, text: string): Promise<CRMInte
   "raw_text": "${text}"
 }`
 
-  const result = await callGemini(geminiKey, prompt, GEMINI_MODEL, 0.1, 1024)
+  const result = await callGemini(geminiKey, prompt, GEMINI_FAST, 0.1, 1024)
 
   try {
     // Try to parse JSON directly
@@ -1112,11 +1113,11 @@ async function transcribeAndExecute(
   adminClient: ReturnType<typeof createClient>,
   tenantId: string
 ): Promise<{ response: string; action: string; transcription: string }> {
-  // Step 1: Transcribe
+  // Step 1: Transcribe (use quality model for accurate transcription)
   const transcription = await callGemini(
     geminiKey,
     'תמלל את ההקלטה הזאת לעברית. תן רק את התמלול, בלי הסברים נוספים.',
-    GEMINI_MODEL,
+    GEMINI_QUALITY,
     0.2,
     1024,
     { mimeType: 'audio/ogg', data: audioBase64 }
@@ -1274,7 +1275,7 @@ async function executeIntent(
       const aiResponse = await callGemini(
         geminiKey,
         `אתה עוזר AI חכם של סוכנות שיווק דיגיטלי. הנה נתוני CRM:\n${crmContext}\n\nהודעת המשתמש: ${intent.raw_text}\n\nענה בקצרה ובעברית. אם יש פעולה ספציפית שצריך לעשות ב-CRM, ציין אותה.`,
-        GEMINI_MODEL,
+        GEMINI_FAST,
         0.7,
         1024
       )
@@ -1487,13 +1488,13 @@ Deno.serve(async (req) => {
           const wantsKnowledge = captionLower.includes('מאגר') || captionLower.includes('ידע') || captionLower.includes('שמור') || captionLower.includes('knowledge')
           const wantsReceipt = captionLower.includes('קבלה') || captionLower.includes('חשבונית') || captionLower.includes('הוצאה') || captionLower.includes('receipt') || captionLower.includes('expense')
 
-          // Always analyze the image first
+          // Always analyze the image first (use quality model for image understanding)
           const analysis = await callGemini(
             geminiKey,
             text
               ? `ההודעה: "${text}"\nנתח את התמונה הזו בהקשר של ניהול לקוחות וסוכנות שיווק. אם יש טקסט בתמונה, תמלל אותו. ענה בעברית.`
               : 'נתח את התמונה הזו בהקשר של ניהול לקוחות וסוכנות שיווק. אם יש טקסט בתמונה, תמלל אותו. ענה בעברית.',
-            GEMINI_MODEL,
+            GEMINI_QUALITY,
             0.5,
             1024,
             { mimeType: 'image/jpeg', data: imgBase64 }
@@ -1519,8 +1520,14 @@ Deno.serve(async (req) => {
                   .createSignedUrl(storageName, 365 * 24 * 3600)
                 const downloadUrl = signedUrlData?.signedUrl || storageName
 
-                // Use the caption as title directly
-                const articleTitle = text?.trim() || `תמונה מטלגרם — ${new Date().toLocaleDateString('he-IL')}`
+                // Generate contextual title from AI analysis
+                let articleTitle = ''
+                if (analysis) {
+                  // Extract first meaningful sentence from analysis as title (max 60 chars)
+                  const firstLine = analysis.split('\n')[0].replace(/[*#]/g, '').trim()
+                  articleTitle = firstLine.length > 60 ? firstLine.substring(0, 57) + '...' : firstLine
+                }
+                if (!articleTitle) articleTitle = text?.trim() || `תמונה מטלגרם — ${new Date().toLocaleDateString('he-IL')}`
 
                 await adminClient.from('knowledge_articles').insert({
                   id: crypto.randomUUID(),
@@ -1609,25 +1616,50 @@ Deno.serve(async (req) => {
                   .createSignedUrl(safeName, 365 * 24 * 3600)
                 const downloadUrl = signedUrlData?.signedUrl || safeName
 
-                // Use the caption as title directly (don't strip Hebrew keywords)
-                const articleTitle = text?.trim() || fileName
-
-                // Try AI extraction if the document is a supported type (PDF, text)
+                // AI analysis for documents — generate contextual title + summary
                 let aiSummary = ''
-                const isTextType = mimeType.includes('text') || mimeType.includes('pdf') || mimeType.includes('json')
-                if (geminiKey && isTextType && docBytes.length < 500_000) {
+                let aiTitle = ''
+                // Support all common document types (PDF, text, Word, JSON, etc.)
+                const isAnalyzable = mimeType.includes('text') || mimeType.includes('pdf') || mimeType.includes('json') ||
+                  mimeType.includes('word') || mimeType.includes('opendocument') || mimeType.includes('officedocument') ||
+                  mimeType.includes('rtf') || fileName.endsWith('.docx') || fileName.endsWith('.doc') || fileName.endsWith('.txt')
+
+                if (geminiKey && isAnalyzable && docBytes.length < 1_000_000) {
                   try {
                     const docBase64 = btoa(docBytes.reduce((s, b) => s + String.fromCharCode(b), ''))
-                    aiSummary = await callGemini(
+                    const aiResult = await callGemini(
                       geminiKey,
-                      'סכם את תוכן המסמך הזה בעברית. תן סיכום קצר (2-3 משפטים) ונקודות מפתח.',
-                      GEMINI_MODEL,
+                      `נתח את המסמך הזה ותן:
+1. כותרת תיאורית קצרה (3-6 מילים) שמתארת את תוכן המסמך
+2. סיכום בעברית (2-4 משפטים) עם נקודות מפתח
+
+${text ? `הקשר מהמשתמש: "${text}"` : ''}
+
+ענה בפורמט:
+כותרת: <הכותרת>
+---
+<הסיכום>`,
+                      GEMINI_QUALITY,
                       0.3,
                       1024,
                       { mimeType, data: docBase64 }
                     )
+                    if (aiResult) {
+                      // Parse title and summary from AI response
+                      const titleMatch = aiResult.match(/כותרת:\s*(.+?)(?:\n|---)/s)
+                      if (titleMatch) {
+                        aiTitle = titleMatch[1].trim()
+                        const summaryPart = aiResult.split('---')[1]
+                        aiSummary = summaryPart ? summaryPart.trim() : aiResult.replace(/כותרת:.+?\n/, '').trim()
+                      } else {
+                        aiSummary = aiResult
+                      }
+                    }
                   } catch { /* ignore AI errors — still save the doc */ }
                 }
+
+                // Determine title: AI-generated > user caption > filename
+                const articleTitle = aiTitle || (text?.trim() ? `📄 ${text.trim().substring(0, 60)}` : fileName)
 
                 await adminClient.from('knowledge_articles').insert({
                   id: crypto.randomUUID(),
@@ -1639,7 +1671,7 @@ Deno.serve(async (req) => {
                   file_url: downloadUrl,
                   file_name: fileName,
                   file_type: mimeType,
-                  is_ai_generated: false,
+                  is_ai_generated: !!aiSummary,
                   created_by: 'telegram',
                   created_by_name: 'Telegram Bot 🤖',
                   created_at: new Date().toISOString(),
@@ -1647,8 +1679,9 @@ Deno.serve(async (req) => {
                   tenant_id: tenantId,
                 })
 
-                responseText = `✅ <b>המסמך נשמר במאגר הידע!</b> 📚\n📄 ${fileName}`
-                if (aiSummary) responseText += `\n\n<b>📝 סיכום:</b>\n${aiSummary.substring(0, 500)}`
+                responseText = `✅ <b>המסמך נשמר במאגר הידע!</b> 📚\n📄 <b>${articleTitle}</b>`
+                if (aiSummary) responseText += `\n\n<b>📝 סיכום AI:</b>\n${aiSummary.substring(0, 500)}`
+                else responseText += `\n📁 ${fileName}`
               }
             } catch (err) {
               console.error('Document knowledge save error:', err)

@@ -37,6 +37,11 @@ const Settings: React.FC = () => {
   const [logoUploading, setLogoUploading] = useState(false);
   const [telegramToken, setTelegramToken] = useState('');
   const [telegramTokenSaved, setTelegramTokenSaved] = useState(false);
+  // Service editing state
+  const [editingServiceKey, setEditingServiceKey] = useState<string | null>(null);
+  const [editingServiceLabel, setEditingServiceLabel] = useState('');
+  const [newServiceLabel, setNewServiceLabel] = useState('');
+  const [showAddService, setShowAddService] = useState(false);
 
   const showActionError = (msg: string | null) => {
     if (!msg) return;
@@ -273,18 +278,67 @@ const Settings: React.FC = () => {
 
       <Card>
         <CardHeader title="ניהול שירותים" />
+        <p className="text-xs text-gray-500 mb-4">שירותים שתגדיר כאן יופיעו בכרטיס ליד ולקוח. לחץ על שם שירות כדי לערוך.</p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
            {services.map((service, index) => (
-             <div key={service.serviceKey} className="flex items-center justify-between bg-[#0B1121] p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
-               <span className="text-gray-200 text-sm font-medium">{service.label}</span>
+             <div key={service.serviceKey} className="flex items-center justify-between bg-[#0B1121] p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors group">
+               {editingServiceKey === service.serviceKey ? (
+                 <form className="flex items-center gap-2 flex-1" onSubmit={e => {
+                   e.preventDefault();
+                   if (editingServiceLabel.trim()) {
+                     const newServices = [...services];
+                     newServices[index] = { ...newServices[index], label: editingServiceLabel.trim() };
+                     updateServices(newServices);
+                   }
+                   setEditingServiceKey(null);
+                 }}>
+                   <input
+                     autoFocus
+                     className="bg-transparent border border-white/20 rounded px-2 py-1 text-sm text-white flex-1 outline-none focus:border-primary"
+                     value={editingServiceLabel}
+                     onChange={e => setEditingServiceLabel(e.target.value)}
+                     onBlur={() => {
+                       if (editingServiceLabel.trim() && editingServiceLabel.trim() !== service.label) {
+                         const newServices = [...services];
+                         newServices[index] = { ...newServices[index], label: editingServiceLabel.trim() };
+                         updateServices(newServices);
+                       }
+                       setEditingServiceKey(null);
+                     }}
+                   />
+                 </form>
+               ) : (
+                 <button
+                   className="text-gray-200 text-sm font-medium text-right hover:text-primary transition-colors cursor-pointer"
+                   onClick={() => {
+                     setEditingServiceKey(service.serviceKey);
+                     setEditingServiceLabel(service.label);
+                   }}
+                   title="לחץ לעריכת שם השירות"
+                 >
+                   {service.label}
+                 </button>
+               )}
                <div className="flex items-center gap-2">
+                 {isAdmin && (
+                   <button
+                     className="text-gray-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                     title="מחק שירות"
+                     onClick={() => {
+                       const newServices = services.filter((_, i) => i !== index);
+                       updateServices(newServices);
+                     }}
+                   >
+                     <Trash2 size={14} />
+                   </button>
+                 )}
                  <button
                     role="switch"
                     aria-checked={service.isActive}
                     aria-label={`${service.label} - ${service.isActive ? 'פעיל' : 'כבוי'}`}
                     onClick={() => {
                        const newServices = [...services];
-                       newServices[index].isActive = !newServices[index].isActive;
+                       newServices[index] = { ...newServices[index], isActive: !newServices[index].isActive };
                        updateServices(newServices);
                     }}
                     className={`w-11 h-6 rounded-full transition-colors flex items-center px-1 duration-300 ${service.isActive ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-gray-700'}`}
@@ -294,6 +348,36 @@ const Settings: React.FC = () => {
                </div>
              </div>
            ))}
+           {/* Add new service */}
+           {showAddService ? (
+             <form className="flex items-center gap-2 bg-[#0B1121] p-4 rounded-xl border border-dashed border-primary/30" onSubmit={e => {
+               e.preventDefault();
+               if (newServiceLabel.trim()) {
+                 const key = newServiceLabel.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_א-ת]/g, '') + '_' + Date.now();
+                 updateServices([...services, { serviceKey: key, label: newServiceLabel.trim(), isActive: true }]);
+                 setNewServiceLabel('');
+                 setShowAddService(false);
+               }
+             }}>
+               <input
+                 autoFocus
+                 className="bg-transparent border border-white/20 rounded px-2 py-1 text-sm text-white flex-1 outline-none focus:border-primary"
+                 placeholder="שם השירות החדש..."
+                 value={newServiceLabel}
+                 onChange={e => setNewServiceLabel(e.target.value)}
+                 onBlur={() => { if (!newServiceLabel.trim()) setShowAddService(false); }}
+               />
+               <button type="submit" className="text-primary hover:text-primary/80"><Check size={16} /></button>
+               <button type="button" onClick={() => { setShowAddService(false); setNewServiceLabel(''); }} className="text-gray-500 hover:text-gray-300"><X size={16} /></button>
+             </form>
+           ) : (
+             <button
+               onClick={() => setShowAddService(true)}
+               className="flex items-center justify-center gap-2 bg-[#0B1121] p-4 rounded-xl border border-dashed border-white/10 hover:border-primary/30 text-gray-500 hover:text-primary text-sm transition-all"
+             >
+               <Plus size={16} /> הוסף שירות
+             </button>
+           )}
         </div>
       </Card>
 

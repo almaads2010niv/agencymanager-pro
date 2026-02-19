@@ -16,6 +16,8 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Modal } from './ui/Modal';
 import VoiceRecorderButton from './VoiceRecorderButton';
+import SectionReorder from './SectionReorder';
+import { useSectionOrder } from '../hooks/useSectionOrder';
 
 type BadgeVariant = 'success' | 'danger' | 'info' | 'neutral' | 'primary' | 'warning';
 
@@ -157,6 +159,20 @@ const LeadProfile: React.FC = () => {
 
   // Delete lead state
   const [confirmDeleteLead, setConfirmDeleteLead] = useState(false);
+
+  // Section reorder
+  const LEAD_SECTIONS = [
+    { id: 'signals', label: 'Signals OS' },
+    { id: 'competitor', label: 'סקאוט תחרותי' },
+    { id: 'notes', label: 'הערות והיסטוריה' },
+    { id: 'transcripts', label: 'תמלולי שיחות' },
+    { id: 'ai-recommendations', label: 'המלצות AI' },
+    { id: 'ai-summaries', label: 'סיכומי AI' },
+    { id: 'whatsapp', label: 'הודעות WhatsApp' },
+    { id: 'activity', label: 'היסטוריית פעילות' },
+  ];
+  const DEFAULT_LEAD_ORDER = LEAD_SECTIONS.map(s => s.id);
+  const { sectionOrder: leadSectionOrder, setOrder: setLeadOrder, resetOrder: resetLeadOrder, getOrder: getLeadOrder } = useSectionOrder('lead', DEFAULT_LEAD_ORDER);
 
   // Expand/collapse for long notes in contact info
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -793,32 +809,45 @@ const LeadProfile: React.FC = () => {
                 <span className="text-gray-300">{lead.email}</span>
               </div>
             )}
-            {/* Social & Web URLs */}
-            {(lead.facebookUrl || lead.instagramUrl || lead.websiteUrl) && (
+            {/* Social & Web URLs — always show */}
+            <div className="space-y-2 pt-2 border-t border-white/5">
+              <span className="text-[10px] uppercase tracking-wider text-gray-500 font-medium">קישורים</span>
               <div className="flex flex-wrap items-center gap-2">
-                {lead.facebookUrl && (
+                {lead.facebookUrl ? (
                   <a href={lead.facebookUrl} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 text-xs transition-all">
-                    <Globe size={12} /> Facebook
-                    <ExternalLink size={10} />
+                    <Globe size={12} /> Facebook <ExternalLink size={10} />
                   </a>
+                ) : (
+                  <button onClick={() => { setEditFormData({ ...lead }); setIsEditModalOpen(true); }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-dashed border-blue-500/30 text-blue-400/50 hover:text-blue-400 hover:border-blue-500/50 text-xs transition-all">
+                    <Plus size={10} /> Facebook
+                  </button>
                 )}
-                {lead.instagramUrl && (
+                {lead.instagramUrl ? (
                   <a href={lead.instagramUrl} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 text-xs transition-all">
-                    <Globe size={12} /> Instagram
-                    <ExternalLink size={10} />
+                    <Globe size={12} /> Instagram <ExternalLink size={10} />
                   </a>
+                ) : (
+                  <button onClick={() => { setEditFormData({ ...lead }); setIsEditModalOpen(true); }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-dashed border-pink-500/30 text-pink-400/50 hover:text-pink-400 hover:border-pink-500/50 text-xs transition-all">
+                    <Plus size={10} /> Instagram
+                  </button>
                 )}
-                {lead.websiteUrl && (
+                {lead.websiteUrl ? (
                   <a href={lead.websiteUrl} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 text-xs transition-all">
-                    <Globe size={12} /> אתר
-                    <ExternalLink size={10} />
+                    <Globe size={12} /> אתר <ExternalLink size={10} />
                   </a>
+                ) : (
+                  <button onClick={() => { setEditFormData({ ...lead }); setIsEditModalOpen(true); }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-dashed border-cyan-500/30 text-cyan-400/50 hover:text-cyan-400 hover:border-cyan-500/50 text-xs transition-all">
+                    <Plus size={10} /> אתר
+                  </button>
                 )}
               </div>
-            )}
+            </div>
             <div className="flex items-center gap-3">
               <Globe size={16} className="text-gray-400" />
               <span className="text-gray-300">מקור: </span>
@@ -999,7 +1028,19 @@ const LeadProfile: React.FC = () => {
         </Card>
       </div>
 
+      {/* Section Reorder Controls */}
+      <SectionReorder
+        sections={LEAD_SECTIONS}
+        order={leadSectionOrder}
+        onReorder={setLeadOrder}
+        onReset={resetLeadOrder}
+      />
+
+      {/* Sortable sections container */}
+      <div className="flex flex-col gap-6" style={{ display: 'flex', flexDirection: 'column' }}>
+
       {/* ============ Signals OS Block ============ */}
+      <div style={{ order: getLeadOrder('signals') }}>
       <Card id="lead-signals-section">
         <CardHeader
           title={<span className="flex items-center gap-2"><Brain size={18} className="text-violet-400" /> Signals OS</span>}
@@ -1671,8 +1712,10 @@ ${questionnaireUrl}
           );
         })()}
       </Card>
+      </div>{/* end signals order wrapper */}
 
       {/* Competitor Scout */}
+      <div style={{ order: getLeadOrder('competitor') }}>
       {(() => {
         const leadReportsScout = competitorReports.filter(r => r.entityId === leadId && r.entityType === 'lead');
         const latestReport = leadReportsScout[0];
@@ -1831,8 +1874,10 @@ ${questionnaireUrl}
           </Card>
         );
       })()}
+      </div>{/* end competitor order wrapper */}
 
       {/* Notes History (manual only — AI summaries shown in separate section) */}
+      <div style={{ order: getLeadOrder('notes') }}>
       <Card id="lead-notes-section">
         <CardHeader title="הערות והיסטוריה" subtitle={`${leadNotesFiltered.length} הערות`} />
         {/* Add note form */}
@@ -1886,8 +1931,10 @@ ${questionnaireUrl}
           )}
         </div>
       </Card>
+      </div>{/* end notes order wrapper */}
 
       {/* Call Transcripts Section */}
+      <div style={{ order: getLeadOrder('transcripts') }}>
       <Card id="lead-transcripts-section">
         <div className="flex items-center justify-between mb-4">
           <CardHeader title="תמלולי שיחות" subtitle={`${leadTranscripts.length} תמלולים`} />
@@ -1979,8 +2026,10 @@ ${questionnaireUrl}
           </div>
         )}
       </Card>
+      </div>{/* end transcripts order wrapper */}
 
       {/* AI Recommendations */}
+      <div style={{ order: getLeadOrder('ai-recommendations') }}>
       <Card id="lead-ai-section">
         <div className="flex items-center justify-between mb-4">
           <CardHeader title="המלצות AI" subtitle={leadRecommendations.length > 0 ? `${leadRecommendations.length} המלצות` : 'מנוע Gemini'} />
@@ -2046,8 +2095,10 @@ ${questionnaireUrl}
           </p>
         )}
       </Card>
+      </div>{/* end ai-recommendations order wrapper */}
 
       {/* AI Summaries Section */}
+      <div style={{ order: getLeadOrder('ai-summaries') }}>
       <Card>
         <div className="flex items-center justify-between mb-4">
           <CardHeader title="סיכומי AI" subtitle={leadAISummaries.length > 0 ? `${leadAISummaries.length} סיכומים` : 'סיכומים אוטומטיים'} />
@@ -2161,8 +2212,10 @@ ${questionnaireUrl}
           </div>
         )}
       </Card>
+      </div>{/* end ai-summaries order wrapper */}
 
       {/* WhatsApp Messages */}
+      <div style={{ order: getLeadOrder('whatsapp') }}>
       <Card id="lead-whatsapp-section">
         <div className="flex items-center justify-between mb-4">
           <CardHeader
@@ -2313,8 +2366,10 @@ ${questionnaireUrl}
           </div>
         )}
       </Card>
+      </div>{/* end whatsapp order wrapper */}
 
       {/* Activity Timeline */}
+      <div style={{ order: getLeadOrder('activity') }}>
       {leadActivities.length > 0 && (
         <Card>
           <CardHeader title="היסטוריית פעילות" subtitle={`${leadActivities.length} פעולות אחרונות`} />
@@ -2333,6 +2388,9 @@ ${questionnaireUrl}
           </div>
         </Card>
       )}
+      </div>{/* end activity order wrapper */}
+
+      </div>{/* end sortable sections container */}
 
       {/* Confirm Convert Modal */}
       <Modal isOpen={convertingLead} onClose={() => setConvertingLead(false)} title="המרת ליד ללקוח" size="md">

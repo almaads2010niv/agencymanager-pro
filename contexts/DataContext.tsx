@@ -171,6 +171,7 @@ interface SettingsRow {
   brand_primary_color?: string | null;
   brand_secondary_color?: string | null;
   brand_accent_color?: string | null;
+  services_json?: string | null;
 }
 
 interface RetainerChangeRow {
@@ -255,7 +256,7 @@ export interface DataContextType extends AppData {
   uploadReceiptImage: (file: File) => Promise<string | null>;
   getReceiptUrl: (path: string) => Promise<string | null>;
 
-  updateServices: (services: Service[]) => void;
+  updateServices: (services: Service[]) => Promise<void> | void;
   updateSettings: (settings: AgencySettings) => Promise<void>;
   saveApiKeys: (keys: { canvaApiKey?: string; canvaTemplateId?: string; geminiApiKey?: string }) => Promise<void>;
   saveSignalsWebhookSecret: (secret: string) => Promise<void>;
@@ -1030,8 +1031,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const competitorReports: CompetitorReport[] = (competitorReportsRes?.data || []).map((row: CompetitorReportRow) => transformCompetitorReportFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
+        let loadedServices: Service[] = INITIAL_SERVICES;
         if (settingsRes.data && !settingsRes.error) {
           settings = transformSettingsFromDB(settingsRes.data);
+          // Load services from DB if available
+          const rawRow = settingsRes.data as SettingsRow;
+          if (rawRow.services_json) {
+            try {
+              const parsed = JSON.parse(rawRow.services_json);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                loadedServices = parsed;
+              }
+            } catch { /* use default */ }
+          }
         } else {
           // No settings row for this tenant — create one
           const { error: upsertError } = await supabase.from('settings').upsert(
@@ -1057,7 +1069,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           oneTimeDeals: deals,
           expenses,
           payments,
-          services: INITIAL_SERVICES,
+          services: loadedServices,
           settings,
           activities,
           retainerHistory,
@@ -2173,8 +2185,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateServices = (services: Service[]) => {
+  const updateServices = async (services: Service[]) => {
     setData(prev => ({ ...prev, services }));
+    // Persist services to settings.services_json
+    try {
+      await supabase
+        .from('settings')
+        .update({ services_json: JSON.stringify(services) })
+        .eq('tenant_id', tenantId);
+    } catch (err) {
+      console.warn('Failed to persist services:', err);
+    }
   };
 
   const updateSettings = async (settings: AgencySettings) => {
