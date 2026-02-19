@@ -198,7 +198,7 @@ export function buildAnimatedProposalHtml(config: ProposalPageConfig, brand: Pro
   ` : '';
 
   // ── Build Testimonials Carousel ──
-  const testimonialsToShow = PROPOSAL_TESTIMONIALS.slice(0, 6);
+  const testimonialsToShow = PROPOSAL_TESTIMONIALS;
   const testimonialCards = testimonialsToShow.map((t: ProposalTestimonial, i: number) => {
     const stars = Array.from({ length: t.stars }, () => '★').join('');
     return `
@@ -740,12 +740,12 @@ export function buildAnimatedProposalHtml(config: ProposalPageConfig, brand: Pro
     flex-shrink: 0;
   }
   .marquee-logo img {
-    height: 40px; width: auto; object-fit: contain;
-    filter: grayscale(100%) brightness(2); opacity: 0.4;
+    height: 52px; width: auto; max-width: 140px; object-fit: contain;
+    opacity: 0.85;
     transition: all 0.4s;
   }
   .marquee-logo img:hover {
-    filter: grayscale(0%) brightness(1); opacity: 1;
+    opacity: 1; transform: scale(1.08);
   }
 
   /* ── Stats Bar ── */

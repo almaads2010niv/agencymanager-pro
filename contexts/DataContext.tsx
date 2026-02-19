@@ -2171,7 +2171,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const { error: uploadError } = await supabase.storage
         .from('strategy-pages')
-        .upload(storagePath, file, { upsert: true });
+        .upload(storagePath, file, { upsert: true, contentType: 'text/html; charset=UTF-8' });
 
       if (uploadError) throw uploadError;
 
@@ -2289,7 +2289,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const { error: uploadError } = await supabase.storage
         .from('proposal-pages')
-        .upload(storagePath, file, { upsert: true });
+        .upload(storagePath, file, { upsert: true, contentType: 'text/html; charset=UTF-8' });
 
       if (uploadError) throw uploadError;
 
