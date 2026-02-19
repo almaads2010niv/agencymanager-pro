@@ -38,6 +38,9 @@ export interface Client {
   nextReviewDate: string; // ISO Date string
   addedAt: string; // ISO Date string
   assignedTo?: string; // UUID of assigned handler (user_id from user_roles)
+  facebookUrl?: string;
+  instagramUrl?: string;
+  websiteUrl?: string;
 }
 
 export enum LeadStatus {
@@ -76,6 +79,9 @@ export interface Lead {
   relatedClientId?: string;
   createdBy?: string;
   assignedTo?: string; // UUID of assigned handler (user_id from user_roles)
+  facebookUrl?: string;
+  instagramUrl?: string;
+  websiteUrl?: string;
 }
 
 export enum DealStatus {

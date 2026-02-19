@@ -137,7 +137,7 @@ ${additionalContext ? `הקשר נוסף: ${additionalContext}` : ''}
 - ענה ב-JSON טהור בלבד, ללא טקסט נוסף`
 
     // 5. Call Gemini API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${geminiApiKey}`
 
     const geminiResponse = await fetch(geminiUrl, {
       method: 'POST',

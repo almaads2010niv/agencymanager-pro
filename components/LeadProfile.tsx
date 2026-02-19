@@ -88,11 +88,11 @@ const LeadProfile: React.FC = () => {
   const {
     leads, services, activities, settings,
     leadNotes, addLeadNote, deleteLeadNote,
-    updateLead, convertLeadToClient,
+    updateLead, deleteLead, convertLeadToClient,
     callTranscripts, addCallTranscript, deleteCallTranscript,
     aiRecommendations, addAIRecommendation, deleteAIRecommendation,
     whatsappMessages, addWhatsAppMessage, deleteWhatsAppMessage, uploadRecording,
-    signalsPersonalities,
+    signalsPersonalities, competitorReports, runCompetitorScout, deleteCompetitorReport,
   } = useData();
 
   // Notes state
@@ -150,6 +150,13 @@ const LeadProfile: React.FC = () => {
   // Edit modal state
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<Lead> | null>(null);
+
+  // Competitor scout state
+  const [scoutLoading, setScoutLoading] = useState(false);
+  const [scoutExpanded, setScoutExpanded] = useState(false);
+
+  // Delete lead state
+  const [confirmDeleteLead, setConfirmDeleteLead] = useState(false);
 
   // Expand/collapse for long notes in contact info
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -732,6 +739,11 @@ const LeadProfile: React.FC = () => {
             עריכת ליד
           </Button>
         )}
+        {isAdmin && (
+          <Button onClick={() => setConfirmDeleteLead(true)} variant="danger" icon={<Trash2 size={16} />}>
+            מחק ליד
+          </Button>
+        )}
         {/* PDF Export — Personality Report */}
         {personality?.businessIntelV2 && (
           <Button
@@ -779,6 +791,32 @@ const LeadProfile: React.FC = () => {
               <div className="flex items-center gap-3">
                 <Mail size={16} className="text-gray-400" />
                 <span className="text-gray-300">{lead.email}</span>
+              </div>
+            )}
+            {/* Social & Web URLs */}
+            {(lead.facebookUrl || lead.instagramUrl || lead.websiteUrl) && (
+              <div className="flex flex-wrap items-center gap-2">
+                {lead.facebookUrl && (
+                  <a href={lead.facebookUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 text-xs transition-all">
+                    <Globe size={12} /> Facebook
+                    <ExternalLink size={10} />
+                  </a>
+                )}
+                {lead.instagramUrl && (
+                  <a href={lead.instagramUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 text-xs transition-all">
+                    <Globe size={12} /> Instagram
+                    <ExternalLink size={10} />
+                  </a>
+                )}
+                {lead.websiteUrl && (
+                  <a href={lead.websiteUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 text-xs transition-all">
+                    <Globe size={12} /> אתר
+                    <ExternalLink size={10} />
+                  </a>
+                )}
               </div>
             )}
             <div className="flex items-center gap-3">
@@ -1634,6 +1672,155 @@ ${questionnaireUrl}
         })()}
       </Card>
 
+      {/* Competitor Scout */}
+      {(() => {
+        const leadReportsScout = competitorReports.filter(r => r.entityId === leadId && r.entityType === 'lead');
+        const latestReport = leadReportsScout[0];
+
+        const THREAT_COLORS: Record<string, string> = { HIGH: 'text-red-400 bg-red-500/10', MEDIUM: 'text-amber-400 bg-amber-500/10', LOW: 'text-emerald-400 bg-emerald-500/10' };
+        const PRIORITY_COLORS: Record<string, string> = { HIGH: 'border-red-500/30 bg-red-500/5', MEDIUM: 'border-amber-500/30 bg-amber-500/5', LOW: 'border-emerald-500/30 bg-emerald-500/5' };
+
+        return (
+          <Card>
+            <CardHeader
+              title="סקאוט תחרותי"
+              subtitle={latestReport ? `עדכון אחרון: ${formatDate(latestReport.createdAt)}` : 'ניתוח AI של הנוף התחרותי'}
+            />
+            <div className="mt-4 space-y-3">
+              {/* Run button */}
+              <div className="flex items-center gap-3">
+                <Button
+                  onClick={async () => {
+                    setScoutLoading(true);
+                    await runCompetitorScout({
+                      entityId: leadId!,
+                      entityType: 'lead',
+                      businessName: lead.businessName || lead.leadName,
+                      industry: '',
+                      website: lead.websiteUrl,
+                      services: (lead.interestedServices || []).map(sk => {
+                        const svc = services.find(s => s.serviceKey === sk);
+                        return svc ? svc.label : sk;
+                      }),
+                      additionalContext: [
+                        lead.facebookUrl ? `Facebook: ${lead.facebookUrl}` : '',
+                        lead.instagramUrl ? `Instagram: ${lead.instagramUrl}` : '',
+                      ].filter(Boolean).join(', ') || undefined,
+                    });
+                    setScoutLoading(false);
+                    setScoutExpanded(true);
+                  }}
+                  disabled={scoutLoading || !settings.hasGeminiKey}
+                  icon={scoutLoading ? <Sparkles size={16} className="animate-spin" /> : <Target size={16} />}
+                  variant="secondary"
+                >
+                  {scoutLoading ? 'מנתח...' : latestReport ? 'ניתוח מחדש' : 'הפעל ניתוח תחרותי'}
+                </Button>
+                {!settings.hasGeminiKey && (
+                  <span className="text-xs text-gray-500">נדרש מפתח Gemini בהגדרות</span>
+                )}
+              </div>
+
+              {/* Latest report display */}
+              {latestReport && (
+                <div className="space-y-3">
+                  {/* Summary */}
+                  <div className="p-3 rounded-xl bg-violet-500/5 border border-violet-500/15">
+                    <p className="text-gray-300 text-sm leading-relaxed">{latestReport.analysis.summary}</p>
+                  </div>
+
+                  {/* Competitors */}
+                  {latestReport.analysis.competitors?.length > 0 && (
+                    <div>
+                      <button
+                        onClick={() => setScoutExpanded(!scoutExpanded)}
+                        className="flex items-center gap-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
+                      >
+                        <Shield size={14} className="text-violet-400" />
+                        {latestReport.analysis.competitors.length} מתחרים זוהו
+                        {scoutExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+
+                      {scoutExpanded && (
+                        <div className="mt-2 space-y-2">
+                          {latestReport.analysis.competitors.map((comp, i) => (
+                            <div key={i} className="p-3 rounded-xl bg-[#0B1121] border border-white/5">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-white font-medium text-sm">{comp.name}</span>
+                                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${THREAT_COLORS[comp.threatLevel] || 'text-gray-400'}`}>
+                                  {comp.threatLevel === 'HIGH' ? 'איום גבוה' : comp.threatLevel === 'MEDIUM' ? 'איום בינוני' : 'איום נמוך'}
+                                </span>
+                              </div>
+                              <p className="text-gray-400 text-xs mb-2">{comp.description}</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <div className="text-[10px] text-emerald-400 font-medium mb-1">חוזקות</div>
+                                  {comp.strengths?.map((s, j) => <div key={j} className="text-[10px] text-gray-500">• {s}</div>)}
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-red-400 font-medium mb-1">חולשות</div>
+                                  {comp.weaknesses?.map((w, j) => <div key={j} className="text-[10px] text-gray-500">• {w}</div>)}
+                                </div>
+                              </div>
+                              {comp.differentiator && (
+                                <div className="mt-2 text-[10px] text-violet-400">מבדל: {comp.differentiator}</div>
+                              )}
+                            </div>
+                          ))}
+
+                          {/* Opportunities & Threats */}
+                          <div className="grid grid-cols-2 gap-3 mt-3">
+                            {latestReport.analysis.opportunities?.length > 0 && (
+                              <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
+                                <div className="text-xs font-medium text-emerald-400 mb-2">🎯 הזדמנויות</div>
+                                {latestReport.analysis.opportunities.map((o, i) => (
+                                  <div key={i} className="text-[10px] text-gray-400 mb-1">• {o}</div>
+                                ))}
+                              </div>
+                            )}
+                            {latestReport.analysis.threats?.length > 0 && (
+                              <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/15">
+                                <div className="text-xs font-medium text-red-400 mb-2">⚠️ איומים</div>
+                                {latestReport.analysis.threats.map((t, i) => (
+                                  <div key={i} className="text-[10px] text-gray-400 mb-1">• {t}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Recommendations */}
+                          {latestReport.analysis.recommendations?.length > 0 && (
+                            <div className="space-y-2 mt-3">
+                              <div className="text-xs font-medium text-gray-300">💡 המלצות</div>
+                              {latestReport.analysis.recommendations.map((rec, i) => (
+                                <div key={i} className={`p-3 rounded-xl border ${PRIORITY_COLORS[rec.priority] || 'border-white/5'}`}>
+                                  <div className="text-sm font-medium text-white">{rec.title}</div>
+                                  <p className="text-xs text-gray-400 mt-1">{rec.description}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Market Trends */}
+                          {latestReport.analysis.marketTrends?.length > 0 && (
+                            <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/15 mt-3">
+                              <div className="text-xs font-medium text-blue-400 mb-2">📈 מגמות שוק</div>
+                              {latestReport.analysis.marketTrends.map((t, i) => (
+                                <div key={i} className="text-[10px] text-gray-400 mb-1">• {t}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </Card>
+        );
+      })()}
+
       {/* Notes History (manual only — AI summaries shown in separate section) */}
       <Card id="lead-notes-section">
         <CardHeader title="הערות והיסטוריה" subtitle={`${leadNotesFiltered.length} הערות`} />
@@ -2265,6 +2452,12 @@ ${questionnaireUrl}
                 ))}
               </div>
             </div>
+            {/* Social / Web URLs */}
+            <div className="grid grid-cols-3 gap-4">
+              <Input label="עמוד פייסבוק" placeholder="https://facebook.com/..." value={editFormData.facebookUrl || ''} onChange={e => setEditFormData({...editFormData, facebookUrl: e.target.value})} />
+              <Input label="עמוד אינסטגרם" placeholder="https://instagram.com/..." value={editFormData.instagramUrl || ''} onChange={e => setEditFormData({...editFormData, instagramUrl: e.target.value})} />
+              <Input label="כתובת אתר" placeholder="https://..." value={editFormData.websiteUrl || ''} onChange={e => setEditFormData({...editFormData, websiteUrl: e.target.value})} />
+            </div>
             <Textarea label="הערות" value={editFormData.notes || ''} onChange={e => setEditFormData({...editFormData, notes: e.target.value})} />
             <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
               <Button type="button" variant="ghost" onClick={() => setIsEditModalOpen(false)}>ביטול</Button>
@@ -2272,6 +2465,22 @@ ${questionnaireUrl}
             </div>
           </form>
         )}
+      </Modal>
+
+      {/* Confirm Delete Lead Modal */}
+      <Modal isOpen={confirmDeleteLead} onClose={() => setConfirmDeleteLead(false)} title="מחיקת ליד">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך למחוק את הליד <b className="text-white">{lead.leadName}</b>?</p>
+          <p className="text-sm text-red-400">פעולה זו בלתי הפיכה. כל ההערות, התמלולים וההמלצות הקשורות יישארו במערכת.</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteLead(false)}>ביטול</Button>
+            <Button type="button" variant="danger" onClick={async () => {
+              await deleteLead(lead.leadId);
+              setConfirmDeleteLead(false);
+              tn('/leads');
+            }}>מחק ליד</Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

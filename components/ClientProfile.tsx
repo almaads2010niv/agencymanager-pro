@@ -7,7 +7,7 @@ import type { ClientFile } from '../contexts/DataContext';
 import { ClientStatus, ClientRating, EffortLevel, NoteType, Archetype, BusinessIntelV2, ScriptDoor } from '../types';
 import type { Client } from '../types';
 import { formatCurrency, formatDate, formatDateTime, getMonthName, formatPhoneForWhatsApp } from '../utils';
-import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle, User, Send, Clock, ChevronDown, ChevronUp, Sparkles, Plus, Mic, Edit3, Target, Brain, Shield, Zap, AlertTriangle, MessageSquare, ListChecks, CheckCircle, Users, Printer } from 'lucide-react';
+import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle, User, Send, Clock, ChevronDown, ChevronUp, Sparkles, Plus, Mic, Edit3, Target, Brain, Shield, Zap, AlertTriangle, MessageSquare, ListChecks, CheckCircle, Users, Printer, Globe } from 'lucide-react';
 import { MESSAGE_PURPOSES } from '../constants';
 import { getBrandConfig, generateWorkPlanPdf, generateFinancialSummaryPdf, generatePersonalityPdf } from '../utils/pdfGenerator';
 import { supabase } from '../lib/supabaseClient';
@@ -687,6 +687,32 @@ const ClientProfile: React.FC = () => {
               <div className="flex items-center gap-3">
                 <Mail size={16} className="text-gray-400" />
                 <span className="text-gray-300">{client.email}</span>
+              </div>
+            )}
+            {/* Social & Web URLs */}
+            {(client.facebookUrl || client.instagramUrl || client.websiteUrl) && (
+              <div className="flex flex-wrap items-center gap-2">
+                {client.facebookUrl && (
+                  <a href={client.facebookUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 text-xs transition-all">
+                    <Globe size={12} /> Facebook
+                    <ExternalLink size={10} />
+                  </a>
+                )}
+                {client.instagramUrl && (
+                  <a href={client.instagramUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 text-xs transition-all">
+                    <Globe size={12} /> Instagram
+                    <ExternalLink size={10} />
+                  </a>
+                )}
+                {client.websiteUrl && (
+                  <a href={client.websiteUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 text-xs transition-all">
+                    <Globe size={12} /> אתר
+                    <ExternalLink size={10} />
+                  </a>
+                )}
               </div>
             )}
             <div className="flex items-center gap-3">
@@ -1631,10 +1657,15 @@ const ClientProfile: React.FC = () => {
                       entityType: 'client',
                       businessName: client.businessName || client.clientName,
                       industry: client.industry || '',
+                      website: client.websiteUrl,
                       services: client.services.map(sk => {
                         const svc = services.find(s => s.serviceKey === sk);
                         return svc ? svc.label : sk;
                       }),
+                      additionalContext: [
+                        client.facebookUrl ? `Facebook: ${client.facebookUrl}` : '',
+                        client.instagramUrl ? `Instagram: ${client.instagramUrl}` : '',
+                      ].filter(Boolean).join(', ') || undefined,
                     });
                     setScoutLoading(false);
                     setScoutExpanded(true);
@@ -2096,6 +2127,15 @@ const ClientProfile: React.FC = () => {
                 ))}
               </Select>
               <Textarea label="הערות" value={editFormData.notes || ''} onChange={e => setEditFormData({...editFormData, notes: e.target.value})} />
+            </div>
+            {/* Social / Web URLs */}
+            <div className="space-y-6">
+              <h4 className="text-primary text-sm font-bold uppercase tracking-wider border-b border-white/10 pb-2">קישורים חברתיים ואתר</h4>
+              <div className="grid grid-cols-3 gap-4">
+                <Input label="עמוד פייסבוק" placeholder="https://facebook.com/..." value={editFormData.facebookUrl || ''} onChange={e => setEditFormData({...editFormData, facebookUrl: e.target.value})} />
+                <Input label="עמוד אינסטגרם" placeholder="https://instagram.com/..." value={editFormData.instagramUrl || ''} onChange={e => setEditFormData({...editFormData, instagramUrl: e.target.value})} />
+                <Input label="כתובת אתר" placeholder="https://..." value={editFormData.websiteUrl || ''} onChange={e => setEditFormData({...editFormData, websiteUrl: e.target.value})} />
+              </div>
             </div>
             <div className="pt-6 border-t border-white/10 flex justify-end gap-3">
               <Button type="button" variant="ghost" onClick={() => setIsEditModalOpen(false)}>ביטול</Button>

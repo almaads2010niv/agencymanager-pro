@@ -33,6 +33,9 @@ interface ClientRow {
   next_review_date: string;
   added_at: string;
   assigned_to: string | null;
+  facebook_url?: string;
+  instagram_url?: string;
+  website_url?: string;
 }
 
 interface ClientNoteRow {
@@ -62,6 +65,9 @@ interface LeadRow {
   related_client_id: string;
   created_by?: string;
   assigned_to: string | null;
+  facebook_url?: string;
+  instagram_url?: string;
+  website_url?: string;
 }
 
 interface LeadNoteRow {
@@ -335,6 +341,9 @@ const transformClientToDB = (client: Client) => ({
   next_review_date: client.nextReviewDate,
   added_at: client.addedAt,
   assigned_to: client.assignedTo || null,
+  facebook_url: client.facebookUrl || null,
+  instagram_url: client.instagramUrl || null,
+  website_url: client.websiteUrl || null,
 });
 
 const transformClientFromDB = (row: ClientRow): Client => ({
@@ -357,6 +366,9 @@ const transformClientFromDB = (row: ClientRow): Client => ({
   nextReviewDate: row.next_review_date || '',
   addedAt: row.added_at,
   assignedTo: row.assigned_to || undefined,
+  facebookUrl: row.facebook_url || undefined,
+  instagramUrl: row.instagram_url || undefined,
+  websiteUrl: row.website_url || undefined,
 });
 
 const transformLeadToDB = (lead: Lead) => ({
@@ -375,6 +387,9 @@ const transformLeadToDB = (lead: Lead) => ({
   related_client_id: lead.relatedClientId,
   created_by: lead.createdBy || null,
   assigned_to: lead.assignedTo || null,
+  facebook_url: lead.facebookUrl || null,
+  instagram_url: lead.instagramUrl || null,
+  website_url: lead.websiteUrl || null,
 });
 
 const transformLeadFromDB = (row: LeadRow): Lead => ({
@@ -393,6 +408,9 @@ const transformLeadFromDB = (row: LeadRow): Lead => ({
   relatedClientId: row.related_client_id,
   createdBy: row.created_by || undefined,
   assignedTo: row.assigned_to || undefined,
+  facebookUrl: row.facebook_url || undefined,
+  instagramUrl: row.instagram_url || undefined,
+  websiteUrl: row.website_url || undefined,
 });
 
 const transformDealToDB = (deal: OneTimeDeal) => ({
