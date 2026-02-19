@@ -4,13 +4,14 @@ import { useTenantNav } from '../hooks/useTenantNav';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, NoteType, Archetype, BusinessIntelV2, HeroCard, ActionItem, QuickScript, ScriptDoor, FullFiveDoorScript, ProfileBriefing } from '../types';
-import type { Lead, StrategyPlan } from '../types';
+import type { Lead, StrategyPlan, Proposal, ProposalData, ProposalPackage, ProposalPhase } from '../types';
 import { formatCurrency, formatDate, formatDateTime, formatPhoneForWhatsApp } from '../utils';
 import { MESSAGE_PURPOSES } from '../constants';
 import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink, Upload, Loader2, Zap, Users, Star, AlertTriangle, MessageSquare, ListChecks, Printer, Link2, Copy, Check } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { getBrandConfig, generatePersonalityPdf, generateCustomPdf, generateStrategyPdf } from '../utils/pdfGenerator';
 import { generateAnimatedStrategy, buildAnimatedStrategyHtml } from '../utils/animatedStrategy';
+import { buildAnimatedProposalHtml, generateAnimatedProposal } from '../utils/animatedProposal';
 import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
@@ -97,6 +98,7 @@ const LeadProfile: React.FC = () => {
     whatsappMessages, addWhatsAppMessage, deleteWhatsAppMessage, uploadRecording,
     signalsPersonalities, competitorReports, runCompetitorScout, deleteCompetitorReport,
     strategyPlans, addStrategyPlan, updateStrategyPlan, deleteStrategyPlan, publishStrategyPage,
+    proposals, addProposal, updateProposal, deleteProposal, publishProposalPage,
   } = useData();
 
   // Notes state
@@ -117,9 +119,32 @@ const LeadProfile: React.FC = () => {
   const [expandedRecommendationId, setExpandedRecommendationId] = useState<string | null>(null);
   const [confirmDeleteRecommendationId, setConfirmDeleteRecommendationId] = useState<string | null>(null);
 
-  // Proposal state
+  // Old Canva proposal state (kept for backward compatibility)
   const [isGeneratingProposal, setIsGeneratingProposal] = useState(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
+
+  // Animated proposal state
+  const [isProposalEditorOpen, setIsProposalEditorOpen] = useState(false);
+  const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
+  const [expandedProposalId, setExpandedProposalId] = useState<string | null>(null);
+  const [confirmDeleteProposalId, setConfirmDeleteProposalId] = useState<string | null>(null);
+  const [isPublishingProposal, setIsPublishingProposal] = useState<string | null>(null);
+  const [copiedProposalUrl, setCopiedProposalUrl] = useState<string | null>(null);
+  const [proposalForm, setProposalForm] = useState<{
+    proposalName: string;
+    introText: string;
+    phases: ProposalPhase[];
+    packages: ProposalPackage[];
+    terms: string[];
+    validUntil: string;
+  }>({
+    proposalName: '',
+    introText: '',
+    phases: [],
+    packages: [],
+    terms: [],
+    validUntil: '',
+  });
 
   // WhatsApp state
   const [waMessagePurpose, setWaMessagePurpose] = useState('follow_up');
@@ -193,6 +218,7 @@ const LeadProfile: React.FC = () => {
     { id: 'ai-summaries', label: 'סיכומי AI' },
     { id: 'notebook', label: 'AI Notebook' },
     { id: 'strategy', label: 'אסטרטגיה ותוכנית עבודה' },
+    { id: 'proposals', label: 'הצעות מחיר מונפשות' },
     { id: 'whatsapp', label: 'הודעות WhatsApp' },
     { id: 'activity', label: 'היסטוריית פעילות' },
   ];
@@ -3021,6 +3047,254 @@ ${questionnaireUrl}
       </Card>
       </div>{/* end strategy order wrapper */}
 
+      {/* Animated Proposals */}
+      <div style={{ order: getLeadOrder('proposals') }}>
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <CardHeader title={<span className="flex items-center gap-2"><FileText size={18} className="text-amber-400" /> הצעות מחיר מונפשות</span>} />
+          <Button
+            onClick={() => {
+              // Build default form from lead data + settings templates
+              const defaultPhases: ProposalPhase[] = settings.proposalPhasesTemplate || [
+                { number: 1, title: 'אפיון ומחקר', description: 'הבנת העסק, קהל היעד והתחרות', duration: 'שבוע 1' },
+                { number: 2, title: 'בניית אסטרטגיה', description: 'תכנון תוכן, ערוצים ומסרים', duration: 'שבוע 2' },
+                { number: 3, title: 'הקמה והשקה', description: 'הקמת קמפיינים, עיצוב חומרים ותחילת עבודה', duration: 'שבוע 3-4' },
+              ];
+              const leadServices = (lead.interestedServices || []).map(s => {
+                const svc = services.find(sv => sv.serviceKey === s);
+                return svc?.label || s;
+              });
+              const defaultPackages: ProposalPackage[] = settings.proposalPackagesTemplate || [
+                {
+                  name: 'חבילה בסיסית',
+                  isRecommended: false,
+                  services: leadServices.map(s => ({ label: s, included: true })),
+                  monthlyPrice: lead.quotedMonthlyValue || 0,
+                },
+                {
+                  name: 'חבילה מומלצת',
+                  isRecommended: true,
+                  services: leadServices.map(s => ({ label: s, included: true })),
+                  monthlyPrice: lead.quotedMonthlyValue ? Math.round(lead.quotedMonthlyValue * 1.3) : 0,
+                },
+                {
+                  name: 'חבילת פרימיום',
+                  isRecommended: false,
+                  services: leadServices.map(s => ({ label: s, included: true })),
+                  monthlyPrice: lead.quotedMonthlyValue ? Math.round(lead.quotedMonthlyValue * 1.8) : 0,
+                },
+              ];
+              const defaultTerms: string[] = settings.proposalTermsTemplate || [
+                'ההצעה בתוקף ל-14 יום מתאריך הפקתה',
+                'התשלום יתבצע מדי חודש בהוראת קבע או העברה בנקאית',
+                'תקופת ההתקשרות המינימלית: 3 חודשים',
+                'ביטול השירות כרוך בהודעה מראש של 30 יום',
+              ];
+              setProposalForm({
+                proposalName: `הצעת מחיר — ${lead.businessName || lead.leadName}`,
+                introText: '',
+                phases: defaultPhases,
+                packages: defaultPackages,
+                terms: defaultTerms,
+                validUntil: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
+              });
+              setEditingProposal(null);
+              setIsProposalEditorOpen(true);
+            }}
+            icon={<Plus size={16} />}
+          >
+            צור הצעה חדשה
+          </Button>
+        </div>
+
+        {(() => {
+          const leadProposals = proposals.filter(p => p.leadId === leadId);
+          if (leadProposals.length === 0) {
+            return <p className="text-gray-600 text-sm text-center py-6 italic">לחץ על "צור הצעה חדשה" כדי ליצור הצעת מחיר מונפשת</p>;
+          }
+
+          const statusBadge = (status: string) => {
+            const map: Record<string, { color: string; label: string }> = {
+              draft: { color: 'bg-gray-500/20 text-gray-300 border-gray-500/30', label: 'טיוטה' },
+              sent: { color: 'bg-blue-500/20 text-blue-300 border-blue-500/30', label: 'נשלחה' },
+              viewed: { color: 'bg-amber-500/20 text-amber-300 border-amber-500/30', label: 'נצפתה' },
+              signed: { color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', label: 'נחתמה ✓' },
+              rejected: { color: 'bg-red-500/20 text-red-300 border-red-500/30', label: 'נדחתה' },
+            };
+            const info = map[status] || map.draft;
+            return <span className={`px-2 py-0.5 rounded-full text-xs border ${info.color}`}>{info.label}</span>;
+          };
+
+          return (
+            <div className="space-y-3">
+              {leadProposals.map(prop => {
+                const isExpanded = expandedProposalId === prop.id;
+                return (
+                  <div key={prop.id} className="bg-white/5 rounded-xl border border-white/10 overflow-hidden">
+                    {/* Collapsed header */}
+                    <button
+                      className="w-full flex items-center justify-between p-4 text-start hover:bg-white/5 transition-colors"
+                      onClick={() => setExpandedProposalId(isExpanded ? null : prop.id)}
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <FileText size={16} className="text-amber-400 flex-shrink-0" />
+                        <span className="text-white font-medium truncate">{prop.proposalName}</span>
+                        {statusBadge(prop.status)}
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-500 text-xs">
+                        <span>{formatDate(prop.createdAt)}</span>
+                        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </div>
+                    </button>
+
+                    {/* Expanded content */}
+                    {isExpanded && (
+                      <div className="px-4 pb-4 border-t border-white/5 space-y-3">
+                        {/* Package summary */}
+                        {prop.proposalData?.packages?.length > 0 && (
+                          <div className="pt-3">
+                            <p className="text-xs text-gray-400 mb-2">חבילות:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {prop.proposalData.packages.map((pkg: ProposalPackage, i: number) => (
+                                <span key={i} className={`px-2 py-1 rounded-lg text-xs ${pkg.isRecommended ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-white/5 text-gray-300 border border-white/10'}`}>
+                                  {pkg.name} — {formatCurrency(pkg.monthlyPrice)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Signature info (if signed) */}
+                        {prop.signatureData && (
+                          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                            <p className="text-emerald-300 text-sm font-medium mb-1">✅ נחתמה בהצלחה</p>
+                            <div className="text-xs text-gray-400 space-y-0.5">
+                              <p>שם: {prop.signatureData.name}</p>
+                              <p>אימייל: {prop.signatureData.email}</p>
+                              <p>חבילה שנבחרה: {prop.signatureData.selectedPackage}</p>
+                              <p>תאריך חתימה: {formatDateTime(prop.signatureData.signedAt)}</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Public URL */}
+                        {prop.publicUrl && (
+                          <div className="flex items-center gap-2 p-2 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                            <Link2 size={14} className="text-blue-400 flex-shrink-0" />
+                            <a href={prop.publicUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-xs truncate flex-1 hover:underline">{prop.publicUrl}</a>
+                            <button
+                              className="text-gray-400 hover:text-white transition-colors p-1"
+                              onClick={() => {
+                                navigator.clipboard.writeText(prop.publicUrl!);
+                                setCopiedProposalUrl(prop.id);
+                                setTimeout(() => setCopiedProposalUrl(null), 2000);
+                              }}
+                            >
+                              {copiedProposalUrl === prop.id ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Actions */}
+                        <div className="flex flex-wrap gap-2 pt-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setEditingProposal(prop);
+                              setProposalForm({
+                                proposalName: prop.proposalName,
+                                introText: prop.proposalData?.introText || '',
+                                phases: prop.proposalData?.phases || [],
+                                packages: prop.proposalData?.packages || [],
+                                terms: prop.proposalData?.terms?.items || [],
+                                validUntil: prop.proposalData?.validUntil || '',
+                              });
+                              setIsProposalEditorOpen(true);
+                            }}
+                            icon={<Edit3 size={14} />}
+                          >
+                            עריכה
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              const brand = getBrandConfig(settings);
+                              const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proposal-webhook`;
+                              generateAnimatedProposal({
+                                proposalId: prop.id,
+                                businessName: prop.proposalData?.businessName || lead.businessName || lead.leadName,
+                                contactName: prop.proposalData?.contactName || lead.leadName,
+                                introText: prop.proposalData?.introText,
+                                packages: prop.proposalData?.packages || [],
+                                phases: prop.proposalData?.phases || [],
+                                terms: prop.proposalData?.terms || { items: [] },
+                                validUntil: prop.proposalData?.validUntil,
+                                webhookUrl,
+                              }, brand);
+                            }}
+                            icon={<ExternalLink size={14} />}
+                          >
+                            תצוגה מקדימה
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={isPublishingProposal === prop.id}
+                            onClick={async () => {
+                              setIsPublishingProposal(prop.id);
+                              try {
+                                const brand = getBrandConfig(settings);
+                                const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proposal-webhook`;
+                                const html = buildAnimatedProposalHtml({
+                                  proposalId: prop.id,
+                                  businessName: prop.proposalData?.businessName || lead.businessName || lead.leadName,
+                                  contactName: prop.proposalData?.contactName || lead.leadName,
+                                  introText: prop.proposalData?.introText,
+                                  packages: prop.proposalData?.packages || [],
+                                  phases: prop.proposalData?.phases || [],
+                                  terms: prop.proposalData?.terms || { items: [] },
+                                  validUntil: prop.proposalData?.validUntil,
+                                  webhookUrl,
+                                }, brand);
+                                const url = await publishProposalPage(prop.id, html);
+                                if (url) {
+                                  navigator.clipboard.writeText(url);
+                                  setCopiedProposalUrl(prop.id);
+                                  setTimeout(() => setCopiedProposalUrl(null), 3000);
+                                }
+                              } finally {
+                                setIsPublishingProposal(null);
+                              }
+                            }}
+                            icon={isPublishingProposal === prop.id ? <Loader2 size={14} className="animate-spin" /> : <Link2 size={14} />}
+                          >
+                            {prop.publicUrl ? 'עדכן לינק' : 'פרסם לינק'}
+                          </Button>
+                          {isAdmin && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-400 hover:text-red-300"
+                              onClick={() => setConfirmDeleteProposalId(prop.id)}
+                              icon={<Trash2 size={14} />}
+                            >
+                              מחק
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </Card>
+      </div>{/* end proposals order wrapper */}
+
       {/* WhatsApp Messages */}
       <div style={{ order: getLeadOrder('whatsapp') }}>
       <Card id="lead-whatsapp-section">
@@ -3344,6 +3618,342 @@ ${questionnaireUrl}
       </Modal>
 
       {/* Confirm Delete Lead Modal */}
+      {/* Confirm Delete Proposal Modal */}
+      <Modal isOpen={!!confirmDeleteProposalId} onClose={() => setConfirmDeleteProposalId(null)} title="מחיקת הצעת מחיר" size="md">
+        <div className="space-y-6">
+          <p className="text-gray-300">האם אתה בטוח שברצונך למחוק את הצעת המחיר?</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteProposalId(null)}>ביטול</Button>
+            <Button type="button" variant="danger" onClick={async () => {
+              if (confirmDeleteProposalId) {
+                await deleteProposal(confirmDeleteProposalId);
+                setConfirmDeleteProposalId(null);
+              }
+            }}>מחק</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Proposal Editor Modal */}
+      <Modal isOpen={isProposalEditorOpen} onClose={() => setIsProposalEditorOpen(false)} title={editingProposal ? 'עריכת הצעת מחיר' : 'הצעת מחיר חדשה'} size="xl">
+        <div className="space-y-5 max-h-[70vh] overflow-y-auto custom-scrollbar pe-2">
+          {/* Proposal name */}
+          <Input
+            label="שם ההצעה"
+            value={proposalForm.proposalName}
+            onChange={e => setProposalForm({ ...proposalForm, proposalName: e.target.value })}
+            required
+          />
+
+          {/* Intro text */}
+          <Textarea
+            label="טקסט מבוא (אופציונלי)"
+            value={proposalForm.introText}
+            onChange={e => setProposalForm({ ...proposalForm, introText: e.target.value })}
+            rows={2}
+            placeholder="פסקה קצרה שתופיע בתחילת ההצעה..."
+          />
+
+          {/* Validity date */}
+          <Input
+            label="תוקף ההצעה"
+            type="date"
+            value={proposalForm.validUntil}
+            onChange={e => setProposalForm({ ...proposalForm, validUntil: e.target.value })}
+          />
+
+          {/* Work Phases */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-semibold text-white">שלבי עבודה</h4>
+              <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={() => {
+                setProposalForm({
+                  ...proposalForm,
+                  phases: [...proposalForm.phases, { number: proposalForm.phases.length + 1, title: '', description: '', duration: '' }]
+                });
+              }}>הוסף שלב</Button>
+            </div>
+            <div className="space-y-3">
+              {proposalForm.phases.map((phase, idx) => (
+                <div key={idx} className="bg-white/5 rounded-xl p-3 border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400">שלב {idx + 1}</span>
+                    <button
+                      className="text-red-400 hover:text-red-300 text-xs"
+                      onClick={() => {
+                        const newPhases = proposalForm.phases.filter((_, i) => i !== idx).map((p, i) => ({ ...p, number: i + 1 }));
+                        setProposalForm({ ...proposalForm, phases: newPhases });
+                      }}
+                    >הסר</button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      placeholder="כותרת השלב"
+                      value={phase.title}
+                      onChange={e => {
+                        const newPhases = [...proposalForm.phases];
+                        newPhases[idx] = { ...newPhases[idx], title: e.target.value };
+                        setProposalForm({ ...proposalForm, phases: newPhases });
+                      }}
+                    />
+                    <Input
+                      placeholder="משך (למשל: שבוע 1)"
+                      value={phase.duration || ''}
+                      onChange={e => {
+                        const newPhases = [...proposalForm.phases];
+                        newPhases[idx] = { ...newPhases[idx], duration: e.target.value };
+                        setProposalForm({ ...proposalForm, phases: newPhases });
+                      }}
+                    />
+                  </div>
+                  <Textarea
+                    placeholder="תיאור השלב"
+                    value={phase.description}
+                    onChange={e => {
+                      const newPhases = [...proposalForm.phases];
+                      newPhases[idx] = { ...newPhases[idx], description: e.target.value };
+                      setProposalForm({ ...proposalForm, phases: newPhases });
+                    }}
+                    rows={2}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Packages */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-semibold text-white">חבילות תמחור</h4>
+              <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={() => {
+                setProposalForm({
+                  ...proposalForm,
+                  packages: [...proposalForm.packages, { name: '', isRecommended: false, services: [], monthlyPrice: 0 }]
+                });
+              }}>הוסף חבילה</Button>
+            </div>
+            <div className="space-y-3">
+              {proposalForm.packages.map((pkg, idx) => (
+                <div key={idx} className={`bg-white/5 rounded-xl p-3 border ${pkg.isRecommended ? 'border-amber-500/40' : 'border-white/10'} space-y-2`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-gray-400">חבילה {idx + 1}</span>
+                      <label className="flex items-center gap-1 text-xs text-amber-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={pkg.isRecommended}
+                          onChange={e => {
+                            const newPkgs = proposalForm.packages.map((p, i) => ({ ...p, isRecommended: i === idx ? e.target.checked : false }));
+                            setProposalForm({ ...proposalForm, packages: newPkgs });
+                          }}
+                          className="rounded border-white/20"
+                        />
+                        מומלצת
+                      </label>
+                    </div>
+                    <button
+                      className="text-red-400 hover:text-red-300 text-xs"
+                      onClick={() => {
+                        setProposalForm({ ...proposalForm, packages: proposalForm.packages.filter((_, i) => i !== idx) });
+                      }}
+                    >הסר</button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input
+                      placeholder="שם החבילה"
+                      value={pkg.name}
+                      onChange={e => {
+                        const newPkgs = [...proposalForm.packages];
+                        newPkgs[idx] = { ...newPkgs[idx], name: e.target.value };
+                        setProposalForm({ ...proposalForm, packages: newPkgs });
+                      }}
+                    />
+                    <Input
+                      placeholder="מחיר חודשי"
+                      type="number"
+                      value={pkg.monthlyPrice || ''}
+                      onChange={e => {
+                        const newPkgs = [...proposalForm.packages];
+                        newPkgs[idx] = { ...newPkgs[idx], monthlyPrice: Number(e.target.value) };
+                        setProposalForm({ ...proposalForm, packages: newPkgs });
+                      }}
+                    />
+                    <Input
+                      placeholder="עלות הקמה (אופציונלי)"
+                      type="number"
+                      value={pkg.setupPrice || ''}
+                      onChange={e => {
+                        const newPkgs = [...proposalForm.packages];
+                        newPkgs[idx] = { ...newPkgs[idx], setupPrice: Number(e.target.value) || undefined };
+                        setProposalForm({ ...proposalForm, packages: newPkgs });
+                      }}
+                    />
+                  </div>
+                  {/* Services checklist */}
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">שירותים בחבילה:</p>
+                    <div className="space-y-1">
+                      {pkg.services.map((svc, sIdx) => (
+                        <div key={sIdx} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={svc.included}
+                            onChange={e => {
+                              const newPkgs = [...proposalForm.packages];
+                              const newServices = [...newPkgs[idx].services];
+                              newServices[sIdx] = { ...newServices[sIdx], included: e.target.checked };
+                              newPkgs[idx] = { ...newPkgs[idx], services: newServices };
+                              setProposalForm({ ...proposalForm, packages: newPkgs });
+                            }}
+                            className="rounded border-white/20"
+                          />
+                          <input
+                            type="text"
+                            value={svc.label}
+                            onChange={e => {
+                              const newPkgs = [...proposalForm.packages];
+                              const newServices = [...newPkgs[idx].services];
+                              newServices[sIdx] = { ...newServices[sIdx], label: e.target.value };
+                              newPkgs[idx] = { ...newPkgs[idx], services: newServices };
+                              setProposalForm({ ...proposalForm, packages: newPkgs });
+                            }}
+                            className="flex-1 bg-transparent text-sm text-gray-300 border-b border-white/10 focus:border-primary focus:outline-none py-0.5"
+                          />
+                          <button
+                            className="text-red-400 hover:text-red-300 text-xs"
+                            onClick={() => {
+                              const newPkgs = [...proposalForm.packages];
+                              newPkgs[idx] = { ...newPkgs[idx], services: newPkgs[idx].services.filter((_, si) => si !== sIdx) };
+                              setProposalForm({ ...proposalForm, packages: newPkgs });
+                            }}
+                          >✕</button>
+                        </div>
+                      ))}
+                      <button
+                        className="text-xs text-primary hover:text-primary/80 mt-1"
+                        onClick={() => {
+                          const newPkgs = [...proposalForm.packages];
+                          newPkgs[idx] = { ...newPkgs[idx], services: [...newPkgs[idx].services, { label: '', included: true }] };
+                          setProposalForm({ ...proposalForm, packages: newPkgs });
+                        }}
+                      >+ הוסף שירות</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Terms */}
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">תנאים (שורה אחת לכל תנאי)</label>
+            <Textarea
+              value={proposalForm.terms.join('\n')}
+              onChange={e => setProposalForm({ ...proposalForm, terms: e.target.value.split('\n') })}
+              rows={4}
+              placeholder="כל שורה תהפוך לפריט ברשימת התנאים..."
+            />
+          </div>
+        </div>
+
+        {/* Footer buttons */}
+        <div className="flex justify-between items-center gap-3 pt-4 mt-4 border-t border-white/10">
+          <Button variant="ghost" onClick={() => setIsProposalEditorOpen(false)}>ביטול</Button>
+          <div className="flex gap-2">
+            {/* Save as draft */}
+            <Button variant="ghost" onClick={async () => {
+              const proposalData: ProposalData = {
+                businessName: lead.businessName || lead.leadName,
+                contactName: lead.leadName,
+                introText: proposalForm.introText || undefined,
+                packages: proposalForm.packages,
+                phases: proposalForm.phases,
+                terms: { items: proposalForm.terms.filter(t => t.trim()) },
+                validUntil: proposalForm.validUntil || undefined,
+              };
+              if (editingProposal) {
+                await updateProposal({ ...editingProposal, proposalName: proposalForm.proposalName, proposalData });
+              } else {
+                await addProposal({
+                  leadId: leadId!,
+                  proposalName: proposalForm.proposalName,
+                  proposalData,
+                  status: 'draft',
+                  createdBy: user?.id || '',
+                  createdByName: currentUserName || '',
+                });
+              }
+              setIsProposalEditorOpen(false);
+            }}>שמור כטיוטה</Button>
+
+            {/* Preview */}
+            <Button variant="ghost" onClick={() => {
+              const brand = getBrandConfig(settings);
+              const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proposal-webhook`;
+              generateAnimatedProposal({
+                proposalId: editingProposal?.id || 'preview',
+                businessName: lead.businessName || lead.leadName,
+                contactName: lead.leadName,
+                introText: proposalForm.introText || undefined,
+                packages: proposalForm.packages,
+                phases: proposalForm.phases,
+                terms: { items: proposalForm.terms.filter(t => t.trim()) },
+                validUntil: proposalForm.validUntil || undefined,
+                webhookUrl,
+              }, brand);
+            }} icon={<ExternalLink size={14} />}>תצוגה מקדימה</Button>
+
+            {/* Publish & send */}
+            <Button onClick={async () => {
+              const proposalData: ProposalData = {
+                businessName: lead.businessName || lead.leadName,
+                contactName: lead.leadName,
+                introText: proposalForm.introText || undefined,
+                packages: proposalForm.packages,
+                phases: proposalForm.phases,
+                terms: { items: proposalForm.terms.filter(t => t.trim()) },
+                validUntil: proposalForm.validUntil || undefined,
+              };
+
+              let proposalId = editingProposal?.id;
+              if (editingProposal) {
+                await updateProposal({ ...editingProposal, proposalName: proposalForm.proposalName, proposalData });
+              } else {
+                proposalId = await addProposal({
+                  leadId: leadId!,
+                  proposalName: proposalForm.proposalName,
+                  proposalData,
+                  status: 'draft',
+                  createdBy: user?.id || '',
+                  createdByName: currentUserName || '',
+                });
+              }
+
+              if (proposalId) {
+                const brand = getBrandConfig(settings);
+                const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proposal-webhook`;
+                const html = buildAnimatedProposalHtml({
+                  proposalId,
+                  businessName: proposalData.businessName,
+                  contactName: proposalData.contactName,
+                  introText: proposalData.introText,
+                  packages: proposalData.packages,
+                  phases: proposalData.phases,
+                  terms: proposalData.terms,
+                  validUntil: proposalData.validUntil,
+                  webhookUrl,
+                }, brand);
+                const url = await publishProposalPage(proposalId, html);
+                if (url) {
+                  navigator.clipboard.writeText(url);
+                }
+              }
+              setIsProposalEditorOpen(false);
+            }} icon={<Send size={14} />}>פרסם ושלח</Button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal isOpen={confirmDeleteLead} onClose={() => setConfirmDeleteLead(false)} title="מחיקת ליד">
         <div className="space-y-6">
           <p className="text-gray-300">האם אתה בטוח שברצונך למחוק את הליד <b className="text-white">{lead.leadName}</b>?</p>

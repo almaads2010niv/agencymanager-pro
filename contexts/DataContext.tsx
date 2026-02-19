@@ -5,7 +5,7 @@ import {
   ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript, AIRecommendation,
   WhatsAppMessage, NoteType, SignalsPersonality, Archetype, ConfidenceLevel, ChurnRisk,
   BusinessIntelV2, CalendarEvent, CalendarEventType, Idea, IdeaStatus, IdeaPriority, KnowledgeArticle,
-  CompetitorReport, CompetitorAnalysis, StrategyPlan
+  CompetitorReport, CompetitorAnalysis, StrategyPlan, Proposal, ProposalStatus
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -117,6 +117,21 @@ interface StrategyPlanRow {
   created_at: string;
 }
 
+interface ProposalRow {
+  id: string;
+  lead_id: string;
+  proposal_name: string;
+  proposal_data: Record<string, unknown>;
+  status: string;
+  public_url: string | null;
+  signature_data: Record<string, unknown> | null;
+  viewed_at: string | null;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface WhatsAppMessageRow {
   id: string;
   client_id: string | null;
@@ -185,6 +200,9 @@ interface SettingsRow {
   brand_secondary_color?: string | null;
   brand_accent_color?: string | null;
   services_json?: string | null;
+  proposal_phases_template?: string | null;
+  proposal_packages_template?: string | null;
+  proposal_terms_template?: string | null;
 }
 
 interface RetainerChangeRow {
@@ -253,6 +271,12 @@ export interface DataContextType extends AppData {
   updateStrategyPlan: (id: string, updates: Partial<Pick<StrategyPlan, 'planData' | 'entityName'>>) => Promise<void>;
   deleteStrategyPlan: (id: string) => Promise<void>;
   publishStrategyPage: (id: string, html: string) => Promise<string | null>;
+
+  proposals: Proposal[];
+  addProposal: (proposal: Omit<Proposal, 'id' | 'createdAt' | 'updatedAt'>) => Promise<string>;
+  updateProposal: (proposal: Proposal) => Promise<void>;
+  deleteProposal: (id: string) => Promise<void>;
+  publishProposalPage: (id: string, html: string) => Promise<string | null>;
 
   addWhatsAppMessage: (msg: Omit<WhatsAppMessage, 'id' | 'sentAt'>) => Promise<void>;
   deleteWhatsAppMessage: (id: string) => Promise<void>;
@@ -518,6 +542,10 @@ const transformSettingsToDB = (settings: AgencySettings, tid: string | null) => 
   brand_primary_color: settings.brandPrimaryColor || '#14b8a6',
   brand_secondary_color: settings.brandSecondaryColor || '#0f766e',
   brand_accent_color: settings.brandAccentColor || '#f59e0b',
+  // Proposal templates
+  proposal_phases_template: settings.proposalPhasesTemplate ? JSON.stringify(settings.proposalPhasesTemplate) : null,
+  proposal_packages_template: settings.proposalPackagesTemplate ? JSON.stringify(settings.proposalPackagesTemplate) : null,
+  proposal_terms_template: settings.proposalTermsTemplate ? JSON.stringify(settings.proposalTermsTemplate) : null,
   // Note: API keys are NOT included here — they are saved via saveApiKeys() directly
 });
 
@@ -720,6 +748,70 @@ const transformWhatsAppMessageFromDB = (row: WhatsAppMessageRow): WhatsAppMessag
   isAiGenerated: row.is_ai_generated ?? false,
   sentAt: row.sent_at,
 });
+
+// --- Proposals ---
+const safeJsonParseObj = (value: unknown, fallback: Record<string, unknown> = {}): Record<string, unknown> => {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== 'string') return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return typeof parsed === 'object' && parsed !== null ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const transformProposalToDB = (proposal: Proposal) => ({
+  id: proposal.id,
+  lead_id: proposal.leadId,
+  proposal_name: proposal.proposalName,
+  proposal_data: proposal.proposalData,
+  status: proposal.status,
+  public_url: proposal.publicUrl || null,
+  signature_data: proposal.signatureData || null,
+  viewed_at: proposal.viewedAt || null,
+  created_by: proposal.createdBy,
+  created_by_name: proposal.createdByName,
+  created_at: proposal.createdAt,
+  updated_at: proposal.updatedAt,
+});
+
+const transformProposalFromDB = (row: ProposalRow): Proposal => {
+  const rawData = safeJsonParseObj(row.proposal_data);
+  const proposalData = {
+    businessName: (rawData.businessName as string) || '',
+    contactName: (rawData.contactName as string) || '',
+    introText: (rawData.introText as string) || undefined,
+    packages: Array.isArray(rawData.packages) ? rawData.packages : [],
+    phases: Array.isArray(rawData.phases) ? rawData.phases : [],
+    terms: rawData.terms && typeof rawData.terms === 'object' ? rawData.terms as { items: string[] } : { items: [] },
+    validUntil: (rawData.validUntil as string) || undefined,
+  };
+
+  const rawSig = row.signature_data ? safeJsonParseObj(row.signature_data) : null;
+
+  return {
+    id: row.id,
+    leadId: row.lead_id,
+    proposalName: row.proposal_name || '',
+    proposalData: proposalData,
+    status: row.status as ProposalStatus,
+    publicUrl: row.public_url || undefined,
+    signatureData: rawSig ? {
+      name: (rawSig.name as string) || '',
+      idNumber: (rawSig.idNumber as string) || '',
+      email: (rawSig.email as string) || '',
+      signatureImage: (rawSig.signatureImage as string) || '',
+      signedAt: (rawSig.signedAt as string) || '',
+      selectedPackage: (rawSig.selectedPackage as string) || '',
+    } : undefined,
+    viewedAt: row.viewed_at || undefined,
+    createdBy: row.created_by,
+    createdByName: row.created_by_name || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
 
 // --- Signals OS Personality ---
 interface SignalsPersonalityRow {
@@ -982,6 +1074,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     knowledgeArticles: [],
     competitorReports: [],
     strategyPlans: [],
+    proposals: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -1039,7 +1132,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes, signalsPersonalitiesRes, calendarEventsRes, ideasRes, knowledgeRes, competitorReportsRes, strategyPlansRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes, signalsPersonalitiesRes, calendarEventsRes, ideasRes, knowledgeRes, competitorReportsRes, strategyPlansRes, proposalsRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
@@ -1059,6 +1152,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('knowledge_articles').select('*').order('created_at', { ascending: false }),
           supabase.from('competitor_reports').select('*').order('created_at', { ascending: false }),
           supabase.from('strategy_plans').select('*').order('created_at', { ascending: false }),
+          supabase.from('proposals').select('*').order('created_at', { ascending: false }),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -1092,6 +1186,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const knowledgeArticles: KnowledgeArticle[] = (knowledgeRes?.data || []).map((row: KnowledgeArticleRow) => transformKnowledgeArticleFromDB(row));
         const competitorReports: CompetitorReport[] = (competitorReportsRes?.data || []).map((row: CompetitorReportRow) => transformCompetitorReportFromDB(row));
         const strategyPlans: StrategyPlan[] = (strategyPlansRes?.data || []).map((row: StrategyPlanRow) => transformStrategyPlanFromDB(row));
+        const proposals: Proposal[] = (proposalsRes?.data || []).map((row: ProposalRow) => transformProposalFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
         let loadedServices: Service[] = INITIAL_SERVICES;
@@ -1106,6 +1201,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 loadedServices = parsed;
               }
             } catch { /* use default */ }
+          }
+          // Load proposal templates from DB
+          if (rawRow.proposal_phases_template) {
+            try {
+              const parsed = JSON.parse(rawRow.proposal_phases_template);
+              if (Array.isArray(parsed)) settings = { ...settings, proposalPhasesTemplate: parsed };
+            } catch { /* ignore */ }
+          }
+          if (rawRow.proposal_packages_template) {
+            try {
+              const parsed = JSON.parse(rawRow.proposal_packages_template);
+              if (Array.isArray(parsed)) settings = { ...settings, proposalPackagesTemplate: parsed };
+            } catch { /* ignore */ }
+          }
+          if (rawRow.proposal_terms_template) {
+            try {
+              const parsed = JSON.parse(rawRow.proposal_terms_template);
+              if (Array.isArray(parsed)) settings = { ...settings, proposalTermsTemplate: parsed };
+            } catch { /* ignore */ }
           }
         } else {
           // No settings row for this tenant — create one
@@ -1147,6 +1261,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           knowledgeArticles,
           competitorReports,
           strategyPlans,
+          proposals,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -2085,6 +2200,124 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // --- Proposals ---
+  const addProposal = async (proposal: Omit<Proposal, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
+    const now = new Date().toISOString();
+    const newProposal: Proposal = {
+      ...proposal,
+      id: generateId(),
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    try {
+      const { error } = await supabase
+        .from('proposals')
+        .insert(withTenant(transformProposalToDB(newProposal), tenantId));
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        proposals: [newProposal, ...prev.proposals],
+      }));
+
+      logActivity('proposal_created', 'lead',
+        `הצעת מחיר חדשה: ${proposal.proposalName}`, proposal.leadId);
+
+      return newProposal.id;
+    } catch (err) {
+      showError('שגיאה ביצירת הצעת מחיר');
+      throw err;
+    }
+  };
+
+  const updateProposal = async (proposal: Proposal) => {
+    try {
+      const updatedProposal = { ...proposal, updatedAt: new Date().toISOString() };
+
+      const { error } = await supabase
+        .from('proposals')
+        .update(transformProposalToDB(updatedProposal))
+        .eq('id', proposal.id);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        proposals: prev.proposals.map(p => p.id === proposal.id ? updatedProposal : p),
+      }));
+    } catch (err) {
+      showError('שגיאה בעדכון הצעת מחיר');
+      throw err;
+    }
+  };
+
+  const deleteProposal = async (id: string) => {
+    try {
+      // Remove published HTML from storage if exists
+      const proposal = data.proposals.find(p => p.id === id);
+      if (proposal?.publicUrl) {
+        const storagePath = `${tenantId || 'default'}/${id}.html`;
+        await supabase.storage.from('proposal-pages').remove([storagePath]);
+      }
+
+      const { error } = await supabase
+        .from('proposals')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        proposals: prev.proposals.filter(p => p.id !== id),
+      }));
+
+      logActivity('proposal_deleted', 'lead', `הצעת מחיר נמחקה`, id);
+    } catch (err) {
+      showError('שגיאה במחיקת הצעת מחיר');
+      throw err;
+    }
+  };
+
+  const publishProposalPage = async (id: string, html: string): Promise<string | null> => {
+    try {
+      const storagePath = `${tenantId || 'default'}/${id}.html`;
+      const blob = new Blob([html], { type: 'text/html' });
+      const file = new File([blob], `${id}.html`, { type: 'text/html' });
+
+      const { error: uploadError } = await supabase.storage
+        .from('proposal-pages')
+        .upload(storagePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('proposal-pages')
+        .getPublicUrl(storagePath);
+
+      const publicUrl = publicUrlData?.publicUrl || null;
+
+      if (publicUrl) {
+        await supabase
+          .from('proposals')
+          .update({ public_url: publicUrl, status: 'sent', updated_at: new Date().toISOString() })
+          .eq('id', id);
+
+        setData(prev => ({
+          ...prev,
+          proposals: prev.proposals.map(p => p.id === id ? { ...p, publicUrl, status: 'sent' as ProposalStatus, updatedAt: new Date().toISOString() } : p),
+        }));
+      }
+
+      return publicUrl;
+    } catch (err) {
+      showError('שגיאה בפרסום הצעת מחיר');
+      return null;
+    }
+  };
+
   // --- WhatsApp Messages ---
   const addWhatsAppMessage = async (msg: Omit<WhatsAppMessage, 'id' | 'sentAt'>) => {
     const newMsg: WhatsAppMessage = {
@@ -2651,6 +2884,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         knowledgeArticles: parsed.knowledgeArticles || [],
         competitorReports: parsed.competitorReports || [],
         strategyPlans: parsed.strategyPlans || [],
+        proposals: parsed.proposals || [],
       });
       return true;
     } catch (e) {
@@ -2680,6 +2914,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addCallTranscript, deleteCallTranscript,
       addAIRecommendation, deleteAIRecommendation,
       addStrategyPlan, updateStrategyPlan, deleteStrategyPlan, publishStrategyPage,
+      addProposal, updateProposal, deleteProposal, publishProposalPage,
       addWhatsAppMessage, deleteWhatsAppMessage,
       uploadRecording,
       addCalendarEvent, updateCalendarEvent, deleteCalendarEvent,

@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
 import { useAuth, ALL_PAGES, PagePermission } from '../contexts/AuthContext';
-import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown, KeyRound, Sparkles, Palette, Brain, Copy, Check, ImageIcon, X, Send } from 'lucide-react';
+import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown, KeyRound, Sparkles, Palette, Brain, Copy, Check, ImageIcon, X, Send, FileText } from 'lucide-react';
+import type { ProposalPhase, ProposalPackage } from '../types';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
-import { Input, Select } from './ui/Form';
+import { Input, Select, Textarea } from './ui/Form';
 import { Badge } from './ui/Badge';
 import { Modal } from './ui/Modal';
 
@@ -763,6 +764,171 @@ const Settings: React.FC = () => {
                 setApiCanvaKey('');
                 setApiGeminiKey('');
               }} icon={<Save size={18} />}>שמור מפתחות</Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Proposal Templates (admin only) */}
+      {isAdmin && (
+        <Card>
+          <CardHeader title={<span className="flex items-center gap-2"><FileText size={18} className="text-amber-400" /> תבניות הצעות מחיר</span>} subtitle="ברירת מחדל לשלבי עבודה, חבילות ותנאים" />
+          <div className="mt-4 space-y-6">
+            {/* Default Phases */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-gray-300">שלבי ברירת מחדל</h4>
+                <button
+                  className="text-xs text-primary hover:text-primary/80 flex items-center gap-1"
+                  onClick={() => {
+                    const current = localSettings.proposalPhasesTemplate || [];
+                    setLocalSettings({
+                      ...localSettings,
+                      proposalPhasesTemplate: [...current, { number: current.length + 1, title: '', description: '' }],
+                    });
+                  }}
+                >
+                  <Plus size={12} /> הוסף שלב
+                </button>
+              </div>
+              <div className="space-y-2">
+                {(localSettings.proposalPhasesTemplate || []).map((phase: ProposalPhase, idx: number) => (
+                  <div key={idx} className="bg-white/5 rounded-xl p-3 border border-white/10">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-gray-500">שלב {idx + 1}</span>
+                      <button className="text-red-400 hover:text-red-300 text-xs" onClick={() => {
+                        const newPhases = (localSettings.proposalPhasesTemplate || []).filter((_: ProposalPhase, i: number) => i !== idx).map((p: ProposalPhase, i: number) => ({ ...p, number: i + 1 }));
+                        setLocalSettings({ ...localSettings, proposalPhasesTemplate: newPhases });
+                      }}>הסר</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        placeholder="כותרת"
+                        value={phase.title}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          const newPhases = [...(localSettings.proposalPhasesTemplate || [])];
+                          newPhases[idx] = { ...newPhases[idx], title: e.target.value };
+                          setLocalSettings({ ...localSettings, proposalPhasesTemplate: newPhases });
+                        }}
+                      />
+                      <Input
+                        placeholder="משך (למשל: שבוע 1)"
+                        value={phase.duration || ''}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          const newPhases = [...(localSettings.proposalPhasesTemplate || [])];
+                          newPhases[idx] = { ...newPhases[idx], duration: e.target.value };
+                          setLocalSettings({ ...localSettings, proposalPhasesTemplate: newPhases });
+                        }}
+                      />
+                    </div>
+                    <Input
+                      placeholder="תיאור"
+                      value={phase.description}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        const newPhases = [...(localSettings.proposalPhasesTemplate || [])];
+                        newPhases[idx] = { ...newPhases[idx], description: e.target.value };
+                        setLocalSettings({ ...localSettings, proposalPhasesTemplate: newPhases });
+                      }}
+                      className="mt-2"
+                    />
+                  </div>
+                ))}
+                {(!localSettings.proposalPhasesTemplate || localSettings.proposalPhasesTemplate.length === 0) && (
+                  <p className="text-xs text-gray-600 text-center py-2">אין שלבי ברירת מחדל. לחץ "הוסף שלב" כדי להגדיר תבנית.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Default Packages */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-gray-300">חבילות ברירת מחדל</h4>
+                <button
+                  className="text-xs text-primary hover:text-primary/80 flex items-center gap-1"
+                  onClick={() => {
+                    const current = localSettings.proposalPackagesTemplate || [];
+                    setLocalSettings({
+                      ...localSettings,
+                      proposalPackagesTemplate: [...current, { name: '', isRecommended: false, services: [], monthlyPrice: 0 }],
+                    });
+                  }}
+                >
+                  <Plus size={12} /> הוסף חבילה
+                </button>
+              </div>
+              <div className="space-y-2">
+                {(localSettings.proposalPackagesTemplate || []).map((pkg: ProposalPackage, idx: number) => (
+                  <div key={idx} className={`bg-white/5 rounded-xl p-3 border ${pkg.isRecommended ? 'border-amber-500/40' : 'border-white/10'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">חבילה {idx + 1}</span>
+                        <label className="flex items-center gap-1 text-xs text-amber-400 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={pkg.isRecommended}
+                            onChange={(e) => {
+                              const newPkgs = (localSettings.proposalPackagesTemplate || []).map((p: ProposalPackage, i: number) => ({ ...p, isRecommended: i === idx ? e.target.checked : false }));
+                              setLocalSettings({ ...localSettings, proposalPackagesTemplate: newPkgs });
+                            }}
+                            className="rounded border-white/20"
+                          />
+                          מומלצת
+                        </label>
+                      </div>
+                      <button className="text-red-400 hover:text-red-300 text-xs" onClick={() => {
+                        setLocalSettings({
+                          ...localSettings,
+                          proposalPackagesTemplate: (localSettings.proposalPackagesTemplate || []).filter((_: ProposalPackage, i: number) => i !== idx),
+                        });
+                      }}>הסר</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        placeholder="שם החבילה"
+                        value={pkg.name}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          const newPkgs = [...(localSettings.proposalPackagesTemplate || [])];
+                          newPkgs[idx] = { ...newPkgs[idx], name: e.target.value };
+                          setLocalSettings({ ...localSettings, proposalPackagesTemplate: newPkgs });
+                        }}
+                      />
+                      <Input
+                        placeholder="מחיר חודשי"
+                        type="number"
+                        value={pkg.monthlyPrice || ''}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          const newPkgs = [...(localSettings.proposalPackagesTemplate || [])];
+                          newPkgs[idx] = { ...newPkgs[idx], monthlyPrice: Number(e.target.value) };
+                          setLocalSettings({ ...localSettings, proposalPackagesTemplate: newPkgs });
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+                {(!localSettings.proposalPackagesTemplate || localSettings.proposalPackagesTemplate.length === 0) && (
+                  <p className="text-xs text-gray-600 text-center py-2">אין חבילות ברירת מחדל. לחץ "הוסף חבילה" כדי להגדיר תבנית.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Default Terms */}
+            <div>
+              <h4 className="text-sm font-semibold text-gray-300 mb-2">תנאים ברירת מחדל</h4>
+              <Textarea
+                value={(localSettings.proposalTermsTemplate || []).join('\n')}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                  setLocalSettings({ ...localSettings, proposalTermsTemplate: e.target.value.split('\n') });
+                }}
+                rows={4}
+                placeholder="כל שורה תהפוך לתנאי ברשימת התנאים..."
+              />
+            </div>
+
+            {/* Save button */}
+            <div className="flex justify-end pt-3 border-t border-white/5">
+              <Button onClick={() => {
+                updateSettings(localSettings);
+              }} icon={<Save size={16} />}>שמור תבניות</Button>
             </div>
           </div>
         </Card>

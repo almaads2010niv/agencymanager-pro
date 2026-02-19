@@ -185,6 +185,10 @@ export interface AgencySettings {
   brandPrimaryColor: string;
   brandSecondaryColor: string;
   brandAccentColor: string;
+  // Proposal templates
+  proposalPhasesTemplate?: ProposalPhase[];
+  proposalPackagesTemplate?: ProposalPackage[];
+  proposalTermsTemplate?: string[];
 }
 
 export interface ActivityEntry {
@@ -403,6 +407,67 @@ export interface StrategyPlan {
   createdAt: string;
 }
 
+// -- Animated Proposal Types --
+export type ProposalStatus = 'draft' | 'sent' | 'viewed' | 'signed' | 'rejected';
+
+export interface ProposalPackageService {
+  label: string;
+  included: boolean;
+}
+
+export interface ProposalPackage {
+  name: string;
+  isRecommended: boolean;
+  services: ProposalPackageService[];
+  monthlyPrice: number;
+  setupPrice?: number;
+}
+
+export interface ProposalPhase {
+  number: number;
+  title: string;
+  description: string;
+  duration?: string;
+}
+
+export interface ProposalTerms {
+  items: string[];
+}
+
+export interface ProposalSignature {
+  name: string;
+  idNumber: string;
+  email: string;
+  signatureImage: string;
+  signedAt: string;
+  selectedPackage: string;
+}
+
+export interface ProposalData {
+  businessName: string;
+  contactName: string;
+  introText?: string;
+  packages: ProposalPackage[];
+  phases: ProposalPhase[];
+  terms: ProposalTerms;
+  validUntil?: string;
+}
+
+export interface Proposal {
+  id: string;
+  leadId: string;
+  proposalName: string;
+  proposalData: ProposalData;
+  status: ProposalStatus;
+  publicUrl?: string;
+  signatureData?: ProposalSignature;
+  viewedAt?: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface WhatsAppMessage {
   id: string;
   clientId?: string;
@@ -541,4 +606,5 @@ export interface AppData {
   knowledgeArticles: KnowledgeArticle[];
   competitorReports: CompetitorReport[];
   strategyPlans: StrategyPlan[];
+  proposals: Proposal[];
 }
