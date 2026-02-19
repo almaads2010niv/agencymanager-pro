@@ -170,6 +170,7 @@ Deno.serve(async (req) => {
             business_report: payload.analysis.business_report,
             sales_cheat_sheet: payload.analysis.sales_cheat_sheet,
             retention_cheat_sheet: payload.analysis.retention_cheat_sheet,
+            business_intel_v2: payload.business_intel_v2 || null,
             result_url: payload.result_url,
             lang: payload.lang,
             questionnaire_version: payload.questionnaire_version,
@@ -230,7 +231,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 5. Upsert personality data
+    // 5. Upsert personality data (including V2 business intelligence)
     const personalityId = crypto.randomUUID()
     const { error: upsertError } = await adminClient
       .from('signals_personality')
@@ -253,6 +254,7 @@ Deno.serve(async (req) => {
         business_report: payload.analysis.business_report,
         sales_cheat_sheet: payload.analysis.sales_cheat_sheet,
         retention_cheat_sheet: payload.analysis.retention_cheat_sheet,
+        business_intel_v2: payload.business_intel_v2 || null,
         result_url: payload.result_url,
         lang: payload.lang,
         questionnaire_version: payload.questionnaire_version,
@@ -268,16 +270,41 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 6. Auto-create personality_insight note
+    // 6. Auto-create personality_insight note (enriched with V2 data)
     const primary = payload.analysis.primary
     const secondary = payload.analysis.secondary
     const salesSheet = payload.analysis.sales_cheat_sheet || {}
+    const v2 = payload.business_intel_v2 as Record<string, unknown> | null
 
     let noteContent = `🧠 ניתוח אישיות Signals OS\nארכיטיפ ראשי: ${ARCHETYPE_NAMES_HE[primary] || primary} | משני: ${ARCHETYPE_NAMES_HE[secondary] || secondary}\nרמת ביטחון: ${CONFIDENCE_LABELS_HE[payload.analysis.confidence_level] || payload.analysis.confidence_level}\nסיכון נטישה: ${CHURN_LABELS_HE[payload.analysis.churn_risk] || payload.analysis.churn_risk}`
 
     if (payload.analysis.smart_tags?.length > 0) {
       noteContent += `\nתגיות: ${payload.analysis.smart_tags.join(', ')}`
     }
+
+    // V2: Add hero card summary if available
+    if (v2?.heroCard) {
+      const hero = v2.heroCard as Record<string, unknown>
+      if (hero.profileLine) noteContent += `\n\n📋 פרופיל: ${hero.profileLine}`
+      if (hero.urgency) noteContent += `\n⏰ דחיפות: ${hero.urgency}`
+      if (hero.closeRate) noteContent += `\n📈 סיכוי סגירה: ${hero.closeRate}%`
+    }
+
+    // V2: Add top 3 action items if available
+    if (v2?.actionItems && Array.isArray(v2.actionItems) && v2.actionItems.length > 0) {
+      noteContent += `\n\n🎯 פעולות מומלצות:`
+      for (const item of v2.actionItems as Array<Record<string, unknown>>) {
+        noteContent += `\n${item.priority}. ${item.action}`
+      }
+    }
+
+    // V2: Add quick script if available
+    if (v2?.quickScript) {
+      const qs = v2.quickScript as Record<string, unknown>
+      if (qs.opener) noteContent += `\n\n💬 פתיחה מומלצת: ${qs.opener}`
+      if (qs.keyQuestion) noteContent += `\n❓ שאלת מפתח: ${qs.keyQuestion}`
+    }
+
     if (salesSheet.how_to_speak) {
       noteContent += `\n\n💬 איך לדבר: ${salesSheet.how_to_speak}`
     }

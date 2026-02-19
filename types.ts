@@ -171,6 +171,14 @@ export interface AgencySettings {
   hasGeminiKey: boolean;
   canvaTemplateId?: string;
   hasSignalsWebhookSecret: boolean;
+  hasTelegramBotToken: boolean;
+  telegramChatId?: string;
+  // PDF Branding
+  logoStoragePath?: string;
+  logoUrl?: string; // resolved public URL for the logo (computed, not stored)
+  brandPrimaryColor: string;
+  brandSecondaryColor: string;
+  brandAccentColor: string;
 }
 
 export interface ActivityEntry {
@@ -200,6 +208,74 @@ export type Archetype = 'WINNER' | 'STAR' | 'DREAMER' | 'HEART' | 'ANCHOR';
 export type ConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 export type ChurnRisk = 'HIGH' | 'MEDIUM' | 'LOW';
 
+// ── Signals OS Business Intelligence V2 ─────────────────────
+export interface HeroCard {
+  profileLine: string;
+  archetype: string;
+  secondaryArchetype: string;
+  riskLevel: string;
+  riskExplanation: string;
+  topStrength: string;
+  topRisk: string;
+  priorityStars: number;
+  urgency: string;
+  closeRate: number;
+}
+
+export interface ActionItem {
+  priority: number;
+  action: string;
+  why: string;
+  how: string;
+}
+
+export interface QuickScript {
+  opener: string;
+  keyQuestion: string;
+  closeLine: string;
+}
+
+export interface ProfileBriefing {
+  whoIsThis: string;
+  strengths: string[];
+  weaknesses: string[];
+  goalForCall: string;
+  timeAllocation: string;
+}
+
+export interface ScriptDoor {
+  title: string;
+  youSay: string;
+  customerSays?: string;
+  profileInsight: string;
+  critical?: string;
+}
+
+export interface FullFiveDoorScript {
+  profileBriefing: ProfileBriefing;
+  door1Opening: ScriptDoor;
+  door2DeepListening: ScriptDoor;
+  door3TheOffer: ScriptDoor;
+  door4aYes: ScriptDoor;
+  door4bHesitant: ScriptDoor;
+  door5aObjectionFear: ScriptDoor;
+  door5bObjectionPrice: ScriptDoor;
+  postCallChecklist: string[];
+  retentionNotes: string;
+}
+
+export interface BusinessIntelV2 {
+  // Layer 1 — Quick Scan (30 seconds)
+  heroCard: HeroCard;
+  actionItems: ActionItem[];
+  quickScript: QuickScript;
+  redFlags: string[];
+  // Layer 2 — Deep Dive (5 minutes)
+  fullScript: FullFiveDoorScript;
+  profileInsights: string;
+  retentionStrategy: string;
+}
+
 export interface SignalsPersonality {
   id: string;
   leadId: string;
@@ -219,6 +295,7 @@ export interface SignalsPersonality {
   businessReport?: string;
   salesCheatSheet: Record<string, string | string[]>;
   retentionCheatSheet: Record<string, string>;
+  businessIntelV2?: BusinessIntelV2 | null;
   resultUrl?: string;
   lang: string;
   questionnaireVersion: string;
@@ -350,6 +427,44 @@ export interface KnowledgeArticle {
   updatedAt: string;
 }
 
+// ── Competitor Scout ─────────────────────────────────────────
+export interface CompetitorEntry {
+  name: string;
+  description: string;
+  strengths: string[];
+  weaknesses: string[];
+  estimatedSize: string;
+  threatLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  differentiator: string;
+}
+
+export interface CompetitorRecommendation {
+  title: string;
+  description: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+}
+
+export interface CompetitorAnalysis {
+  summary: string;
+  competitors: CompetitorEntry[];
+  opportunities: string[];
+  threats: string[];
+  recommendations: CompetitorRecommendation[];
+  marketTrends: string[];
+}
+
+export interface CompetitorReport {
+  id: string;
+  entityId: string;
+  entityType: 'client' | 'lead';
+  businessName: string;
+  industry?: string;
+  website?: string;
+  analysis: CompetitorAnalysis;
+  createdBy: string;
+  createdAt: string;
+}
+
 export interface AppData {
   clients: Client[];
   leads: Lead[];
@@ -369,4 +484,5 @@ export interface AppData {
   calendarEvents: CalendarEvent[];
   ideas: Idea[];
   knowledgeArticles: KnowledgeArticle[];
+  competitorReports: CompetitorReport[];
 }

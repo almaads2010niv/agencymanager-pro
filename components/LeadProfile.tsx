@@ -3,12 +3,13 @@ import { useParams } from 'react-router-dom';
 import { useTenantNav } from '../hooks/useTenantNav';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
-import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, NoteType, Archetype } from '../types';
+import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, NoteType, Archetype, BusinessIntelV2, HeroCard, ActionItem, QuickScript, ScriptDoor, FullFiveDoorScript, ProfileBriefing } from '../types';
 import type { Lead } from '../types';
 import { formatCurrency, formatDate, formatDateTime, formatPhoneForWhatsApp } from '../utils';
 import { MESSAGE_PURPOSES } from '../constants';
-import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink, Upload, Loader2 } from 'lucide-react';
+import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink, Upload, Loader2, Zap, Users, Star, AlertTriangle, MessageSquare, ListChecks, Printer } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { getBrandConfig, generatePersonalityPdf } from '../utils/pdfGenerator';
 import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
@@ -174,6 +175,9 @@ const LeadProfile: React.FC = () => {
   // Signals OS personality data for this lead
   const personality = signalsPersonalities.find(p => p.leadId === leadId);
   const [salesSheetExpanded, setSalesSheetExpanded] = useState(false);
+  // V2 Business Intelligence expandable states
+  const [v2ScriptExpanded, setV2ScriptExpanded] = useState(false);
+  const [v2ActiveDoor, setV2ActiveDoor] = useState<string | null>(null);
   const [businessReportExpanded, setBusinessReportExpanded] = useState(false);
   const [userReportExpanded, setUserReportExpanded] = useState(false);
   const [retentionSheetExpanded, setRetentionSheetExpanded] = useState(false);
@@ -728,6 +732,24 @@ const LeadProfile: React.FC = () => {
             עריכת ליד
           </Button>
         )}
+        {/* PDF Export — Personality Report */}
+        {personality?.businessIntelV2 && (
+          <Button
+            variant="ghost"
+            icon={<Printer size={16} />}
+            className="text-gray-400 hover:text-white"
+            onClick={() => {
+              const brand = getBrandConfig(settings);
+              generatePersonalityPdf({
+                personality: personality!,
+                entityName: lead.leadName,
+                entityType: 'lead',
+              }, brand);
+            }}
+          >
+            PDF אישיותי
+          </Button>
+        )}
       </div>
 
       {/* Proposal Error */}
@@ -1185,6 +1207,267 @@ ${questionnaireUrl}
                   ))}
                 </div>
               )}
+
+              {/* ============ V2 Business Intelligence ============ */}
+              {personality.businessIntelV2 && (() => {
+                const v2 = personality.businessIntelV2;
+                const hero = v2.heroCard;
+                const qs = v2.quickScript;
+                const actions = v2.actionItems || [];
+                const flags = v2.redFlags || [];
+                const script = v2.fullScript;
+
+                return (
+                  <div className="space-y-3 mb-6">
+                    {/* V2 Hero Card */}
+                    <div className="p-4 rounded-xl bg-gradient-to-l from-violet-500/5 via-blue-500/5 to-cyan-500/5 border border-violet-500/15">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-200 font-medium leading-relaxed">{hero.profileLine}</p>
+                          {hero.riskExplanation && (
+                            <p className="text-xs text-gray-500 mt-1">{hero.riskExplanation}</p>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end gap-1 ms-4 shrink-0">
+                          <div className="flex items-center gap-1">
+                            {Array.from({ length: hero.priorityStars || 0 }).map((_, i) => (
+                              <Star key={i} size={12} className="text-amber-400 fill-amber-400" />
+                            ))}
+                            {Array.from({ length: 5 - (hero.priorityStars || 0) }).map((_, i) => (
+                              <Star key={i} size={12} className="text-gray-700" />
+                            ))}
+                          </div>
+                          <div className="text-xl font-bold text-emerald-400">{hero.closeRate}%</div>
+                          <span className="text-[10px] text-gray-500">סיכוי סגירה</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {hero.urgency && (
+                          <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 text-amber-300 text-xs border border-amber-500/15">
+                            <Zap size={11} /> {hero.urgency}
+                          </span>
+                        )}
+                        {hero.topStrength && (
+                          <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-300 text-xs border border-emerald-500/15">
+                            <CheckCircle size={11} /> {hero.topStrength}
+                          </span>
+                        )}
+                        {hero.topRisk && (
+                          <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-red-500/10 text-red-300 text-xs border border-red-500/15">
+                            <AlertTriangle size={11} /> {hero.topRisk}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* V2 Quick Script */}
+                    {qs && (
+                      <div className="p-4 rounded-xl bg-[#0B1121] border border-blue-500/15">
+                        <div className="flex items-center gap-2 mb-3">
+                          <MessageSquare size={14} className="text-blue-400" />
+                          <span className="text-sm font-medium text-gray-200">תסריט מהיר</span>
+                        </div>
+                        <div className="space-y-2.5">
+                          <div className="flex gap-2">
+                            <span className="text-xs text-blue-400 w-16 shrink-0 font-medium">פתיחה</span>
+                            <span className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">{qs.opener}</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="text-xs text-blue-400 w-16 shrink-0 font-medium">שאלת מפתח</span>
+                            <span className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">{qs.keyQuestion}</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="text-xs text-blue-400 w-16 shrink-0 font-medium">סגירה</span>
+                            <span className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">{qs.closeLine}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* V2 Action Items */}
+                    {actions.length > 0 && (
+                      <div className="p-4 rounded-xl bg-[#0B1121] border border-emerald-500/15">
+                        <div className="flex items-center gap-2 mb-3">
+                          <ListChecks size={14} className="text-emerald-400" />
+                          <span className="text-sm font-medium text-gray-200">3 פעולות מומלצות</span>
+                        </div>
+                        <div className="space-y-3">
+                          {actions.map((item, i) => (
+                            <div key={i} className="flex gap-3">
+                              <div className="w-6 h-6 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
+                                {item.priority}
+                              </div>
+                              <div className="flex-1">
+                                <p className="text-sm text-gray-200 font-medium">{item.action}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{item.why}</p>
+                                {item.how && <p className="text-xs text-emerald-400/70 mt-0.5">{item.how}</p>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* V2 Red Flags */}
+                    {flags.length > 0 && (
+                      <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/15">
+                        <div className="flex items-center gap-2 mb-2">
+                          <AlertTriangle size={13} className="text-red-400" />
+                          <span className="text-xs font-medium text-red-300">דגלים אדומים — מה יהרוג את העסקה</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {flags.map((flag, i) => (
+                            <span key={i} className="px-2 py-1 rounded-md bg-red-500/10 text-red-300 text-xs">
+                              {flag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* V2 Full 5-Door Script (expandable) */}
+                    {script && (
+                      <div className="border border-violet-500/15 rounded-xl overflow-hidden">
+                        <button
+                          onClick={() => setV2ScriptExpanded(!v2ScriptExpanded)}
+                          className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Brain size={14} className="text-violet-400" />
+                            <span className="text-sm font-medium text-gray-200">תסריט 5 דלתות מלא</span>
+                            <span className="text-[10px] text-gray-500 bg-white/5 px-1.5 py-0.5 rounded">Deep Dive</span>
+                          </div>
+                          {v2ScriptExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                        </button>
+                        {v2ScriptExpanded && (
+                          <div className="px-4 pb-4 space-y-3">
+                            {/* Profile Briefing */}
+                            {script.profileBriefing && (
+                              <div className="p-3 rounded-xl bg-violet-500/5 border border-violet-500/10">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Users size={13} className="text-violet-400" />
+                                  <span className="text-xs font-bold text-violet-300">מי מולך?</span>
+                                </div>
+                                <p className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed mb-2">{script.profileBriefing.whoIsThis}</p>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <span className="text-[10px] text-emerald-400 font-medium">חוזקות</span>
+                                    <ul className="mt-1 space-y-0.5">
+                                      {script.profileBriefing.strengths.map((s, i) => (
+                                        <li key={i} className="text-xs text-gray-400 flex gap-1"><span className="text-emerald-400">+</span>{s}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] text-red-400 font-medium">אל תעשה</span>
+                                    <ul className="mt-1 space-y-0.5">
+                                      {script.profileBriefing.weaknesses.map((w, i) => (
+                                        <li key={i} className="text-xs text-gray-400 flex gap-1"><span className="text-red-400">-</span>{w}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                </div>
+                                {script.profileBriefing.goalForCall && (
+                                  <p className="text-xs text-amber-300/80 mt-2">🎯 {script.profileBriefing.goalForCall}</p>
+                                )}
+                                {script.profileBriefing.timeAllocation && (
+                                  <p className="text-xs text-gray-500 mt-1">⏱ {script.profileBriefing.timeAllocation}</p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Door buttons */}
+                            {(() => {
+                              const doors: { key: string; door: ScriptDoor; color: string }[] = [
+                                { key: 'door1', door: script.door1Opening, color: 'blue' },
+                                { key: 'door2', door: script.door2DeepListening, color: 'cyan' },
+                                { key: 'door3', door: script.door3TheOffer, color: 'emerald' },
+                                { key: 'door4a', door: script.door4aYes, color: 'green' },
+                                { key: 'door4b', door: script.door4bHesitant, color: 'amber' },
+                                { key: 'door5a', door: script.door5aObjectionFear, color: 'orange' },
+                                { key: 'door5b', door: script.door5bObjectionPrice, color: 'red' },
+                              ].filter(d => d.door);
+
+                              return (
+                                <div className="space-y-2">
+                                  {doors.map(({ key, door, color }) => (
+                                    <div key={key} className="border border-white/5 rounded-xl overflow-hidden">
+                                      <button
+                                        onClick={() => setV2ActiveDoor(v2ActiveDoor === key ? null : key)}
+                                        className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-white/[0.02] transition-colors"
+                                      >
+                                        <span className={`text-xs font-medium text-${color}-300`}>{door.title}</span>
+                                        {v2ActiveDoor === key ? <ChevronUp size={12} className="text-gray-500" /> : <ChevronDown size={12} className="text-gray-500" />}
+                                      </button>
+                                      {v2ActiveDoor === key && (
+                                        <div className="px-3 pb-3 space-y-2">
+                                          <div>
+                                            <span className="text-[10px] text-blue-400 font-medium block mb-1">אתה אומר:</span>
+                                            <p className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed bg-blue-500/5 rounded-lg p-2 border border-blue-500/10">{door.youSay}</p>
+                                          </div>
+                                          {door.customerSays && (
+                                            <div>
+                                              <span className="text-[10px] text-gray-500 font-medium block mb-1">הלקוח עונה:</span>
+                                              <p className="text-xs text-gray-400 whitespace-pre-wrap leading-relaxed bg-white/[0.02] rounded-lg p-2">{door.customerSays}</p>
+                                            </div>
+                                          )}
+                                          {door.profileInsight && (
+                                            <p className="text-[10px] text-violet-400/80 mt-1">💡 {door.profileInsight}</p>
+                                          )}
+                                          {door.critical && (
+                                            <p className="text-[10px] text-red-400/80 mt-1">⚠️ {door.critical}</p>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+
+                            {/* Post-Call Checklist */}
+                            {script.postCallChecklist?.length > 0 && (
+                              <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                                <span className="text-xs font-bold text-emerald-300 block mb-2">✅ צ'קליסט אחרי שיחה</span>
+                                <ul className="space-y-1">
+                                  {script.postCallChecklist.map((item, i) => (
+                                    <li key={i} className="text-xs text-gray-400 flex items-start gap-2">
+                                      <span className="text-emerald-400 mt-0.5">☐</span>
+                                      {item}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Retention Notes */}
+                            {script.retentionNotes && (
+                              <div className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/10">
+                                <span className="text-xs font-bold text-cyan-300 block mb-1">🔒 הערות שימור</span>
+                                <p className="text-xs text-gray-400 whitespace-pre-wrap leading-relaxed">{script.retentionNotes}</p>
+                              </div>
+                            )}
+
+                            {/* Profile Insights + Retention Strategy */}
+                            {v2.profileInsights && (
+                              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                                <span className="text-xs font-bold text-gray-300 block mb-1">🧠 ניתוח מעמיק</span>
+                                <p className="text-xs text-gray-400 whitespace-pre-wrap leading-relaxed">{v2.profileInsights}</p>
+                              </div>
+                            )}
+                            {v2.retentionStrategy && (
+                              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                                <span className="text-xs font-bold text-gray-300 block mb-1">📈 אסטרטגיית שימור</span>
+                                <p className="text-xs text-gray-400 whitespace-pre-wrap leading-relaxed">{v2.retentionStrategy}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Row 4: Sales Cheat Sheet (expandable) */}
               {Object.keys(personality.salesCheatSheet).length > 0 && (

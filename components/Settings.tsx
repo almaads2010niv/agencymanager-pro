@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
 import { useAuth, ALL_PAGES, PagePermission } from '../contexts/AuthContext';
-import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown, KeyRound, Sparkles, Palette, Brain, Copy, Check } from 'lucide-react';
+import { Download, Upload, Save, Users, Trash2, Plus, Shield, Eye, Edit2, ChevronDown, KeyRound, Sparkles, Palette, Brain, Copy, Check, ImageIcon, X, Send } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input, Select } from './ui/Form';
@@ -9,7 +9,7 @@ import { Badge } from './ui/Badge';
 import { Modal } from './ui/Modal';
 
 const Settings: React.FC = () => {
-  const { settings, services, updateSettings, updateServices, exportData, importData, saveApiKeys, saveSignalsWebhookSecret } = useData();
+  const { settings, services, updateSettings, updateServices, exportData, importData, saveApiKeys, saveSignalsWebhookSecret, saveTelegramBotToken, uploadLogo, deleteLogo } = useData();
   const { isAdmin, user, allUsers, refreshUsers, addUser, removeUser, updateUserRole, updateUserPermissions, updateUserDisplayName } = useAuth();
   const [localSettings, setLocalSettings] = useState(settings);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -33,6 +33,10 @@ const Settings: React.FC = () => {
   const [signalsSecretSaved, setSignalsSecretSaved] = useState(false);
   const [webhookUrlCopied, setWebhookUrlCopied] = useState(false);
   const [apiKeysSaved, setApiKeysSaved] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [telegramToken, setTelegramToken] = useState('');
+  const [telegramTokenSaved, setTelegramTokenSaved] = useState(false);
 
   const showActionError = (msg: string | null) => {
     if (!msg) return;
@@ -125,6 +129,147 @@ const Settings: React.FC = () => {
             </div>
         </div>
       </Card>
+
+      {/* PDF Branding — Logo + Colors */}
+      {isAdmin && (
+        <Card>
+          <CardHeader title="מיתוג מסמכים (PDF)" />
+          <div className="space-y-6">
+            {/* Logo Upload */}
+            <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5 space-y-4">
+              <div className="flex items-center gap-2 mb-2">
+                <ImageIcon size={18} className="text-primary" />
+                <span className="text-white font-bold text-sm">לוגו</span>
+              </div>
+              <div className="flex items-center gap-4">
+                {settings.logoUrl ? (
+                  <div className="relative group">
+                    <img src={settings.logoUrl} alt="Logo" className="h-16 w-auto rounded-lg border border-white/10 bg-white/5 object-contain p-1" />
+                    <button
+                      onClick={async () => { await deleteLogo(); }}
+                      className="absolute -top-2 -left-2 p-1 rounded-full bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="הסר לוגו"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="h-16 w-24 rounded-lg border-2 border-dashed border-white/10 flex items-center justify-center text-gray-600 text-xs">
+                    אין לוגו
+                  </div>
+                )}
+                <div className="flex flex-col gap-2">
+                  <Button
+                    variant="secondary"
+                    icon={<Upload size={14} />}
+                    onClick={() => logoInputRef.current?.click()}
+                    disabled={logoUploading}
+                  >
+                    {logoUploading ? 'מעלה...' : settings.logoUrl ? 'החלף לוגו' : 'העלה לוגו'}
+                  </Button>
+                  <span className="text-[10px] text-gray-500">PNG, JPG, WebP או SVG · עד 2MB</span>
+                </div>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  ref={logoInputRef}
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (file.size > 2 * 1024 * 1024) {
+                      alert('הקובץ גדול מדי (מקסימום 2MB)');
+                      return;
+                    }
+                    setLogoUploading(true);
+                    await uploadLogo(file);
+                    setLogoUploading(false);
+                    e.target.value = '';
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Color Palette */}
+            <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5 space-y-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Palette size={18} className="text-amber-400" />
+                <span className="text-white font-bold text-sm">פלטת צבעים למסמכים</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">צבע ראשי</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={localSettings.brandPrimaryColor}
+                      onChange={e => setLocalSettings({ ...localSettings, brandPrimaryColor: e.target.value })}
+                      className="w-10 h-10 rounded-lg border border-white/10 cursor-pointer bg-transparent"
+                    />
+                    <Input
+                      value={localSettings.brandPrimaryColor}
+                      onChange={e => setLocalSettings({ ...localSettings, brandPrimaryColor: e.target.value })}
+                      className="flex-1 font-mono text-xs"
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">צבע משני</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={localSettings.brandSecondaryColor}
+                      onChange={e => setLocalSettings({ ...localSettings, brandSecondaryColor: e.target.value })}
+                      className="w-10 h-10 rounded-lg border border-white/10 cursor-pointer bg-transparent"
+                    />
+                    <Input
+                      value={localSettings.brandSecondaryColor}
+                      onChange={e => setLocalSettings({ ...localSettings, brandSecondaryColor: e.target.value })}
+                      className="flex-1 font-mono text-xs"
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">צבע הדגשה</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={localSettings.brandAccentColor}
+                      onChange={e => setLocalSettings({ ...localSettings, brandAccentColor: e.target.value })}
+                      className="w-10 h-10 rounded-lg border border-white/10 cursor-pointer bg-transparent"
+                    />
+                    <Input
+                      value={localSettings.brandAccentColor}
+                      onChange={e => setLocalSettings({ ...localSettings, brandAccentColor: e.target.value })}
+                      className="flex-1 font-mono text-xs"
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Color Preview */}
+              <div className="flex items-center gap-2 mt-2 p-3 rounded-lg bg-white/[0.02] border border-white/5">
+                <span className="text-xs text-gray-500 ms-2">תצוגה מקדימה:</span>
+                <div className="flex-1 h-6 rounded-md overflow-hidden flex">
+                  <div style={{ background: localSettings.brandPrimaryColor }} className="flex-1" />
+                  <div style={{ background: localSettings.brandSecondaryColor }} className="flex-1" />
+                  <div style={{ background: localSettings.brandAccentColor }} className="flex-1" />
+                </div>
+              </div>
+              <div className="text-xs text-gray-500">
+                הצבעים ישמשו לכותרות, קווים ואלמנטים גרפיים במסמכי PDF שיוצאים ללקוחות.
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-4 border-t border-white/5">
+              <Button onClick={handleSaveSettings} icon={<Save size={18} />}>שמור מיתוג</Button>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card>
         <CardHeader title="ניהול שירותים" />
@@ -462,6 +607,54 @@ const Settings: React.FC = () => {
                     setSignalsWebhookSecret('');
                   }
                 }} icon={<Save size={16} />} variant="ghost">שמור סוד</Button>
+              </div>
+            </div>
+
+            {/* Telegram Bot */}
+            <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5 space-y-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Send size={18} className="text-blue-400" />
+                  <span className="text-white font-bold text-sm">Telegram Bot</span>
+                </div>
+                {settings.hasTelegramBotToken && <span className="text-emerald-400 text-xs">✓ טוקן מוגדר</span>}
+              </div>
+              <Input
+                label="Bot Token (מ-@BotFather)"
+                type="password"
+                value={telegramToken}
+                onChange={e => { setTelegramToken(e.target.value); setTelegramTokenSaved(false); }}
+                placeholder={settings.hasTelegramBotToken ? '••••••• (טוקן קיים)' : 'הדבק את הטוקן מ-BotFather'}
+              />
+              <div className="space-y-2">
+                <label className="block text-xs text-gray-400">Webhook URL (להגדרה ב-Telegram)</label>
+                <code className="block text-xs bg-black/30 text-gray-300 px-3 py-2 rounded-lg border border-white/5 overflow-x-auto" dir="ltr">
+                  {`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telegram-webhook`}
+                </code>
+                <div className="text-xs text-gray-500 mt-1">
+                  לאחר שמירת הטוקן, הגדר webhook דרך: <code className="text-gray-400" dir="ltr">https://api.telegram.org/bot&lt;TOKEN&gt;/setWebhook?url=&lt;URL&gt;</code>
+                </div>
+              </div>
+              <div className="text-xs text-gray-500 space-y-1">
+                <div><strong>פקודות הבוט:</strong></div>
+                <div>/stats — סטטיסטיקות מהירות</div>
+                <div>/search &lt;שם&gt; — חיפוש לקוח/ליד</div>
+                <div>/note &lt;שם&gt;: &lt;הערה&gt; — הוסף הערה</div>
+                <div>הודעה קולית / תמונה → AI מעבד אוטומטית</div>
+              </div>
+              {telegramTokenSaved && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-sm">
+                  טוקן Telegram נשמר בהצלחה ✓
+                </div>
+              )}
+              <div className="flex justify-end pt-2">
+                <Button onClick={async () => {
+                  if (telegramToken) {
+                    await saveTelegramBotToken(telegramToken);
+                    setTelegramTokenSaved(true);
+                    setTelegramToken('');
+                  }
+                }} icon={<Save size={16} />} variant="ghost">שמור טוקן</Button>
               </div>
             </div>
 

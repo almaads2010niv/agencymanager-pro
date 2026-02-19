@@ -4,7 +4,8 @@ import {
   AgencySettings, PaymentStatus, LeadStatus, ClientStatus, ClientRating, EffortLevel,
   ActivityEntry, RetainerChange, ClientNote, LeadNote, CallTranscript, AIRecommendation,
   WhatsAppMessage, NoteType, SignalsPersonality, Archetype, ConfidenceLevel, ChurnRisk,
-  CalendarEvent, CalendarEventType, Idea, IdeaStatus, IdeaPriority, KnowledgeArticle
+  BusinessIntelV2, CalendarEvent, CalendarEventType, Idea, IdeaStatus, IdeaPriority, KnowledgeArticle,
+  CompetitorReport, CompetitorAnalysis
 } from '../types';
 import { INITIAL_SERVICES, DEFAULT_SETTINGS } from '../constants';
 import { generateId } from '../utils';
@@ -158,6 +159,12 @@ interface SettingsRow {
   canva_template_id?: string | null;
   gemini_api_key?: string | null;
   signals_webhook_secret?: string | null;
+  telegram_bot_token?: string | null;
+  telegram_chat_id?: string | null;
+  logo_storage_path?: string | null;
+  brand_primary_color?: string | null;
+  brand_secondary_color?: string | null;
+  brand_accent_color?: string | null;
 }
 
 interface RetainerChangeRow {
@@ -193,6 +200,7 @@ export interface DataContextType extends AppData {
 
   addDeal: (deal: Omit<OneTimeDeal, 'dealId'>) => Promise<void>;
   updateDeal: (deal: OneTimeDeal) => Promise<void>;
+  deleteDeal: (id: string) => Promise<void>;
 
   addExpense: (expense: Omit<SupplierExpense, 'expenseId'>) => Promise<void>;
   updateExpense: (expense: SupplierExpense) => Promise<void>;
@@ -245,6 +253,13 @@ export interface DataContextType extends AppData {
   updateSettings: (settings: AgencySettings) => Promise<void>;
   saveApiKeys: (keys: { canvaApiKey?: string; canvaTemplateId?: string; geminiApiKey?: string }) => Promise<void>;
   saveSignalsWebhookSecret: (secret: string) => Promise<void>;
+  saveTelegramBotToken: (token: string) => Promise<void>;
+
+  uploadLogo: (file: File) => Promise<string | null>;
+  deleteLogo: () => Promise<void>;
+
+  runCompetitorScout: (params: { entityId: string; entityType: 'client' | 'lead'; businessName: string; industry: string; website?: string; services?: string[]; additionalContext?: string }) => Promise<CompetitorReport | null>;
+  deleteCompetitorReport: (id: string) => Promise<void>;
 
   importData: (json: string) => boolean;
   exportData: () => string;
@@ -461,6 +476,10 @@ const transformSettingsToDB = (settings: AgencySettings, tid: string | null) => 
   target_monthly_gross_profit: settings.targetMonthlyGrossProfit,
   employee_salary: settings.employeeSalary || 0,
   is_salaried: settings.isSalaried || false,
+  // PDF Branding colors (logo path saved separately via uploadLogo)
+  brand_primary_color: settings.brandPrimaryColor || '#14b8a6',
+  brand_secondary_color: settings.brandSecondaryColor || '#0f766e',
+  brand_accent_color: settings.brandAccentColor || '#f59e0b',
   // Note: API keys are NOT included here — they are saved via saveApiKeys() directly
 });
 
@@ -476,6 +495,13 @@ const transformSettingsFromDB = (row: SettingsRow): AgencySettings => ({
   hasGeminiKey: !!(row.gemini_api_key && row.gemini_api_key.length > 0),
   canvaTemplateId: row.canva_template_id || undefined,
   hasSignalsWebhookSecret: !!(row.signals_webhook_secret && row.signals_webhook_secret.length > 0),
+  hasTelegramBotToken: !!(row.telegram_bot_token && row.telegram_bot_token.length > 0),
+  telegramChatId: row.telegram_chat_id || undefined,
+  // PDF Branding
+  logoStoragePath: row.logo_storage_path || undefined,
+  brandPrimaryColor: row.brand_primary_color || '#14b8a6',
+  brandSecondaryColor: row.brand_secondary_color || '#0f766e',
+  brandAccentColor: row.brand_accent_color || '#f59e0b',
 });
 
 const transformRetainerChangeToDB = (rc: RetainerChange) => ({
@@ -636,6 +662,7 @@ interface SignalsPersonalityRow {
   business_report: string | null;
   sales_cheat_sheet: Record<string, string | string[]>;
   retention_cheat_sheet: Record<string, string>;
+  business_intel_v2: Record<string, unknown> | null;
   result_url: string | null;
   lang: string;
   questionnaire_version: string;
@@ -695,6 +722,31 @@ interface KnowledgeArticleRow {
   created_at: string;
   updated_at: string;
 }
+
+interface CompetitorReportRow {
+  id: string;
+  entity_id: string;
+  entity_type: string;
+  business_name: string;
+  industry: string | null;
+  website: string | null;
+  analysis: Record<string, unknown>;
+  created_by: string;
+  created_at: string;
+  tenant_id: string;
+}
+
+const transformCompetitorReportFromDB = (row: CompetitorReportRow): CompetitorReport => ({
+  id: row.id,
+  entityId: row.entity_id,
+  entityType: row.entity_type as 'client' | 'lead',
+  businessName: row.business_name,
+  industry: row.industry || undefined,
+  website: row.website || undefined,
+  analysis: (row.analysis as unknown as CompetitorAnalysis) || { summary: '', competitors: [], opportunities: [], threats: [], recommendations: [], marketTrends: [] },
+  createdBy: row.created_by,
+  createdAt: row.created_at,
+});
 
 const transformCalendarEventToDB = (event: CalendarEvent) => ({
   id: event.id,
@@ -819,6 +871,7 @@ const transformSignalsPersonalityFromDB = (row: SignalsPersonalityRow): SignalsP
   businessReport: row.business_report || undefined,
   salesCheatSheet: row.sales_cheat_sheet || {},
   retentionCheatSheet: row.retention_cheat_sheet || {},
+  businessIntelV2: (row.business_intel_v2 as unknown as BusinessIntelV2) || null,
   resultUrl: row.result_url || undefined,
   lang: row.lang || 'he',
   questionnaireVersion: row.questionnaire_version || '',
@@ -848,6 +901,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     calendarEvents: [],
     ideas: [],
     knowledgeArticles: [],
+    competitorReports: [],
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -905,7 +959,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes, signalsPersonalitiesRes, calendarEventsRes, ideasRes, knowledgeRes] = await Promise.all([
+        const [clientsRes, leadsRes, dealsRes, expensesRes, paymentsRes, settingsRes, activitiesRes, retainerChangesRes, clientNotesRes, leadNotesRes, callTranscriptsRes, aiRecommendationsRes, whatsappMessagesRes, signalsPersonalitiesRes, calendarEventsRes, ideasRes, knowledgeRes, competitorReportsRes] = await Promise.all([
           supabase.from('clients').select('*').order('added_at', { ascending: false }),
           supabase.from('leads').select('*').order('created_at', { ascending: false }),
           supabase.from('deals').select('*').order('deal_date', { ascending: false }),
@@ -923,6 +977,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.from('calendar_events').select('*').order('start_time', { ascending: true }),
           supabase.from('ideas').select('*').order('sort_order', { ascending: true }),
           supabase.from('knowledge_articles').select('*').order('created_at', { ascending: false }),
+          supabase.from('competitor_reports').select('*').order('created_at', { ascending: false }),
         ]);
 
         if (clientsRes.error) console.error('Error loading clients:', clientsRes.error);
@@ -954,6 +1009,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const calendarEvents: CalendarEvent[] = (calendarEventsRes.data || []).map((row: CalendarEventRow) => transformCalendarEventFromDB(row));
         const ideas: Idea[] = (ideasRes?.data || []).map((row: IdeaRow) => transformIdeaFromDB(row));
         const knowledgeArticles: KnowledgeArticle[] = (knowledgeRes?.data || []).map((row: KnowledgeArticleRow) => transformKnowledgeArticleFromDB(row));
+        const competitorReports: CompetitorReport[] = (competitorReportsRes?.data || []).map((row: CompetitorReportRow) => transformCompetitorReportFromDB(row));
 
         let settings = DEFAULT_SETTINGS;
         if (settingsRes.data && !settingsRes.error) {
@@ -965,6 +1021,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             { onConflict: 'tenant_id' }
           );
           if (upsertError) console.error('Error initializing settings:', upsertError);
+        }
+
+        // Resolve logo public URL if a logo path exists
+        if (settings.logoStoragePath) {
+          const { data: publicUrlData } = supabase.storage
+            .from('logos')
+            .getPublicUrl(settings.logoStoragePath);
+          if (publicUrlData?.publicUrl) {
+            settings = { ...settings, logoUrl: publicUrlData.publicUrl };
+          }
         }
 
         setData({
@@ -986,6 +1052,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           calendarEvents,
           ideas,
           knowledgeArticles,
+          competitorReports,
         });
       } catch (err) {
         console.error('Error loading data from Supabase:', err);
@@ -1297,6 +1364,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logActivity('deal_updated', 'deal', `עודכן פרויקט: ${deal.dealName}`, deal.dealId);
     } catch (err) {
       showError('שגיאה בעדכון פרויקט');
+      throw err;
+    }
+  };
+
+  const deleteDeal = async (id: string) => {
+    try {
+      const deal = data.oneTimeDeals.find(d => d.dealId === id);
+      const { error } = await supabase
+        .from('deals')
+        .delete()
+        .eq('deal_id', id);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        oneTimeDeals: prev.oneTimeDeals.filter(d => d.dealId !== id)
+      }));
+      logActivity('deal_deleted', 'deal', `נמחק פרויקט: ${deal?.dealName || id}`, id);
+    } catch (err) {
+      showError('שגיאה במחיקת פרויקט');
       throw err;
     }
   };
@@ -2140,6 +2228,184 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Save Telegram Bot Token
+  const saveTelegramBotToken = async (token: string) => {
+    try {
+      const { error } = await supabase
+        .from('settings')
+        .update({ telegram_bot_token: token || null })
+        .eq('tenant_id', tenantId);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          hasTelegramBotToken: !!token,
+        },
+      }));
+    } catch (err) {
+      showError('שגיאה בשמירת טוקן Telegram');
+      throw err;
+    }
+  };
+
+  // Upload logo to storage and save path to settings
+  const uploadLogo = async (file: File): Promise<string | null> => {
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const safeName = `${tenantId || 'default'}/logo_${Date.now()}.${ext}`;
+
+      // Delete old logo if exists
+      if (data.settings.logoStoragePath) {
+        await supabase.storage.from('logos').remove([data.settings.logoStoragePath]);
+      }
+
+      const { error: uploadErr } = await supabase.storage
+        .from('logos')
+        .upload(safeName, file, { upsert: true, contentType: file.type });
+
+      if (uploadErr) {
+        showError('שגיאה בהעלאת הלוגו: ' + uploadErr.message);
+        return null;
+      }
+
+      // Save path to settings
+      const { error: updateErr } = await supabase
+        .from('settings')
+        .update({ logo_storage_path: safeName })
+        .eq('tenant_id', tenantId);
+
+      if (updateErr) {
+        showError('שגיאה בשמירת נתיב הלוגו');
+        return null;
+      }
+
+      // Resolve public URL
+      const { data: publicUrlData } = supabase.storage
+        .from('logos')
+        .getPublicUrl(safeName);
+
+      const logoUrl = publicUrlData?.publicUrl || undefined;
+
+      setData(prev => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          logoStoragePath: safeName,
+          logoUrl,
+        },
+      }));
+
+      return logoUrl || null;
+    } catch (err) {
+      showError('שגיאה בהעלאת הלוגו');
+      return null;
+    }
+  };
+
+  // Delete logo
+  const deleteLogo = async (): Promise<void> => {
+    try {
+      if (data.settings.logoStoragePath) {
+        await supabase.storage.from('logos').remove([data.settings.logoStoragePath]);
+      }
+
+      await supabase
+        .from('settings')
+        .update({ logo_storage_path: null })
+        .eq('tenant_id', tenantId);
+
+      setData(prev => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          logoStoragePath: undefined,
+          logoUrl: undefined,
+        },
+      }));
+    } catch (err) {
+      showError('שגיאה במחיקת הלוגו');
+    }
+  };
+
+  // Run competitor scout analysis via Edge Function
+  const runCompetitorScout = async (params: {
+    entityId: string;
+    entityType: 'client' | 'lead';
+    businessName: string;
+    industry: string;
+    website?: string;
+    services?: string[];
+    additionalContext?: string;
+  }): Promise<CompetitorReport | null> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        showError('נדרשת התחברות');
+        return null;
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/competitor-scout`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify(params),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        showError(result.error || 'שגיאה בביצוע ניתוח תחרותי');
+        return null;
+      }
+
+      // Add to local state
+      const newReport: CompetitorReport = {
+        id: result.reportId,
+        entityId: params.entityId,
+        entityType: params.entityType,
+        businessName: params.businessName,
+        industry: params.industry,
+        website: params.website,
+        analysis: result.analysis as CompetitorAnalysis,
+        createdBy: session.user.id,
+        createdAt: new Date().toISOString(),
+      };
+
+      setData(prev => ({
+        ...prev,
+        competitorReports: [newReport, ...prev.competitorReports],
+      }));
+
+      return newReport;
+    } catch (err) {
+      showError('שגיאה בביצוע ניתוח תחרותי');
+      return null;
+    }
+  };
+
+  // Delete competitor report
+  const deleteCompetitorReport = async (id: string): Promise<void> => {
+    try {
+      const { error } = await supabase.from('competitor_reports').delete().eq('id', id);
+      if (error) throw error;
+      setData(prev => ({
+        ...prev,
+        competitorReports: prev.competitorReports.filter(r => r.id !== id),
+      }));
+    } catch (err) {
+      showError('שגיאה במחיקת דוח תחרותי');
+    }
+  };
+
   const importData = (json: string): boolean => {
     try {
       const parsed = JSON.parse(json);
@@ -2186,7 +2452,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearError,
       addClient, updateClient, deleteClient,
       addLead, updateLead, deleteLead, convertLeadToClient,
-      addDeal, updateDeal,
+      addDeal, updateDeal, deleteDeal,
       addExpense, updateExpense, deleteExpense, generateMonthlyExpenses,
       addPayment, updatePayment, deletePayment, generateMonthlyPayments,
       uploadClientFile, listClientFiles, deleteClientFile,
@@ -2200,7 +2466,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addIdea, updateIdea, deleteIdea,
       addKnowledgeArticle, updateKnowledgeArticle, deleteKnowledgeArticle, uploadKnowledgeFile,
       uploadReceiptImage, getReceiptUrl,
-      updateServices, updateSettings, saveApiKeys, saveSignalsWebhookSecret,
+      updateServices, updateSettings, saveApiKeys, saveSignalsWebhookSecret, saveTelegramBotToken,
+      uploadLogo, deleteLogo,
+      runCompetitorScout, deleteCompetitorReport,
       importData, exportData
     }}>
       {children}

@@ -1204,3 +1204,128 @@ FILES CREATED (temp, not committed):
 - generate_sql.js (SQL generator — used REST API instead)
 - supabase-import-old-clients.sql (177 INSERT VALUES — backup)
 - read_excel.js (Excel reader utility)
+
+===============================================================================
+SESSION 18 (2026-02-17) - Personality-Aware WhatsApp + PDF Extraction + Keys Copy
+===============================================================================
+
+WHAT HAPPENED:
+Four improvements: (1) WhatsApp messages adapted to Signals personality,
+(2) Editable questionnaire message, (3) PDF upload extracts & saves personality
+to DB, (4) Copy API keys between tenants.
+
+CHANGES:
+
+1. PERSONALITY-AWARE WHATSAPP MESSAGES
+   - generate-whatsapp-messages Edge Function: accepts personality param
+   - Builds personality context (archetype, churn risk, smart tags) + style guide
+     (how_to_speak, what_not_to_do, closing_speed, best_offers, red_flags)
+   - When personality exists: 3 variants adapted to archetype (not generic)
+   - LeadProfile.tsx: passes personality object, purple badge indicator,
+     button text changes to "🧠 צור הודעות מותאמות"
+
+2. EDITABLE QUESTIONNAIRE MESSAGE
+   - Hardcoded waMessage → editable textarea with states
+   - signalsMessageEditing + signalsMessageText states
+   - Edit/reset buttons: "ערוך הודעה" / "חזור לטקסט ברירת מחדל"
+   - Clickable preview to enter edit mode
+
+3. PDF UPLOAD → EXTRACT PERSONALITY → SAVE TO DB
+   - Problem: signals_personality table was EMPTY — PDF uploads never saved
+     structured personality data, only generated text recommendations
+   - Fix: ai-recommendations Edge Function step 7:
+     - Gemini 2.0-flash-lite extracts structured personality JSON from PDF
+     - Upsert to signals_personality (archetype, scores, cheat sheets)
+     - questionnaire_version: 'pdf-import'
+   - pdfLeadId lifted to outer scope for use in step 7
+   - LeadProfile: 1.5s delay after PDF upload for realtime sync
+
+4. COPY API KEYS BETWEEN TENANTS
+   - Copied gemini_api_key + signals_webhook_secret from Default Agency to הסקיפים
+   - Via Supabase REST API PATCH with service_role key
+   - Tenant IDs: Default = 00000000-...-000001, הסקיפים = 6852f3bd-01d4-4514-a2bb-ccaeee156a22
+
+5. USER QUESTION ANSWERED: Multi-Tenant Code Deployment
+   - Frontend (Vercel): auto-deploys to ALL tenants on git push
+   - Edge Functions: shared after deploy, one function for all tenants
+   - Data: separated per tenant (RLS + tenant_id)
+   - Settings (API keys): per-tenant, must be configured individually
+
+EDGE FUNCTIONS DEPLOYED:
+  generate-whatsapp-messages (personality-aware)
+  ai-recommendations (PDF personality extraction + DB save)
+
+FILES MODIFIED:
+- components/LeadProfile.tsx (personality pass-through, editable message, PDF delay)
+- supabase/functions/generate-whatsapp-messages/index.ts (personality context + style guide)
+- supabase/functions/ai-recommendations/index.ts (step 7: extract + save personality)
+
+Commits: a3c36e9, ebf1e29, bada4ad
+Pushed to GitHub -> Vercel auto-deployed.
+
+===============================================================================
+SESSION 19 (2026-02-18) - PDF Full Extraction Fix + Knowledge Base Download +
+                          Summarize Fix + AI Agent Army Planning
+===============================================================================
+
+WHAT HAPPENED:
+Fixed PDF personality extraction (was truncated), added file download to
+Knowledge Base, fixed document summarization (was hallucinating), planned
+full AI agent army roadmap (14 agents in 4 waves).
+
+CHANGES:
+
+1. PDF FULL PERSONALITY EXTRACTION FIX
+   - Problem: Gemini was asked for "short description" per field, so full
+     Signals OS reports (business intelligence, call scripts, FOMO) got
+     truncated to one-line summaries
+   - Fix: Prompt now requests FULL text, not summaries
+   - New fields: closing_line, calibration_questions, fomo_message, call_script
+   - user_report + business_report saved to DB (were null before)
+   - maxOutputTokens raised from 2048 to 8192
+   - Condition changed: always extract (removed !personality check)
+   - UI: new expandable blocks "Business Intelligence Report" + "User Report"
+   - UI: cheat sheet values now support long text (whitespace-pre-wrap)
+
+2. KNOWLEDGE BASE DOWNLOAD BUTTON
+   - Added Download icon on article cards (visible on hover)
+   - Added "Download" button in edit modal next to filename
+   - Allows sharing documents directly from the system
+
+3. DOCUMENT SUMMARIZATION FIX
+   - Problem: Frontend sent only filename string to summarize-document,
+     not the actual file content. Gemini hallucinated summaries from filename.
+   - Fix: Edge Function now accepts FormData with actual file
+   - Sends file as inline_data to Gemini 2.0-flash (not lite, for PDF support)
+   - Frontend sends file via FormData instead of JSON
+
+4. AI AGENT ARMY PLANNING
+   - Created NIV_IDEAS.txt with full roadmap
+   - 14 agents across 4 waves:
+     Wave 1 (Week 1-2): Cron Alerts, Follow-up Agent, Meeting Prep
+     Wave 2 (Week 3-4): Competitor Scout, Churn Detective, Creative Agent,
+                         Upsell Matchmaker
+     Wave 3 (Week 5-8): AI Notebook, Monthly Strategist, Playbook Builder,
+                         Smart Scheduler
+     Wave 4 (Month 3+): Super Agent (AI Agent Builder)
+   - 3 new agent ideas from Niv:
+     #19 Competitor Scout: scans competitors, generates FOMO per archetype
+     #20 AI Notebook: per-client context brain (like Google NotebookLM)
+     #21 Super Agent: describe business -> system builds custom AI agent
+   - Full architecture diagram + DB tables needed + build order
+
+EDGE FUNCTIONS DEPLOYED:
+  ai-recommendations (full PDF extraction)
+  summarize-document (reads actual file, not just filename)
+
+FILES MODIFIED:
+- supabase/functions/ai-recommendations/index.ts (full extraction, 8192 tokens)
+- supabase/functions/summarize-document/index.ts (FormData + inline_data)
+- components/LeadProfile.tsx (business/user report blocks, long text support)
+- components/KnowledgeBase.tsx (download buttons, FormData upload for summary)
+
+FILES CREATED:
+- NIV_IDEAS.txt (AI agent army roadmap — 14 agents, 4 waves, full architecture)
+
+Commits: faf132f, a5f9290, bc427d8
+Pushed to GitHub -> Vercel auto-deployed.

@@ -4,11 +4,12 @@ import { useTenantNav } from '../hooks/useTenantNav';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import type { ClientFile } from '../contexts/DataContext';
-import { ClientStatus, ClientRating, EffortLevel, NoteType } from '../types';
+import { ClientStatus, ClientRating, EffortLevel, NoteType, Archetype, BusinessIntelV2, ScriptDoor } from '../types';
 import type { Client } from '../types';
 import { formatCurrency, formatDate, formatDateTime, getMonthName, formatPhoneForWhatsApp } from '../utils';
-import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle, User, Send, Clock, ChevronDown, ChevronUp, Sparkles, Plus, Mic, Edit3, Target } from 'lucide-react';
+import { ArrowRight, Phone, Mail, Calendar, Star, Upload, FileText, Trash2, ExternalLink, MessageCircle, User, Send, Clock, ChevronDown, ChevronUp, Sparkles, Plus, Mic, Edit3, Target, Brain, Shield, Zap, AlertTriangle, MessageSquare, ListChecks, CheckCircle, Users, Printer } from 'lucide-react';
 import { MESSAGE_PURPOSES } from '../constants';
+import { getBrandConfig, generateWorkPlanPdf, generateFinancialSummaryPdf, generatePersonalityPdf } from '../utils/pdfGenerator';
 import { supabase } from '../lib/supabaseClient';
 import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
@@ -28,7 +29,8 @@ const ClientProfile: React.FC = () => {
     clientNotes, addClientNote, deleteClientNote, updateClient, activities,
     callTranscripts, addCallTranscript, deleteCallTranscript,
     aiRecommendations, addAIRecommendation, deleteAIRecommendation, settings,
-    whatsappMessages, addWhatsAppMessage, deleteWhatsAppMessage, uploadRecording
+    whatsappMessages, addWhatsAppMessage, deleteWhatsAppMessage, uploadRecording,
+    signalsPersonalities, competitorReports, runCompetitorScout, deleteCompetitorReport
   } = useData();
 
   const [clientFiles, setClientFiles] = useState<ClientFile[]>([]);
@@ -80,6 +82,18 @@ const ClientProfile: React.FC = () => {
   // Expand/collapse for long notes in contact info
   const [notesExpanded, setNotesExpanded] = useState(false);
   const NOTES_PREVIEW_LENGTH = 150;
+
+  // Signals OS V2 state
+  const [v2ScriptExpanded, setV2ScriptExpanded] = useState(false);
+  const [v2ActiveDoor, setV2ActiveDoor] = useState<string | null>(null);
+  const [scoutLoading, setScoutLoading] = useState(false);
+  const [scoutExpanded, setScoutExpanded] = useState(false);
+  // AI Notebook state
+  const [notebookOpen, setNotebookOpen] = useState(false);
+  const [notebookMessages, setNotebookMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [notebookInput, setNotebookInput] = useState('');
+  const [notebookLoading, setNotebookLoading] = useState(false);
+  const notebookEndRef = useRef<HTMLDivElement>(null);
 
   // Filter notes for this client — separate manual notes from AI summaries
   const clientNotesAll = clientNotes.filter(n => n.clientId === clientId);
@@ -320,6 +334,50 @@ const ClientProfile: React.FC = () => {
     });
   };
 
+  // AI Notebook: Send message
+  const handleNotebookSend = async () => {
+    if (!notebookInput.trim() || notebookLoading || !clientId) return;
+    const userMessage = notebookInput.trim();
+    setNotebookInput('');
+    setNotebookMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setNotebookLoading(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-notebook`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            entityId: clientId,
+            entityType: 'client',
+            message: userMessage,
+            chatHistory: notebookMessages.slice(-10),
+          }),
+        }
+      );
+
+      const result = await response.json();
+      if (result.success && result.reply) {
+        setNotebookMessages(prev => [...prev, { role: 'assistant', content: result.reply }]);
+      } else {
+        setNotebookMessages(prev => [...prev, { role: 'assistant', content: `❌ ${result.error || 'שגיאה'}` }]);
+      }
+    } catch {
+      setNotebookMessages(prev => [...prev, { role: 'assistant', content: '❌ שגיאה בתקשורת עם AI' }]);
+    } finally {
+      setNotebookLoading(false);
+      setTimeout(() => notebookEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
+  };
+
   // Audio: Upload recording for transcription
   const handleUploadRecording = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -478,6 +536,32 @@ const ClientProfile: React.FC = () => {
   const totalPaid = clientPayments.reduce((sum, p) => sum + p.amountPaid, 0);
   const totalOwed = clientPayments.reduce((sum, p) => sum + (p.amountDue - p.amountPaid), 0);
 
+  // ── LTV Calculation ──
+  const joinDateMs = new Date(client.joinDate).getTime();
+  const nowMs = Date.now();
+  const monthsActive = Math.max(1, Math.round((nowMs - joinDateMs) / (1000 * 60 * 60 * 24 * 30.44)));
+  const cumulativeRetainer = client.monthlyRetainer * monthsActive;
+  const ltv = cumulativeRetainer + totalDealValue;
+
+  // ── Unified Purchase History Timeline ──
+  type PurchaseEntry = { date: string; description: string; amount: number; type: 'retainer' | 'deal' | 'payment'; status?: string };
+  const purchaseHistory: PurchaseEntry[] = [
+    ...clientDeals.map(d => ({ date: d.dealDate, description: `פרויקט: ${d.dealName}`, amount: d.dealAmount, type: 'deal' as const, status: d.dealStatus })),
+    ...clientPayments.map(p => ({ date: p.paymentDate || p.periodMonth, description: `תשלום חודשי — ${getMonthName(p.periodMonth)}`, amount: p.amountPaid, type: 'payment' as const, status: p.paymentStatus })),
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  // ── Signals OS Personality (for V2 scripts) ──
+  const personality = signalsPersonalities.find(p => p.clientId === clientId);
+  const v2 = personality?.businessIntelV2 || null;
+
+  const ARCHETYPE_CONFIG: Record<string, { nameHe: string; color: string; bgColor: string; borderColor: string; barColor: string; icon: string }> = {
+    WINNER:  { nameHe: 'ווינר',  color: 'text-red-400',    bgColor: 'bg-red-500/10',    borderColor: 'border-red-500/20',    barColor: '#ef4444', icon: '🏆' },
+    STAR:    { nameHe: 'סטאר',   color: 'text-amber-400',  bgColor: 'bg-amber-500/10',  borderColor: 'border-amber-500/20',  barColor: '#f59e0b', icon: '⭐' },
+    DREAMER: { nameHe: 'חולם',   color: 'text-violet-400', bgColor: 'bg-violet-500/10', borderColor: 'border-violet-500/20', barColor: '#8b5cf6', icon: '💫' },
+    HEART:   { nameHe: 'לב',     color: 'text-pink-400',   bgColor: 'bg-pink-500/10',   borderColor: 'border-pink-500/20',   barColor: '#ec4899', icon: '❤️' },
+    ANCHOR:  { nameHe: 'עוגן',   color: 'text-cyan-400',   bgColor: 'bg-cyan-500/10',   borderColor: 'border-cyan-500/20',   barColor: '#06b6d4', icon: '⚓' },
+  };
+
   const activeServiceKeys = client.services || [];
   const activeServiceLabels = services
     .filter(s => activeServiceKeys.includes(s.serviceKey))
@@ -519,6 +603,69 @@ const ClientProfile: React.FC = () => {
             עריכת לקוח
           </Button>
         )}
+        {/* PDF Export Dropdown */}
+        <div className="relative group">
+          <Button variant="ghost" icon={<Printer size={16} />} className="text-gray-400 hover:text-white">
+            PDF
+          </Button>
+          <div className="absolute left-0 top-full mt-1 bg-[#0D1526] border border-white/10 rounded-xl shadow-2xl py-1 min-w-[180px] z-50 hidden group-hover:block">
+            <button
+              onClick={() => {
+                const brand = getBrandConfig(settings);
+                generateWorkPlanPdf({
+                  client,
+                  services: client.services.map(sk => {
+                    const svc = services.find(s => s.serviceKey === sk);
+                    return svc ? svc.label : sk;
+                  }),
+                  deals: clientDeals,
+                  monthlyPayments: clientPayments,
+                }, brand);
+              }}
+              className="w-full text-right px-4 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors"
+            >
+              📋 תוכנית עבודה
+            </button>
+            <button
+              onClick={() => {
+                const brand = getBrandConfig(settings);
+                const nowMs = Date.now();
+                const joinMs = new Date(client.joinDate).getTime();
+                const months = Math.max(1, Math.round((nowMs - joinMs) / (1000 * 60 * 60 * 24 * 30.44)));
+                const totalDealValue = clientDeals.reduce((s, d) => s + d.dealAmount, 0);
+                const cumRetainer = client.monthlyRetainer * months;
+                generateFinancialSummaryPdf({
+                  client,
+                  deals: clientDeals,
+                  payments: clientPayments,
+                  expenses: clientExpenses.map(e => ({ date: e.expenseDate, supplier: e.supplierName, amount: e.amount, type: e.expenseType })),
+                  monthsActive: months,
+                  ltv: cumRetainer + totalDealValue,
+                }, brand);
+              }}
+              className="w-full text-right px-4 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors"
+            >
+              💰 סיכום כספי
+            </button>
+            {personality?.businessIntelV2 && (
+              <button
+                onClick={() => {
+                  const brand = getBrandConfig(settings);
+                  if (personality) {
+                    generatePersonalityPdf({
+                      personality,
+                      entityName: client.clientName,
+                      entityType: 'client',
+                    }, brand);
+                  }
+                }}
+                className="w-full text-right px-4 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors"
+              >
+                🧠 דוח אישיותי
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Contact + Financial Summary */}
@@ -1079,6 +1226,529 @@ const ClientProfile: React.FC = () => {
           </div>
         )}
       </Card>
+
+      {/* ============ LTV & Purchase History ============ */}
+      <Card>
+        <CardHeader title="ערך לקוח (LTV)" subtitle={`${monthsActive} חודשים פעילים`} />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+          <div className="p-4 bg-gradient-to-bl from-violet-500/10 to-blue-500/5 rounded-xl border border-violet-500/15">
+            <div className="text-[10px] text-gray-500 uppercase">LTV כולל</div>
+            <div className="text-2xl font-black text-white font-mono mt-1">{formatCurrency(ltv)}</div>
+          </div>
+          <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5">
+            <div className="text-[10px] text-gray-500 uppercase">ריטיינר מצטבר</div>
+            <div className="text-lg font-bold text-blue-400 font-mono mt-1">{formatCurrency(cumulativeRetainer)}</div>
+            <div className="text-[10px] text-gray-600 mt-0.5">{formatCurrency(client.monthlyRetainer)} × {monthsActive} חודשים</div>
+          </div>
+          <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5">
+            <div className="text-[10px] text-gray-500 uppercase">פרויקטים (חד פעמי)</div>
+            <div className="text-lg font-bold text-emerald-400 font-mono mt-1">{formatCurrency(totalDealValue)}</div>
+            <div className="text-[10px] text-gray-600 mt-0.5">{clientDeals.length} פרויקטים</div>
+          </div>
+          <div className="p-4 bg-[#0B1121] rounded-xl border border-white/5">
+            <div className="text-[10px] text-gray-500 uppercase">שולם בפועל</div>
+            <div className="text-lg font-bold text-emerald-400 font-mono mt-1">{formatCurrency(totalPaid)}</div>
+            <div className="text-[10px] text-gray-600 mt-0.5">{totalOwed > 0 ? `חוב: ${formatCurrency(totalOwed)}` : 'ללא חוב'}</div>
+          </div>
+        </div>
+
+        {/* Purchase History Timeline */}
+        {purchaseHistory.length > 0 && (
+          <div className="mt-6 pt-4 border-t border-white/5">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">היסטוריית רכישות</p>
+            <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar">
+              {purchaseHistory.map((entry, i) => (
+                <div key={i} className="flex items-center gap-3 py-2 border-b border-white/5 last:border-0">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${
+                    entry.type === 'deal' ? 'bg-emerald-400' : 'bg-blue-400'
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-300 truncate">{entry.description}</p>
+                    <span className="text-[10px] text-gray-600">{formatDate(entry.date)}</span>
+                  </div>
+                  <span className={`font-mono text-sm font-bold shrink-0 ${
+                    entry.type === 'deal' ? 'text-emerald-400' : 'text-blue-400'
+                  }`}>
+                    {formatCurrency(entry.amount)}
+                  </span>
+                  {entry.status && (
+                    <Badge variant={entry.status === 'Paid' || entry.status === 'Completed' ? 'success' : entry.status === 'Partial' ? 'warning' : 'neutral'}>
+                      {entry.status === 'Paid' ? 'שולם' : entry.status === 'Partial' ? 'חלקי' : entry.status === 'Completed' ? 'הושלם' : entry.status}
+                    </Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* ============ Signals OS V2 — Dynamic Call Script (Step 3) ============ */}
+      {v2 && (() => {
+        const hero = v2.heroCard;
+        const qs = v2.quickScript;
+        const actions = v2.actionItems || [];
+        const flags = v2.redFlags || [];
+        const script = v2.fullScript;
+        const primaryCfg = personality ? ARCHETYPE_CONFIG[personality.primaryArchetype] || ARCHETYPE_CONFIG.WINNER : ARCHETYPE_CONFIG.WINNER;
+
+        return (
+          <Card id="client-script-section">
+            <CardHeader
+              title={<span className="flex items-center gap-2"><Brain size={18} className="text-violet-400" /> מודיעין אישיותי + תסריט שיחה</span>}
+              subtitle={personality ? `${primaryCfg.icon} ${primaryCfg.nameHe} · סיכוי סגירה ${hero.closeRate}%` : undefined}
+            />
+
+            <div className="mt-4 space-y-3">
+              {/* Hero Card */}
+              <div className="p-4 rounded-xl bg-gradient-to-l from-violet-500/5 via-blue-500/5 to-cyan-500/5 border border-violet-500/15">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex-1">
+                    <p className="text-sm text-gray-200 font-medium leading-relaxed">{hero.profileLine}</p>
+                    {hero.riskExplanation && (
+                      <p className="text-xs text-gray-500 mt-1">{hero.riskExplanation}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 ms-4 shrink-0">
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: hero.priorityStars || 0 }).map((_, i) => (
+                        <Star key={i} size={12} className="text-amber-400 fill-amber-400" />
+                      ))}
+                      {Array.from({ length: 5 - (hero.priorityStars || 0) }).map((_, i) => (
+                        <Star key={`e${i}`} size={12} className="text-gray-700" />
+                      ))}
+                    </div>
+                    <div className="text-xl font-bold text-emerald-400">{hero.closeRate}%</div>
+                    <span className="text-[10px] text-gray-500">סיכוי סגירה</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {hero.urgency && (
+                    <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 text-amber-300 text-xs border border-amber-500/15">
+                      <Zap size={11} /> {hero.urgency}
+                    </span>
+                  )}
+                  {hero.topStrength && (
+                    <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-300 text-xs border border-emerald-500/15">
+                      <CheckCircle size={11} /> {hero.topStrength}
+                    </span>
+                  )}
+                  {hero.topRisk && (
+                    <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-red-500/10 text-red-300 text-xs border border-red-500/15">
+                      <AlertTriangle size={11} /> {hero.topRisk}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Script */}
+              {qs && (
+                <div className="p-4 rounded-xl bg-[#0B1121] border border-blue-500/15">
+                  <div className="flex items-center gap-2 mb-3">
+                    <MessageSquare size={14} className="text-blue-400" />
+                    <span className="text-sm font-medium text-gray-200">תסריט מהיר</span>
+                  </div>
+                  <div className="space-y-2.5">
+                    <div className="flex gap-2"><span className="text-xs text-blue-400 w-16 shrink-0 font-medium">פתיחה</span><span className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">{qs.opener}</span></div>
+                    <div className="flex gap-2"><span className="text-xs text-blue-400 w-16 shrink-0 font-medium">שאלת מפתח</span><span className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">{qs.keyQuestion}</span></div>
+                    <div className="flex gap-2"><span className="text-xs text-blue-400 w-16 shrink-0 font-medium">סגירה</span><span className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">{qs.closeLine}</span></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Items */}
+              {actions.length > 0 && (
+                <div className="p-4 rounded-xl bg-[#0B1121] border border-emerald-500/15">
+                  <div className="flex items-center gap-2 mb-3">
+                    <ListChecks size={14} className="text-emerald-400" />
+                    <span className="text-sm font-medium text-gray-200">פעולות מומלצות</span>
+                  </div>
+                  <div className="space-y-3">
+                    {actions.map((item, i) => (
+                      <div key={i} className="flex gap-3">
+                        <div className="w-6 h-6 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">{item.priority}</div>
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-200 font-medium">{item.action}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{item.why}</p>
+                          {item.how && <p className="text-xs text-emerald-400/70 mt-0.5">{item.how}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Red Flags */}
+              {flags.length > 0 && (
+                <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/15">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle size={13} className="text-red-400" />
+                    <span className="text-xs font-medium text-red-300">דגלים אדומים</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {flags.map((flag, i) => (
+                      <span key={i} className="px-2 py-1 rounded-md bg-red-500/10 text-red-300 text-xs">{flag}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Full 5-Door Script (expandable) */}
+              {script && (
+                <div className="border border-violet-500/15 rounded-xl overflow-hidden">
+                  <button
+                    onClick={() => setV2ScriptExpanded(!v2ScriptExpanded)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Brain size={14} className="text-violet-400" />
+                      <span className="text-sm font-medium text-gray-200">תסריט 5 דלתות מלא</span>
+                      <span className="text-[10px] text-gray-500 bg-white/5 px-1.5 py-0.5 rounded">Deep Dive</span>
+                    </div>
+                    {v2ScriptExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                  </button>
+                  {v2ScriptExpanded && (
+                    <div className="px-4 pb-4 space-y-3">
+                      {/* Profile Briefing */}
+                      {script.profileBriefing && (
+                        <div className="p-3 rounded-xl bg-violet-500/5 border border-violet-500/10">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Users size={13} className="text-violet-400" />
+                            <span className="text-xs font-bold text-violet-300">מי מולך?</span>
+                          </div>
+                          <p className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed mb-2">{script.profileBriefing.whoIsThis}</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <span className="text-[10px] text-emerald-400 font-medium">חוזקות</span>
+                              <ul className="mt-1 space-y-0.5">
+                                {script.profileBriefing.strengths.map((s, i) => (
+                                  <li key={i} className="text-xs text-gray-400 flex gap-1"><span className="text-emerald-400">+</span>{s}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-red-400 font-medium">אל תעשה</span>
+                              <ul className="mt-1 space-y-0.5">
+                                {script.profileBriefing.weaknesses.map((w, i) => (
+                                  <li key={i} className="text-xs text-gray-400 flex gap-1"><span className="text-red-400">-</span>{w}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                          {script.profileBriefing.goalForCall && <p className="text-xs text-amber-300/80 mt-2">🎯 {script.profileBriefing.goalForCall}</p>}
+                          {script.profileBriefing.timeAllocation && <p className="text-xs text-gray-500 mt-1">⏱ {script.profileBriefing.timeAllocation}</p>}
+                        </div>
+                      )}
+
+                      {/* Door buttons */}
+                      {(() => {
+                        const doors: { key: string; door: ScriptDoor; color: string }[] = [
+                          { key: 'door1', door: script.door1Opening, color: 'blue' },
+                          { key: 'door2', door: script.door2DeepListening, color: 'cyan' },
+                          { key: 'door3', door: script.door3TheOffer, color: 'emerald' },
+                          { key: 'door4a', door: script.door4aYes, color: 'green' },
+                          { key: 'door4b', door: script.door4bHesitant, color: 'amber' },
+                          { key: 'door5a', door: script.door5aObjectionFear, color: 'orange' },
+                          { key: 'door5b', door: script.door5bObjectionPrice, color: 'red' },
+                        ].filter(d => d.door);
+
+                        return (
+                          <div className="space-y-2">
+                            {doors.map(({ key, door, color }) => (
+                              <div key={key} className="border border-white/5 rounded-xl overflow-hidden">
+                                <button
+                                  onClick={() => setV2ActiveDoor(v2ActiveDoor === key ? null : key)}
+                                  className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-white/[0.02] transition-colors"
+                                >
+                                  <span className={`text-xs font-medium text-${color}-300`}>{door.title}</span>
+                                  {v2ActiveDoor === key ? <ChevronUp size={12} className="text-gray-500" /> : <ChevronDown size={12} className="text-gray-500" />}
+                                </button>
+                                {v2ActiveDoor === key && (
+                                  <div className="px-3 pb-3 space-y-2">
+                                    <div>
+                                      <span className="text-[10px] text-blue-400 font-medium block mb-1">אתה אומר:</span>
+                                      <p className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed bg-blue-500/5 rounded-lg p-2 border border-blue-500/10">{door.youSay}</p>
+                                    </div>
+                                    {door.customerSays && (
+                                      <div>
+                                        <span className="text-[10px] text-gray-500 font-medium block mb-1">הלקוח עונה:</span>
+                                        <p className="text-xs text-gray-400 whitespace-pre-wrap leading-relaxed bg-white/[0.02] rounded-lg p-2">{door.customerSays}</p>
+                                      </div>
+                                    )}
+                                    {door.profileInsight && <p className="text-[10px] text-violet-400/80 mt-1">💡 {door.profileInsight}</p>}
+                                    {door.critical && <p className="text-[10px] text-red-400/80 mt-1">⚠️ {door.critical}</p>}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Post-Call Checklist */}
+                      {script.postCallChecklist?.length > 0 && (
+                        <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                          <span className="text-xs font-bold text-emerald-300 block mb-2">✅ צ'קליסט אחרי שיחה</span>
+                          <ul className="space-y-1">
+                            {script.postCallChecklist.map((item, i) => (
+                              <li key={i} className="text-xs text-gray-400 flex items-start gap-2"><span className="text-emerald-400 mt-0.5">☐</span>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Retention Notes */}
+                      {script.retentionNotes && (
+                        <div className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/10">
+                          <span className="text-xs font-bold text-cyan-300 block mb-1">🔒 הערות שימור</span>
+                          <p className="text-xs text-gray-400 whitespace-pre-wrap leading-relaxed">{script.retentionNotes}</p>
+                        </div>
+                      )}
+
+                      {v2.profileInsights && (
+                        <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                          <span className="text-xs font-bold text-gray-300 block mb-1">🧠 ניתוח מעמיק</span>
+                          <p className="text-xs text-gray-400 whitespace-pre-wrap leading-relaxed">{v2.profileInsights}</p>
+                        </div>
+                      )}
+                      {v2.retentionStrategy && (
+                        <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                          <span className="text-xs font-bold text-gray-300 block mb-1">📈 אסטרטגיית שימור</span>
+                          <p className="text-xs text-gray-400 whitespace-pre-wrap leading-relaxed">{v2.retentionStrategy}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </Card>
+        );
+      })()}
+
+      {/* AI Notebook */}
+      <Card>
+        <div className="flex items-center justify-between">
+          <CardHeader title="AI Notebook" subtitle="צ'אט חכם עם הקשר CRM" />
+          <Button
+            variant="ghost"
+            onClick={() => setNotebookOpen(!notebookOpen)}
+            icon={notebookOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          >
+            {notebookOpen ? 'סגור' : 'פתח'}
+          </Button>
+        </div>
+
+        {notebookOpen && (
+          <div className="mt-3">
+            {/* Chat Messages */}
+            <div className="h-72 overflow-y-auto custom-scrollbar space-y-2 p-3 rounded-xl bg-[#0B1121] border border-white/5 mb-3">
+              {notebookMessages.length === 0 && (
+                <div className="text-center py-10">
+                  <Brain size={32} className="mx-auto text-violet-400/30 mb-2" />
+                  <p className="text-gray-600 text-sm">שאל כל שאלה על הלקוח...</p>
+                  <div className="flex flex-wrap justify-center gap-2 mt-4">
+                    {['מה המצב הכספי?', 'איך לדבר עם הלקוח?', 'מה הבעיות העיקריות?', 'תמליץ על פעולות'].map(q => (
+                      <button
+                        key={q}
+                        onClick={() => { setNotebookInput(q); }}
+                        className="text-[10px] px-3 py-1.5 rounded-full bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-colors"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {notebookMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-start' : 'justify-end'}`}>
+                  <div className={`max-w-[80%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap ${
+                    msg.role === 'user'
+                      ? 'bg-primary/10 text-gray-200'
+                      : 'bg-violet-500/10 text-gray-200'
+                  }`}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {notebookLoading && (
+                <div className="flex justify-end">
+                  <div className="px-3 py-2 rounded-xl bg-violet-500/10">
+                    <Sparkles size={14} className="text-violet-400 animate-pulse" />
+                  </div>
+                </div>
+              )}
+              <div ref={notebookEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="flex gap-2">
+              <input
+                value={notebookInput}
+                onChange={e => setNotebookInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleNotebookSend(); } }}
+                placeholder="שאל שאלה על הלקוח..."
+                className="flex-1 px-3 py-2 rounded-xl bg-[#0B1121] border border-white/10 text-gray-200 text-sm placeholder-gray-600 focus:outline-none focus:border-violet-500/50"
+                disabled={notebookLoading || !settings.hasGeminiKey}
+              />
+              <Button
+                onClick={handleNotebookSend}
+                disabled={notebookLoading || !notebookInput.trim() || !settings.hasGeminiKey}
+                icon={<Send size={14} />}
+              >
+                שלח
+              </Button>
+            </div>
+            {!settings.hasGeminiKey && (
+              <p className="text-xs text-gray-500 mt-1">נדרש מפתח Gemini בהגדרות</p>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Competitor Scout */}
+      {(() => {
+        const clientReports = competitorReports.filter(r => r.entityId === clientId && r.entityType === 'client');
+        const latestReport = clientReports[0];
+
+        const THREAT_COLORS: Record<string, string> = { HIGH: 'text-red-400 bg-red-500/10', MEDIUM: 'text-amber-400 bg-amber-500/10', LOW: 'text-emerald-400 bg-emerald-500/10' };
+        const PRIORITY_COLORS: Record<string, string> = { HIGH: 'border-red-500/30 bg-red-500/5', MEDIUM: 'border-amber-500/30 bg-amber-500/5', LOW: 'border-emerald-500/30 bg-emerald-500/5' };
+
+        return (
+          <Card>
+            <CardHeader
+              title="סקאוט תחרותי"
+              subtitle={latestReport ? `עדכון אחרון: ${formatDate(latestReport.createdAt)}` : 'ניתוח AI של הנוף התחרותי'}
+            />
+            <div className="mt-4 space-y-3">
+              {/* Run button */}
+              <div className="flex items-center gap-3">
+                <Button
+                  onClick={async () => {
+                    setScoutLoading(true);
+                    await runCompetitorScout({
+                      entityId: clientId!,
+                      entityType: 'client',
+                      businessName: client.businessName || client.clientName,
+                      industry: client.industry || '',
+                      services: client.services.map(sk => {
+                        const svc = services.find(s => s.serviceKey === sk);
+                        return svc ? svc.label : sk;
+                      }),
+                    });
+                    setScoutLoading(false);
+                    setScoutExpanded(true);
+                  }}
+                  disabled={scoutLoading || !settings.hasGeminiKey}
+                  icon={scoutLoading ? <Sparkles size={16} className="animate-spin" /> : <Target size={16} />}
+                  variant="secondary"
+                >
+                  {scoutLoading ? 'מנתח...' : latestReport ? 'ניתוח מחדש' : 'הפעל ניתוח תחרותי'}
+                </Button>
+                {!settings.hasGeminiKey && (
+                  <span className="text-xs text-gray-500">נדרש מפתח Gemini בהגדרות</span>
+                )}
+              </div>
+
+              {/* Latest report display */}
+              {latestReport && (
+                <div className="space-y-3">
+                  {/* Summary */}
+                  <div className="p-3 rounded-xl bg-violet-500/5 border border-violet-500/15">
+                    <p className="text-gray-300 text-sm leading-relaxed">{latestReport.analysis.summary}</p>
+                  </div>
+
+                  {/* Competitors */}
+                  {latestReport.analysis.competitors?.length > 0 && (
+                    <div>
+                      <button
+                        onClick={() => setScoutExpanded(!scoutExpanded)}
+                        className="flex items-center gap-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
+                      >
+                        <Shield size={14} className="text-violet-400" />
+                        {latestReport.analysis.competitors.length} מתחרים זוהו
+                        {scoutExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+
+                      {scoutExpanded && (
+                        <div className="mt-2 space-y-2">
+                          {latestReport.analysis.competitors.map((comp, i) => (
+                            <div key={i} className="p-3 rounded-xl bg-[#0B1121] border border-white/5">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-white font-medium text-sm">{comp.name}</span>
+                                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${THREAT_COLORS[comp.threatLevel] || 'text-gray-400'}`}>
+                                  {comp.threatLevel === 'HIGH' ? 'איום גבוה' : comp.threatLevel === 'MEDIUM' ? 'איום בינוני' : 'איום נמוך'}
+                                </span>
+                              </div>
+                              <p className="text-gray-400 text-xs mb-2">{comp.description}</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <div className="text-[10px] text-emerald-400 font-medium mb-1">חוזקות</div>
+                                  {comp.strengths?.map((s, j) => <div key={j} className="text-[10px] text-gray-500">• {s}</div>)}
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-red-400 font-medium mb-1">חולשות</div>
+                                  {comp.weaknesses?.map((w, j) => <div key={j} className="text-[10px] text-gray-500">• {w}</div>)}
+                                </div>
+                              </div>
+                              {comp.differentiator && (
+                                <div className="mt-2 text-[10px] text-violet-400">מבדל: {comp.differentiator}</div>
+                              )}
+                            </div>
+                          ))}
+
+                          {/* Opportunities & Threats */}
+                          <div className="grid grid-cols-2 gap-3 mt-3">
+                            {latestReport.analysis.opportunities?.length > 0 && (
+                              <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
+                                <div className="text-xs font-medium text-emerald-400 mb-2">🎯 הזדמנויות</div>
+                                {latestReport.analysis.opportunities.map((o, i) => (
+                                  <div key={i} className="text-[10px] text-gray-400 mb-1">• {o}</div>
+                                ))}
+                              </div>
+                            )}
+                            {latestReport.analysis.threats?.length > 0 && (
+                              <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/15">
+                                <div className="text-xs font-medium text-red-400 mb-2">⚠️ איומים</div>
+                                {latestReport.analysis.threats.map((t, i) => (
+                                  <div key={i} className="text-[10px] text-gray-400 mb-1">• {t}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Recommendations */}
+                          {latestReport.analysis.recommendations?.length > 0 && (
+                            <div className="space-y-2 mt-3">
+                              <div className="text-xs font-medium text-gray-300">💡 המלצות</div>
+                              {latestReport.analysis.recommendations.map((rec, i) => (
+                                <div key={i} className={`p-3 rounded-xl border ${PRIORITY_COLORS[rec.priority] || 'border-white/5'}`}>
+                                  <div className="text-sm font-medium text-white">{rec.title}</div>
+                                  <p className="text-xs text-gray-400 mt-1">{rec.description}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Market Trends */}
+                          {latestReport.analysis.marketTrends?.length > 0 && (
+                            <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/15 mt-3">
+                              <div className="text-xs font-medium text-blue-400 mb-2">📈 מגמות שוק</div>
+                              {latestReport.analysis.marketTrends.map((t, i) => (
+                                <div key={i} className="text-[10px] text-gray-400 mb-1">• {t}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </Card>
+        );
+      })()}
 
       {/* Deals History */}
       {clientDeals.length > 0 && (

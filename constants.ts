@@ -25,6 +25,10 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   hasCanvaKey: false,
   hasGeminiKey: false,
   hasSignalsWebhookSecret: false,
+  hasTelegramBotToken: false,
+  brandPrimaryColor: '#14b8a6',
+  brandSecondaryColor: '#0f766e',
+  brandAccentColor: '#f59e0b',
 };
 
 export const MESSAGE_PURPOSES = [

@@ -1,0 +1,597 @@
+===============================================================================
+NIV IDEAS — AMP Full Roadmap (Features + AI Agents)
+===============================================================================
+Last updated: 2026-02-19 | Session 20
+
+===============================================================================
+PART 1: OVERVIEW — AGENTS VS AUTOMATIONS
+===============================================================================
+
+AUTOMATIONS (If X then Y):
+- Fixed rules, no thinking, no adaptation
+- Trigger -> always the same action
+- Tools: Cron, pg_cron, Supabase triggers, Zapier, Make
+- Example: "Lead not touched 3 days -> send alert"
+
+AI AGENTS (Understand -> Decide -> Act):
+- Receive context, decide what to do dynamically
+- Adapt action to person, situation, timing
+- Combine info from multiple sources
+- Example: "Read personality + transcripts + history -> write personalized message"
+
+KEY DIFFERENCES:
+| Aspect       | Automation      | AI Agent              |
+|------------- |---------------- |---------------------- |
+| Thinking     | None            | Analyzes & decides    |
+| Personalize  | Template-based  | Per-case adapted      |
+| Context      | Single field    | Multi-source          |
+| Creativity   | None            | Creates new content   |
+| Cost         | Almost free     | API calls             |
+| Reliability  | 100% predictable| Needs supervision     |
+
+===============================================================================
+PART 2: FULL AGENT LIST — NIV'S SELECTION (14 AGENTS)
+===============================================================================
+
+---------- WAVE 1: Infrastructure + Quick Wins (Week 1-2) ----------
+
+AGENT #1: Automatic Reminders (Cron Triggers)
+Type: Automation (Level 1)
+Trigger: Cron job every morning 08:00
+What it does:
+  - Scans all open leads: who hasn't been touched in 3+ days?
+  - Scans all clients: who has an overdue payment 30+ days?
+  - Scans calendar: any meetings today without prep?
+  - Sends alerts to the responsible agent (assigned_to)
+  - Channels: in-app notification badge + optional WhatsApp
+Tech: pg_cron -> Edge Function -> reads leads/clients/calendar_events
+DB: notifications table (id, tenant_id, user_id, type, message, read, created_at)
+Priority: HIGH — foundation for all other agents
+
+AGENT #9: Follow-up Agent (Post-Call Automation)
+Type: AI Agent (Level 3)
+Trigger: After every transcribed call (call_transcripts INSERT)
+What it does:
+  - Takes the call transcript + summary
+  - Extracts action items: "promised to send proposal by Thursday"
+  - Creates calendar_events for follow-ups automatically
+  - Adds structured notes to lead/client
+  - If personality exists: adapts follow-up style
+Tech: Supabase trigger on call_transcripts -> Edge Function -> Gemini
+DB: writes to calendar_events, lead_notes/client_notes
+Priority: HIGH — already have transcription infrastructure
+
+AGENT #16: Meeting Prep Agent (Pre-Meeting Briefing)
+Type: AI Agent (Level 3)
+Trigger: 30 minutes before calendar_event with linked lead/client
+What it does:
+  - Pulls: personality profile, last transcripts, notes, deal status, recommendations
+  - Generates briefing:
+    * "3 key points for this meeting"
+    * "What NOT to say" (from personality red_flags)
+    * "Recommended proposal framing" (from archetype)
+    * Opening script adapted to personality
+  - Sends briefing via WhatsApp/email to the meeting attendee
+Tech: Cron checks calendar_events every 15 min -> Edge Function -> Gemini
+Depends on: personality data, call_transcripts, ai_recommendations
+Priority: HIGH — huge value, straightforward to build
+
+---------- WAVE 2: Smart Agents (Week 3-4) ----------
+
+AGENT #19: Competitor Scout (NEW — Niv's idea)
+Type: AI Agent (Level 3)
+Trigger: New lead created (leads INSERT) OR manual button
+What it does:
+  - Takes lead's business name + industry/location
+  - Searches for competitors in the area (Google Maps, web scraping)
+  - Generates competitor report:
+    * Who are they? What do they do?
+    * Strengths / weaknesses
+    * Their online presence (social, ads, website)
+  - Creates FOMO message adapted to personality:
+    * WINNER: "Your competitors are leading and you're standing still"
+    * ANCHOR: "They already built stable infrastructure, you're behind"
+    * DREAMER: "They're stealing your creative ideas"
+    * HEART: "Their customers love them — where are yours?"
+    * STAR: "They're getting all the attention you deserve"
+  - Saves report to ai_recommendations with type 'competitor_analysis'
+Tech: Edge Function -> Web scraping (Google Search API / SerpAPI) + Gemini analysis
+DB: ai_recommendations (new type), competitor_reports table (optional)
+Note: May need external API (SerpAPI/Google Custom Search) for reliable scraping
+Priority: HIGH — direct sales impact, creates urgency
+
+AGENT #3: Churn Detective (Client Risk Monitor)
+Type: AI Agent (Level 3)
+Trigger: Weekly scan (Cron every Sunday)
+What it does:
+  - Analyzes patterns that indicate upcoming churn:
+    * Decreased response to emails/messages
+    * Stopped approving content/reports
+    * Tone change in transcripts ("disappointed", "expected more")
+    * Retainer decrease history
+  - Combines with Signals personality:
+    * WINNER with HIGH churn + no results in 3 weeks = RED ALERT
+    * ANCHOR who feels instability = RED ALERT
+  - Generates rescue plan per client:
+    * Personalized retention offer
+    * Communication adjustment
+    * Risk level (red/yellow/green)
+  - Dashboard widget: "3 clients at risk this week"
+Tech: Cron -> Edge Function -> scans clients, transcripts, retainer_changes -> Gemini
+DB: churn_alerts table (client_id, risk_level, reasons, rescue_plan, created_at)
+Priority: HIGH — saves revenue
+
+AGENT #4: Personal Creative Agent (Content per Client)
+Type: AI Agent (Level 3)
+Trigger: Weekly Cron + manual "generate content" button + per-client instructions
+What it does:
+  - Generates marketing content adapted to client's personality:
+    * WINNER: competitive content, numbers, "leading the market"
+    * STAR: visual, attention-grabbing, "let them see you"
+    * HEART: human stories, community, testimonials
+    * ANCHOR: professional, reliable, proven facts
+    * DREAMER: creative, visionary, "imagine the future"
+  - Supports per-client instructions:
+    * "This client is a country club, not an agency"
+    * "Focus on seasonal offers"
+    * "Never mention competitors"
+    * Stored in client_content_settings (client_id, instructions, tone, frequency)
+  - Generates 3 post drafts per week per client
+  - Drafts saved for approval before publishing
+Tech: Cron -> Edge Function -> reads client data + instructions + personality -> Gemini
+DB: content_drafts table (client_id, content, platform, status, approved_by, created_at)
+     client_content_settings (client_id, instructions, tone, platforms, frequency)
+Priority: MEDIUM — needs content_drafts infrastructure
+
+AGENT #15: Upsell Matchmaker (Service Opportunity Finder)
+Type: AI Agent (Level 3)
+Trigger: Weekly scan (Cron)
+What it does:
+  - Analyzes all clients and leads for upsell/cross-sell opportunities:
+    * Client A buys only SEO but competitors invest in PPC -> "suggest PPC"
+    * Lead B mentioned "we need branding" in a call -> "branding opportunity"
+    * Client C's retainer is low relative to their business size -> "upgrade"
+  - Personality-aware framing:
+    * WINNER: "ROI proven, you'll beat the competition"
+    * HEART: "complete package that makes your life easier"
+    * ANCHOR: "stable growth plan with guaranteed results"
+  - Weekly digest: "3 upsell opportunities this week"
+Tech: Cron -> Edge Function -> scans transcripts, deals, services -> Gemini
+DB: upsell_opportunities table (entity_id, entity_type, opportunity, framing, status)
+Priority: MEDIUM — high revenue impact
+
+---------- WAVE 3: Advanced System (Week 5-8) ----------
+
+AGENT #20: AI Notebook / Context Brain (NEW — Niv's idea)
+Type: AI Agent (Level 3)
+Trigger: On-demand (ask a question) + auto-update on new data
+What it does:
+  - Central knowledge per client: meeting summaries, protocols, deals, scripts
+  - Understands context across time:
+    * "In January meeting client said X, in February changed to Y"
+    * "Client always complains about delivery times"
+  - Like Google NotebookLM built into CRM
+  - Ask it: "What does this client want?" -> summarizes from ALL sources
+  - Auto-generates timeline of all interactions
+  - Per-client "brain" that remembers everything
+Tech: Vector store (Supabase pgvector) + Embeddings (Gemini) + RAG retrieval
+DB: client_context_embeddings (client_id, source_type, source_id, embedding, text_chunk)
+Note: Most complex agent — needs vector store / embedding infrastructure
+      Could start simpler: just concatenate recent notes+transcripts and send to Gemini
+      Phase 1: simple context window, Phase 2: true RAG with embeddings
+Priority: MEDIUM-HIGH — transformative but complex
+
+AGENT #10: Monthly Strategist (Big Picture Analyst)
+Type: AI Agent (Level 3)
+Trigger: 1st of every month (Cron)
+What it does:
+  - Analyzes ALL data across the agency:
+    * Revenue, leads, conversions, churn rate
+    * Trends: "Revenue up 12% but 3 clients decreased retainer"
+    * Forecast: "At current pace you'll reach X by end of quarter"
+    * Recommendations: "Invest more in lead nurture — 40% of leads die after first contact"
+  - Generates beautiful PDF report automatically
+  - Sends to admin via email
+  - Saves to knowledge_articles for reference
+Tech: Cron -> Edge Function -> queries all tables -> Gemini -> PDF generation
+DB: monthly_reports table (tenant_id, month, report_data, pdf_url, created_at)
+Priority: MEDIUM — needs accumulated data to be meaningful
+
+AGENT #17: Playbook Builder (Learn from Success)
+Type: AI Agent (Level 3)
+Trigger: Monthly analysis + on-demand
+What it does:
+  - Analyzes: which leads converted to clients? What was common?
+  - Discovers patterns:
+    * "WINNER leads who got a proposal within 48 hours: 70% conversion"
+    * "HEART leads who received a personal call: 85% conversion"
+    * "After 5 days without contact: conversion drops to 15%"
+  - Builds optimized playbooks:
+    * "Playbook for converting WINNER leads" -> steps, timing, messages
+    * "Playbook for retaining ANCHOR clients" -> touchpoints, offers
+  - Auto-updates playbooks when new data accumulates
+Tech: Cron (monthly) -> Edge Function -> queries leads/clients/deals history -> Gemini
+DB: playbooks table (archetype, stage, steps, metrics, updated_at)
+Priority: LOW initially — needs enough conversion data to learn from
+
+AGENT #18: Smart Scheduler (When + How to Reach Out)
+Type: AI Agent (Level 3)
+Trigger: Daily morning scan
+What it does:
+  - Decides WHEN is the best time to contact each lead/client:
+    * Learns from history: "This lead always answers between 10-12 AM"
+    * Personality-based: WINNER -> morning (productive), DREAMER -> afternoon
+  - Decides HOW (channel selection):
+    * "This lead responds to WhatsApp, not email"
+    * "This client prefers phone calls"
+  - Creates daily "who to contact when and how" list
+  - Integrates with calendar for scheduling
+Tech: Cron -> Edge Function -> analyzes interaction history -> Gemini
+DB: contact_preferences table (entity_id, best_time, best_channel, confidence)
+     daily_contact_plan (tenant_id, date, entries[])
+Priority: LOW initially — needs interaction history data
+
+---------- WAVE 4: The Vision (Month 3+) ----------
+
+AGENT #21: Super Agent / AI Agent Builder (NEW — Niv's idea)
+Type: Meta-Agent (Level 4)
+Trigger: User describes their business in a prompt
+What it does:
+  - User writes one prompt describing their business
+  - System builds a customized AI agent that knows the business
+  - Visual interface showing the agent's capabilities
+  - Agent can work with all of AMP: calendar, leads, messages, files
+  - Responds to clients on WhatsApp/Instagram at 11 PM
+  - Closes appointments, updates CRM, summarizes conversations
+  - Morning briefing: "You have 3 new appointments, 1 hot lead, here's the summary"
+  - User can modify: type in a box -> system adapts
+Vision:
+  - Client writes on Instagram at 11 PM interested in a product
+  - Agent asks the right questions, understands needs, closes appointment
+  - Next morning: appointment in calendar, lead in CRM, conversation summary ready
+  - You wake up and know exactly what the client wants before picking up the phone
+Tech: Agent Orchestrator + all previous agents as API + WhatsApp Business API
+      + Instagram DM API + conversational AI layer
+Depends on: ALL previous agents working as services
+Priority: FUTURE — the ultimate goal, needs all other agents as foundation
+
+===============================================================================
+PART 3: ARCHITECTURE
+===============================================================================
+
+                 +--------------------------------------------+
+                 |       AGENT #21: Super Agent (Wave 4)      |
+                 |   "Describe business -> custom AI agent"   |
+                 +---------------------+----------------------+
+                                       | manages
+                 +---------------------v----------------------+
+                 |       Agent Orchestrator                   |
+                 |   Supabase pg_cron + agent_tasks queue     |
+                 |   +-------------------------------------+  |
+                 |   | agent_runs table:                    |  |
+                 |   |  id, agent_type, trigger, status,    |  |
+                 |   |  input, output, tenant_id,           |  |
+                 |   |  created_at, completed_at            |  |
+                 |   +-------------------------------------+  |
+                 +--+---+---+---+---+---+---+---+---+---+----+
+                    |   |   |   |   |   |   |   |   |   |
+   08:00  weekly  pre-  new  post weekly weekly daily monthly monthly
+   daily  scan   mtg   lead  call  scan  scan  scan  1st    1st
+    |      |      |     |     |     |     |     |     |      |
+    v      v      v     v     v     v     v     v     v      v
+   #1     #3    #16   #19    #9    #4   #15   #18   #10    #17
+  Cron  Churn  Prep  Scout  F/U  Creat Upsell Sched Strat  Play
+  Alert Detect Agent  Spy   Agent Agent Match  Smart Analyst book
+
+                            #20
+                         AI Notebook
+                       (on-demand RAG)
+
+Each agent = separate Edge Function
+All write to agent_runs for tracking
+All read from personality + leads + clients
+Dashboard: "AI Command Center" shows everything
+
+===============================================================================
+PART 4: BUILD ORDER + DEPENDENCIES
+===============================================================================
+
+WAVE 1 (Week 1-2) — Foundation:
+  1. #1  Cron Alerts        -> needs: pg_cron, notifications table
+  2. #9  Follow-up Agent    -> needs: trigger on call_transcripts
+  3. #16 Meeting Prep       -> needs: cron checking calendar_events
+
+WAVE 2 (Week 3-4) — Smart Agents:
+  4. #19 Competitor Scout    -> needs: search API (SerpAPI/Google), new table
+  5. #3  Churn Detective     -> needs: churn_alerts table, accumulated data
+  6. #4  Creative Agent      -> needs: content_drafts + client_content_settings tables
+  7. #15 Upsell Matchmaker   -> needs: upsell_opportunities table
+
+WAVE 3 (Week 5-8) — Advanced:
+  8. #20 AI Notebook         -> needs: pgvector extension, embeddings
+  9. #10 Monthly Strategist  -> needs: monthly_reports table, PDF gen
+  10. #17 Playbook Builder   -> needs: playbooks table, conversion data
+  11. #18 Smart Scheduler    -> needs: contact_preferences, interaction history
+
+WAVE 4 (Month 3+) — Vision:
+  12. #21 Super Agent        -> needs: ALL above + WhatsApp Business API
+                                      + Instagram API + conversational AI
+
+===============================================================================
+PART 5: NEW DB TABLES NEEDED
+===============================================================================
+
+agent_runs: id, tenant_id, agent_type, trigger_type, status, input, output,
+            error, started_at, completed_at, created_at
+
+notifications: id, tenant_id, user_id, type, title, message, entity_type,
+               entity_id, read, action_url, created_at
+
+churn_alerts: id, tenant_id, client_id, risk_level (red/yellow/green),
+              reasons[], rescue_plan, personality_context, resolved, created_at
+
+content_drafts: id, tenant_id, client_id, content, platform, post_type,
+                status (draft/approved/published/rejected), approved_by,
+                instructions_used, created_at
+
+client_content_settings: client_id, tenant_id, instructions, tone, platforms[],
+                         frequency, special_notes, updated_at
+
+upsell_opportunities: id, tenant_id, entity_id, entity_type, opportunity,
+                      framing, estimated_value, status, created_at
+
+competitor_reports: id, tenant_id, lead_id, competitors[], analysis,
+                   fomo_message, created_at
+
+monthly_reports: id, tenant_id, month, year, report_data (JSON),
+                 pdf_url, highlights[], created_at
+
+playbooks: id, tenant_id, archetype, stage, steps[], metrics,
+           success_rate, sample_size, updated_at
+
+contact_preferences: id, tenant_id, entity_id, entity_type,
+                     best_time, best_channel, confidence, updated_at
+
+daily_contact_plan: id, tenant_id, date, entries[] (entity_id, time, channel,
+                    reason, priority), created_at
+
+client_context_embeddings: id, tenant_id, client_id, source_type,
+                           source_id, embedding (vector), text_chunk,
+                           created_at
+
+===============================================================================
+PART 6: WHAT ALREADY EXISTS IN AMP (Foundation)
+===============================================================================
+
+Already working as "agents" (even if not called that):
+  - AI Recommendations from Signals PDF      -> Gemini analyzes + generates
+  - Personality-aware WhatsApp messages       -> adapts to archetype
+  - PDF personality extraction                -> structures JSON from report
+  - Audio transcription + summary             -> Gemini listens + summarizes
+  - Document summarization (Knowledge Base)   -> reads PDF + classifies
+  - Receipt scanning                          -> Vision extracts data
+  - Auto-trigger recommendations from webhook -> useEffect automation
+
+Missing infrastructure:
+  - pg_cron (scheduled jobs)
+  - Agent Orchestrator (queue + tracking)
+  - Notification system (in-app + push)
+  - Pipeline connecting agents to each other
+  - "AI Command Center" dashboard page
+
+===============================================================================
+PART 7: NIV'S NEW FEATURES (Session 20 — 2026-02-19)
+===============================================================================
+
+8 new feature ideas + Signals OS V2 sync. Build order below.
+
+---------- STEP 0: Signals OS V2 Sync (PREREQUISITE) ----------
+
+PROBLEM: Signals OS upgraded to Business Intelligence V2 (5-door scripts,
+hero cards, action items, domain awareness) but AMP still uses old basic
+personality reception. AMP is missing the entire V2 layer.
+
+WHAT'S MISSING IN AMP:
+  - business_intel_v2 JSONB field in signals_personality table
+  - lang + questionnaire_version columns
+  - TypeScript interfaces: HeroCard, ActionItem, QuickScript, ScriptDoor,
+    FullFiveDoorScript, ProfileBriefing, BusinessIntelV2
+  - Webhook handler doesn't store V2 data
+  - UI doesn't display: hero card, 5-door script, action items, quick script
+  - Domain awareness system (7 categories in Signals OS)
+  - V2 prompt builders for generating business intelligence
+
+WHAT TO DO:
+  1. DB migration: ADD business_intel_v2 JSONB, lang TEXT, questionnaire_version TEXT
+  2. Update signals-webhook Edge Function to store V2 fields
+  3. Add V2 interfaces to types.ts
+  4. Build UI components: HeroCard, ScriptDoors, ActionItems, QuickScript
+  5. Copy domain system from Signals OS categoryDomains.ts
+
+SIGNALS OS V2 STRUCTURE:
+  Layer 1 — Quick Scan (30 seconds):
+    - HeroCard: profileLine, archetype, riskLevel, priorityStars, closeRate
+    - 3 ActionItems: priority + action + why + how
+    - QuickScript: opener, keyQuestion, closeLine
+    - RedFlags: 3-4 deal-killers per archetype
+
+  Layer 2 — Deep Dive (5 minutes):
+    - FullFiveDoorScript:
+      Door 1: Opening (Ice Breaker + Accusation Audit)
+      Door 2: Deep Listening (Mirroring + Labeling + Validation)
+      Door 3: The Offer (archetype-adapted + domain-aware)
+      Door 4a: If Yes -> warm close + scheduling
+      Door 4b: If Hesitant -> FOMO per archetype
+      Door 5a: Objection Fear -> empathy + reality check
+      Door 5b: Objection Price -> mirroring + value reframe
+    - ProfileBriefing: whoIsThis, strengths, weaknesses, goalForCall
+    - PostCallChecklist: 4-5 action items
+    - RetentionNotes
+
+---------- FEATURE #7: Dynamic Services (Multi-Business) ----------
+
+Priority: 1 (Build first)
+Current: INITIAL_SERVICES hardcoded in constants.ts for ad agencies only
+Goal: Any business type can define their own services
+
+What to build:
+  - CRUD for services in Settings (add/edit/delete/reorder)
+  - Each service: name, default_price, category, color, icon
+  - Template import: agency, fitness, real-estate, coaching, etc.
+  - Each tenant picks their business type on first setup
+  - Business type affects AI prompts, PDF templates, terminology
+  - DB: services table (tenant_id, name, price, category, color, sort_order)
+
+---------- FEATURE #8: Purchase History + LTV ----------
+
+Priority: 2
+Current: deals + payments exist but no unified history view
+Goal: Per-client purchase history timeline + LTV calculation
+
+What to build:
+  - "Purchase History" block in ClientProfile
+  - Timeline table: date, description, amount, type (deal/retainer/payment)
+  - LTV calculation: total deals + cumulative retainer + payments
+  - Trend chart (monthly revenue per client)
+  - LTV badge/indicator on client cards and table
+  - For non-agency businesses: product/service purchase tracking
+
+---------- FEATURE #2: Dynamic Call Script (5-Door System) ----------
+
+Priority: 3
+Depends on: Step 0 (Signals V2 sync)
+Source: Copy from Signals OS businessIntelV2.ts
+
+What to build:
+  - Dedicated block in LeadProfile + ClientProfile
+  - If V2 data exists from webhook: display structured 5-door script
+  - If no V2 data: generate on-demand via Gemini using personality + context
+  - Collapsible doors with sub-topics:
+    * Mirroring technique
+    * Framing / reframing
+    * FOMO creation per archetype
+    * Objection handling scripts
+  - Adapt to business domain (not just agencies)
+
+---------- FEATURE #5: PDF Analysis + Work Plan ----------
+
+Priority: 4
+Source: Copy PDF generation method from Signals OS (generatePdf.ts + heeboFont.ts)
+
+What to build:
+  - 2 PDF document types:
+    1. "Current State Analysis" — AI analyzes all lead data, transcripts, notes
+    2. "Work Plan Proposal" — AI generates strategy, services, timeline, pricing
+  - PDF design (based on Niv's reference document):
+    * Business logo at top (tenant's logo OR client's logo)
+    * Color palette configurable per tenant in Settings
+    * Clean Hebrew RTL layout with Heebo font
+    * Sections with headers, content blocks, tables
+    * Professional footer with agency name + date
+  - Branding system:
+    * Logo upload in Settings (stored in storage bucket)
+    * Color palette picker (primary, secondary, accent)
+    * Future businesses can set their own logo + colors
+  - Method: window.print() with hidden HTML (proven method from Signals OS)
+  - Edge Function generates content, frontend renders + prints to PDF
+  - Option to combine both documents into single PDF
+  - Available from LeadProfile after intro call + notes/transcript
+
+---------- FEATURE #3: Competitor Scout (Auto Analysis) ----------
+
+Priority: 5
+Same as Agent #19 from AI Army roadmap
+
+What to build:
+  - Block in LeadProfile + ClientProfile
+  - AI extracts competitors from area/industry
+  - Competitor report: who, what, strengths, weaknesses, online presence
+  - FOMO message adapted to archetype (WINNER/STAR/DREAMER/HEART/ANCHOR)
+  - Edge Function + external search API (SerpAPI / Google Custom Search)
+  - Manual trigger button + auto-trigger on new lead (optional)
+
+---------- FEATURE #4: AI Notebook (Context Brain) ----------
+
+Priority: 6
+Same as Agent #20 from AI Army roadmap
+
+What to build:
+  Phase 1 (Simple):
+    - Chat interface per client/lead in profile
+    - "Ask anything" text box
+    - Backend: concatenate all notes + transcripts + recommendations + V2 data
+    - Send to Gemini with question -> return answer
+    - Shows sources (which note/transcript the answer came from)
+  Phase 2 (Advanced):
+    - pgvector extension in Supabase
+    - Embeddings per text chunk (notes, transcripts, deals)
+    - RAG retrieval for more accurate answers
+    - Auto-generate timeline of all interactions
+
+---------- FEATURE #1: Telegram Voice Commands → CRM ----------
+
+Priority: 7 (Most complex)
+
+What to build:
+  - Telegram Bot (Node.js / Deno) connected to Supabase
+  - Voice message flow:
+    1. User sends voice message in Telegram
+    2. Bot sends audio to Gemini for transcription
+    3. AI Router analyzes intent:
+       - "Note about client X" -> creates client_note/lead_note
+       - "Meeting on date Y" -> creates calendar_event
+       - "Call client Z" -> creates task/reminder
+       - "Idea for client W" -> creates idea
+    4. Entity recognition: matches client/lead names from DB
+    5. Date parsing: Hebrew date expressions ("עוד שבועיים", "ב-1 למרץ")
+    6. Confirmation message back in Telegram
+  - Screenshot/image flow:
+    1. User sends screenshot in Telegram
+    2. AI classifies: competitor screenshot, design idea, receipt, other
+    3. Routes to correct section (ideas, competitors, expenses)
+  - Text command flow:
+    1. User types text command
+    2. Same AI Router processes and routes
+  - Auth: Telegram user linked to AMP user via settings
+  - Edge Function: telegram-webhook (receives updates from Telegram Bot API)
+
+---------- FEATURE #6: Salesforce/Monday Features ----------
+
+Priority: 8 (Ongoing, build alongside other features)
+
+Already have: Kanban pipelines, activity timeline, task management (calendar),
+  notes, file attachments, dashboards, custom fields
+
+What to add over time:
+  - Automations (Wave 1 agents handle this)
+  - Email integration (send/receive from CRM)
+  - Advanced reports with filters + export
+  - Custom views per user (saved filters)
+  - Workflow templates (lead stages with auto-actions)
+  - Bulk actions (mass email, mass status change)
+  - Custom fields per tenant (dynamic form builder)
+
+===============================================================================
+PART 8: UPDATED BUILD ORDER (Session 20)
+===============================================================================
+
+PHASE A — Platform Features:
+  Step 0.  Signals OS V2 Sync         -> DB + webhook + interfaces + UI
+  Step 1.  #7 Dynamic Services        -> Settings CRUD, templates, multi-business
+  Step 2.  #8 Purchase History + LTV  -> ClientProfile block, timeline, charts
+  Step 3.  #2 Dynamic Call Scripts    -> 5-door UI from V2 data + on-demand gen
+  Step 4.  #5 PDF Documents           -> window.print(), logo+colors branding
+  Step 5.  #3 Competitor Scout        -> Edge Function + search API
+  Step 6.  #4 AI Notebook             -> Phase 1 simple, then Phase 2 RAG
+  Step 7.  #1 Telegram Bot            -> Most complex, voice+image+text routing
+  Step 8.  #6 Salesforce Features     -> Ongoing alongside everything
+
+PHASE B — AI Agent Army (from original roadmap):
+  Wave 1.  #1 Cron Alerts, #9 Follow-up, #16 Meeting Prep
+  Wave 2.  #19 Competitor Scout (enhanced), #3 Churn, #4 Creative, #15 Upsell
+  Wave 3.  #20 AI Notebook (enhanced), #10 Monthly, #17 Playbook, #18 Scheduler
+  Wave 4.  #21 Super Agent
+
+===============================================================================
+END OF IDEAS FILE
+===============================================================================
