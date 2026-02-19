@@ -3220,7 +3220,7 @@ ${questionnaireUrl}
                             size="sm"
                             variant="ghost"
                             onClick={() => {
-                              const brand = getBrandConfig(settings);
+                              const brand = { ...getBrandConfig(settings), phone: '055-7294068' };
                               const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proposal-webhook`;
                               generateAnimatedProposal({
                                 proposalId: prop.id,
@@ -3232,6 +3232,9 @@ ${questionnaireUrl}
                                 terms: prop.proposalData?.terms || { items: [] },
                                 validUntil: prop.proposalData?.validUntil,
                                 webhookUrl,
+                                websiteUrl: 'https://www.alma-ads.co.il',
+                                showSocialProof: true,
+                                showFullTerms: true,
                               }, brand);
                             }}
                             icon={<ExternalLink size={14} />}
@@ -3245,7 +3248,7 @@ ${questionnaireUrl}
                             onClick={async () => {
                               setIsPublishingProposal(prop.id);
                               try {
-                                const brand = getBrandConfig(settings);
+                                const brand = { ...getBrandConfig(settings), phone: '055-7294068' };
                                 const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proposal-webhook`;
                                 const html = buildAnimatedProposalHtml({
                                   proposalId: prop.id,
@@ -3257,6 +3260,9 @@ ${questionnaireUrl}
                                   terms: prop.proposalData?.terms || { items: [] },
                                   validUntil: prop.proposalData?.validUntil,
                                   webhookUrl,
+                                  websiteUrl: 'https://www.alma-ads.co.il',
+                                  showSocialProof: true,
+                                  showFullTerms: true,
                                 }, brand);
                                 const url = await publishProposalPage(prop.id, html);
                                 if (url) {
@@ -3888,7 +3894,7 @@ ${questionnaireUrl}
 
             {/* Preview */}
             <Button variant="ghost" onClick={() => {
-              const brand = getBrandConfig(settings);
+              const brand = { ...getBrandConfig(settings), phone: '055-7294068' };
               const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proposal-webhook`;
               generateAnimatedProposal({
                 proposalId: editingProposal?.id || 'preview',
@@ -3900,6 +3906,9 @@ ${questionnaireUrl}
                 terms: { items: proposalForm.terms.filter(t => t.trim()) },
                 validUntil: proposalForm.validUntil || undefined,
                 webhookUrl,
+                websiteUrl: 'https://www.alma-ads.co.il',
+                showSocialProof: true,
+                showFullTerms: true,
               }, brand);
             }} icon={<ExternalLink size={14} />}>תצוגה מקדימה</Button>
 
@@ -3930,7 +3939,7 @@ ${questionnaireUrl}
               }
 
               if (proposalId) {
-                const brand = getBrandConfig(settings);
+                const brand = { ...getBrandConfig(settings), phone: '055-7294068' };
                 const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proposal-webhook`;
                 const html = buildAnimatedProposalHtml({
                   proposalId,
@@ -3942,6 +3951,9 @@ ${questionnaireUrl}
                   terms: proposalData.terms,
                   validUntil: proposalData.validUntil,
                   webhookUrl,
+                  websiteUrl: 'https://www.alma-ads.co.il',
+                  showSocialProof: true,
+                  showFullTerms: true,
                 }, brand);
                 const url = await publishProposalPage(proposalId, html);
                 if (url) {

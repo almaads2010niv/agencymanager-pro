@@ -8,6 +8,22 @@
 //
 // Output: opens in a new window — client-ready shareable document.
 
+import { PROPOSAL_TESTIMONIALS, PROPOSAL_STATS, FULL_TERMS_TEXT, type ProposalTestimonial } from './proposalSocialProof';
+
+// ── Logo URLs (Supabase Storage) ────────────────────────────────
+const LOGO_BASE = 'https://rxckkozbkrabpjdgyxqm.supabase.co/storage/v1/object/public/proposal-pages/logos';
+const PROPOSAL_LOGO_URLS = [
+  { name: 'B-Cure Laser', url: `${LOGO_BASE}/B-Cure-Laser.png` },
+  { name: 'Smoovee', url: `${LOGO_BASE}/Smoovee.png` },
+  { name: 'UFC', url: `${LOGO_BASE}/UFC.png` },
+  { name: 'Great Shape', url: `${LOGO_BASE}/great-shape.png` },
+  { name: 'Kiki Party', url: `${LOGO_BASE}/kiki-party.png` },
+  { name: 'Body Star', url: `${LOGO_BASE}/body-star.jpg` },
+  { name: 'גוסטינו', url: `${LOGO_BASE}/gustino.png` },
+  { name: 'קאנטרי נשר', url: `${LOGO_BASE}/country-nesher.png` },
+  { name: 'קאנטרי רמות', url: `${LOGO_BASE}/country-ramot.png` },
+];
+
 // ── Interfaces ──────────────────────────────────────────────────
 
 export interface ProposalPageConfig {
@@ -31,6 +47,12 @@ export interface ProposalPageConfig {
   terms: { items: string[] };
   validUntil?: string;
   webhookUrl: string;
+  /** Website URL for "discover our approach" CTA */
+  websiteUrl?: string;
+  /** Show social proof sections (logos, testimonials, stats) — default true */
+  showSocialProof?: boolean;
+  /** Show full legal terms overlay — default true */
+  showFullTerms?: boolean;
 }
 
 export interface ProposalBrandConfig {
@@ -40,6 +62,10 @@ export interface ProposalBrandConfig {
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
+  /** Contact phone number */
+  phone?: string;
+  /** Contact address */
+  address?: string;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -146,6 +172,100 @@ export function buildAnimatedProposalHtml(config: ProposalPageConfig, brand: Pro
 
   // ── Validity HTML ──
   const validityHtml = validStr ? `<span class="header-valid">בתוקף עד ${validStr}</span>` : '';
+
+  // ── Build Social Proof (Logos Marquee) ──
+  const showSocial = config.showSocialProof !== false;
+  const logoItems = PROPOSAL_LOGO_URLS.map(l =>
+    `<div class="marquee-logo"><img src="${esc(l.url)}" alt="${esc(l.name)}" loading="lazy" onerror="this.parentElement.style.display='none'" /></div>`
+  ).join('');
+  const logosHtml = showSocial ? `
+    <div class="logos-section reveal" style="animation-delay:0.1s">
+      <div class="logos-title">לקוחות שבחרו בנו</div>
+      <div class="marquee-wrap">
+        <div class="marquee-track">${logoItems}${logoItems}${logoItems}</div>
+      </div>
+    </div>
+  ` : '';
+
+  // ── Build Stats Bar ──
+  const statsHtml = showSocial ? `
+    <div class="stats-bar reveal" style="animation-delay:0.15s">
+      <div class="stat-item"><div class="stat-value">${PROPOSAL_STATS.clients}</div><div class="stat-label">${esc(PROPOSAL_STATS.clientsLabel)}</div></div>
+      <div class="stat-item"><div class="stat-value">${PROPOSAL_STATS.stories}</div><div class="stat-label">${esc(PROPOSAL_STATS.storiesLabel)}</div></div>
+      <div class="stat-item"><div class="stat-value">${PROPOSAL_STATS.years}</div><div class="stat-label">${esc(PROPOSAL_STATS.yearsLabel)}</div></div>
+      <div class="stat-item"><div class="stat-value">${PROPOSAL_STATS.personal}</div><div class="stat-label">${esc(PROPOSAL_STATS.personalLabel)}</div></div>
+    </div>
+  ` : '';
+
+  // ── Build Testimonials Carousel ──
+  const testimonialsToShow = PROPOSAL_TESTIMONIALS.slice(0, 6);
+  const testimonialCards = testimonialsToShow.map((t: ProposalTestimonial, i: number) => {
+    const stars = Array.from({ length: t.stars }, () => '★').join('');
+    return `
+      <div class="testi-card" data-testi="${i}">
+        <div class="testi-stars">${stars}</div>
+        <div class="testi-content">"${esc(t.content)}"</div>
+        <div class="testi-author">
+          <div class="testi-name">${esc(t.name)}</div>
+          <div class="testi-role">${esc(t.role)}</div>
+        </div>
+      </div>`;
+  }).join('');
+  const testiDotsHtml = testimonialsToShow.map((_: ProposalTestimonial, i: number) =>
+    `<button class="testi-dot ${i === 0 ? 'active' : ''}" data-idx="${i}"></button>`
+  ).join('');
+
+  const testimonialsHtml = showSocial ? `
+    <div class="section-header reveal">
+      <div class="dot" style="background:#f59e0b;box-shadow:0 0 10px #f59e0b"></div>
+      <h2>מה הלקוחות שלנו אומרים</h2>
+    </div>
+    <div class="testi-carousel reveal" style="animation-delay:0.1s">
+      <div class="testi-viewport">
+        <div class="testi-track">${testimonialCards}</div>
+      </div>
+      <div class="testi-dots">${testiDotsHtml}</div>
+    </div>
+  ` : '';
+
+  // ── Build Full Legal Terms Overlay ──
+  const showLegal = config.showFullTerms !== false;
+  const fullTermsSanitized = esc(FULL_TERMS_TEXT).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
+  const fullTermsHtml = showLegal ? `
+    <div class="full-terms-link reveal" style="animation-delay:0.15s">
+      <button class="btn-terms-open" id="openFullTerms">📋 לצפייה בתנאים המלאים לחץ כאן</button>
+    </div>
+    <div class="terms-overlay" id="termsOverlay">
+      <div class="terms-modal">
+        <div class="terms-modal-header">
+          <h3>תנאי שירות כלליים</h3>
+          <button class="terms-close" id="closeFullTerms">&times;</button>
+        </div>
+        <div class="terms-modal-body">
+          <p>${fullTermsSanitized}</p>
+        </div>
+        <div class="terms-modal-footer">
+          ${brand.agencyName} &middot; www.alma-ads.co.il &middot; ${brand.phone || ''}
+        </div>
+      </div>
+    </div>
+  ` : '';
+
+  // ── Build Website CTA ──
+  const websiteUrl = config.websiteUrl || 'https://www.alma-ads.co.il';
+  const websiteCtaHtml = showSocial ? `
+    <div class="website-cta reveal" style="animation-delay:0.1s">
+      <div class="website-cta-inner">
+        <div class="website-cta-text">
+          <div class="website-cta-title">רוצים להכיר את הגישה שלנו?</div>
+          <div class="website-cta-sub">גלו את דרכי החשיבה, המתודולוגיה והשירותים שלנו</div>
+        </div>
+        <a href="${esc(websiteUrl)}" target="_blank" rel="noopener" class="btn btn-primary website-cta-btn">
+          בקרו באתר שלנו &#8592;
+        </a>
+      </div>
+    </div>
+  ` : '';
 
   // ── Full HTML ──
   const html = `<!DOCTYPE html>
@@ -594,10 +714,172 @@ export function buildAnimatedProposalHtml(config: ProposalPageConfig, brand: Pro
     border-radius: 20px; color: var(--text-subtle);
   }
 
+  /* ── Logo Marquee ── */
+  .logos-section {
+    margin-top: 56px; text-align: center;
+  }
+  .logos-title {
+    font-size: 13px; font-weight: 700; color: var(--text-subtle);
+    text-transform: uppercase; letter-spacing: 3px; margin-bottom: 20px;
+  }
+  .marquee-wrap {
+    overflow: hidden; position: relative;
+    mask-image: linear-gradient(90deg, transparent, black 10%, black 90%, transparent);
+    -webkit-mask-image: linear-gradient(90deg, transparent, black 10%, black 90%, transparent);
+  }
+  .marquee-track {
+    display: flex; align-items: center; gap: 48px;
+    animation: marqueeScroll 30s linear infinite;
+    width: max-content;
+  }
+  @keyframes marqueeScroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-33.333%); }
+  }
+  .marquee-logo {
+    flex-shrink: 0;
+  }
+  .marquee-logo img {
+    height: 40px; width: auto; object-fit: contain;
+    filter: grayscale(100%) brightness(2); opacity: 0.4;
+    transition: all 0.4s;
+  }
+  .marquee-logo img:hover {
+    filter: grayscale(0%) brightness(1); opacity: 1;
+  }
+
+  /* ── Stats Bar ── */
+  .stats-bar {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin-top: 24px;
+  }
+  @media (max-width: 640px) { .stats-bar { grid-template-columns: repeat(2, 1fr); } }
+  .stat-item {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px 12px; text-align: center;
+    transition: transform 0.3s;
+  }
+  .stat-item:hover { transform: translateY(-2px); }
+  .stat-value {
+    font-size: 28px; font-weight: 900;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .stat-label {
+    font-size: 11px; color: var(--text-subtle); font-weight: 600;
+    margin-top: 4px;
+  }
+
+  /* ── Testimonials Carousel ── */
+  .testi-carousel { position: relative; overflow: hidden; }
+  .testi-viewport {
+    overflow: hidden; border-radius: 16px;
+  }
+  .testi-track {
+    display: flex; transition: transform 0.5s ease;
+  }
+  .testi-card {
+    min-width: 100%; box-sizing: border-box;
+    background: linear-gradient(135deg, var(--surface), var(--surface2));
+    border: 1px solid var(--border); border-radius: 16px;
+    padding: 32px 28px; text-align: center;
+  }
+  .testi-stars {
+    font-size: 20px; color: #f59e0b; margin-bottom: 16px;
+    letter-spacing: 4px;
+  }
+  .testi-content {
+    font-size: 16px; color: var(--text-muted); line-height: 1.8;
+    font-style: italic; max-width: 600px; margin: 0 auto 20px;
+  }
+  .testi-author { border-top: 1px solid var(--border); padding-top: 16px; }
+  .testi-name { font-size: 16px; font-weight: 700; color: var(--text); }
+  .testi-role { font-size: 12px; color: var(--primary); font-weight: 500; margin-top: 2px; }
+  .testi-dots {
+    display: flex; justify-content: center; gap: 8px; margin-top: 16px;
+  }
+  .testi-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 1px solid var(--text-subtle); background: transparent;
+    cursor: pointer; transition: all 0.3s; padding: 0;
+  }
+  .testi-dot.active {
+    background: var(--primary); border-color: var(--primary);
+    box-shadow: 0 0 8px var(--primary);
+  }
+
+  /* ── Full Terms Modal/Overlay ── */
+  .full-terms-link { text-align: center; margin-top: 12px; }
+  .btn-terms-open {
+    font-family: 'Heebo', sans-serif;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--primary); font-size: 14px; font-weight: 600;
+    padding: 12px 28px; border-radius: 12px; cursor: pointer;
+    transition: all 0.3s;
+  }
+  .btn-terms-open:hover {
+    background: var(--primary); color: white;
+    box-shadow: 0 4px 16px ${brand.primaryColor}33;
+  }
+  .terms-overlay {
+    display: none; position: fixed; inset: 0; z-index: 90;
+    background: rgba(0,0,0,0.8); backdrop-filter: blur(4px);
+    align-items: center; justify-content: center; padding: 24px;
+  }
+  .terms-overlay.active { display: flex; }
+  .terms-modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 20px; max-width: 700px; width: 100%;
+    max-height: 80vh; display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .terms-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 24px; border-bottom: 1px solid var(--border);
+  }
+  .terms-modal-header h3 {
+    font-size: 18px; font-weight: 700; color: var(--text);
+  }
+  .terms-close {
+    background: none; border: none; color: var(--text-muted);
+    font-size: 28px; cursor: pointer; padding: 0 8px;
+    transition: color 0.2s;
+  }
+  .terms-close:hover { color: var(--error); }
+  .terms-modal-body {
+    padding: 24px; overflow-y: auto; flex: 1;
+    font-size: 13px; color: var(--text-muted); line-height: 1.9;
+  }
+  .terms-modal-body p { margin-bottom: 12px; }
+  .terms-modal-footer {
+    padding: 14px 24px; border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--text-subtle); text-align: center;
+  }
+
+  /* ── Website CTA ── */
+  .website-cta { margin-top: 32px; }
+  .website-cta-inner {
+    background: linear-gradient(135deg, var(--primary)15, var(--accent)10);
+    border: 1px solid var(--primary)22;
+    border-radius: 16px; padding: 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 20px; flex-wrap: wrap;
+  }
+  .website-cta-title {
+    font-size: 18px; font-weight: 700; color: var(--text);
+  }
+  .website-cta-sub {
+    font-size: 13px; color: var(--text-muted); margin-top: 4px;
+  }
+  .website-cta-btn {
+    white-space: nowrap; text-decoration: none;
+  }
+
   /* ── Print styles ── */
   @media print {
     body { background: white; color: #1e293b; }
-    .bg-grid, .bg-glow, .bg-glow2, .success-overlay { display: none !important; }
+    .bg-grid, .bg-glow, .bg-glow2, .success-overlay, .terms-overlay, .marquee-wrap, .testi-carousel { display: none !important; }
     .sig-section { display: none !important; }
     .reveal { opacity: 1 !important; transform: none !important; animation: none !important; }
     .phase-header, .intro-card, .pkg-card, .terms-details {
@@ -605,6 +887,7 @@ export function buildAnimatedProposalHtml(config: ProposalPageConfig, brand: Pro
     }
     .header-title { -webkit-text-fill-color: #1e293b; }
     .pkg-price { -webkit-text-fill-color: #1e293b; }
+    .stat-value { -webkit-text-fill-color: #1e293b; }
     .container { padding: 20px; }
   }
 </style>
@@ -667,6 +950,21 @@ export function buildAnimatedProposalHtml(config: ProposalPageConfig, brand: Pro
       </ul>
     </details>
     ` : ''}
+
+    <!-- Full Legal Terms Link -->
+    ${fullTermsHtml}
+
+    <!-- Social Proof: Logo Marquee -->
+    ${logosHtml}
+
+    <!-- Stats Bar -->
+    ${statsHtml}
+
+    <!-- Testimonials Carousel -->
+    ${testimonialsHtml}
+
+    <!-- Website CTA -->
+    ${websiteCtaHtml}
 
     <!-- Signature Form -->
     <div class="section-header reveal">
@@ -952,6 +1250,67 @@ export function buildAnimatedProposalHtml(config: ProposalPageConfig, brand: Pro
         sigError.textContent = '';
       });
     });
+
+    // ── Testimonials Carousel ──
+    var testiTrack = document.querySelector('.testi-track');
+    var testiDots = document.querySelectorAll('.testi-dot');
+    var testiCards = document.querySelectorAll('.testi-card');
+    var currentTesti = 0;
+    var testiCount = testiCards.length;
+    var testiAutoTimer = null;
+
+    function showTesti(idx) {
+      if (idx < 0) idx = testiCount - 1;
+      if (idx >= testiCount) idx = 0;
+      currentTesti = idx;
+      if (testiTrack) {
+        testiTrack.style.transform = 'translateX(' + (idx * 100) + '%)';
+      }
+      testiDots.forEach(function(dot, i) {
+        dot.classList.toggle('active', i === idx);
+      });
+    }
+
+    testiDots.forEach(function(dot) {
+      dot.addEventListener('click', function() {
+        var idx = parseInt(this.getAttribute('data-idx') || '0');
+        showTesti(idx);
+        resetTestiAuto();
+      });
+    });
+
+    function resetTestiAuto() {
+      if (testiAutoTimer) clearInterval(testiAutoTimer);
+      testiAutoTimer = setInterval(function() {
+        showTesti(currentTesti + 1);
+      }, 5000);
+    }
+
+    if (testiCount > 1) resetTestiAuto();
+
+    // ── Full Terms Modal ──
+    var openTermsBtn = document.getElementById('openFullTerms');
+    var termsOverlay = document.getElementById('termsOverlay');
+    var closeTermsBtn = document.getElementById('closeFullTerms');
+
+    if (openTermsBtn && termsOverlay) {
+      openTermsBtn.addEventListener('click', function() {
+        termsOverlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+      });
+    }
+    if (closeTermsBtn && termsOverlay) {
+      closeTermsBtn.addEventListener('click', function() {
+        termsOverlay.classList.remove('active');
+        document.body.style.overflow = '';
+      });
+      termsOverlay.addEventListener('click', function(e) {
+        if (e.target === termsOverlay) {
+          termsOverlay.classList.remove('active');
+          document.body.style.overflow = '';
+        }
+      });
+    }
   })();
   </script>
 </body>
