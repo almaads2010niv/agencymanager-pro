@@ -34,7 +34,7 @@ function esc(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
-export function generateAnimatedStrategy(data: AnimatedStrategyData, brand: AnimatedBrandConfig): void {
+export function buildAnimatedStrategyHtml(data: AnimatedStrategyData, brand: AnimatedBrandConfig): string {
   const { planData: pd, entityName } = data;
   const entityLabel = data.entityType === 'client' ? 'לקוח' : 'ליד';
   const dateStr = new Date(data.createdAt).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -576,7 +576,12 @@ export function generateAnimatedStrategy(data: AnimatedStrategyData, brand: Anim
 </body>
 </html>`;
 
-  // Open in new window
+  return html;
+}
+
+/** Generate the HTML and open it in a new browser window */
+export function generateAnimatedStrategy(data: AnimatedStrategyData, brand: AnimatedBrandConfig): void {
+  const html = buildAnimatedStrategyHtml(data, brand);
   const win = window.open('', '_blank');
   if (win) {
     win.document.write(html);

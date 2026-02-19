@@ -397,6 +397,7 @@ export interface StrategyPlan {
   entityName: string;
   planData: StrategyPlanData;
   rawText?: string;
+  publicUrl?: string;
   createdBy: string;
   createdByName: string;
   createdAt: string;

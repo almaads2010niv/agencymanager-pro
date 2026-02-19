@@ -111,6 +111,7 @@ interface StrategyPlanRow {
   entity_name: string;
   plan_data: Record<string, unknown>;
   raw_text: string | null;
+  public_url: string | null;
   created_by: string;
   created_by_name: string;
   created_at: string;
@@ -249,7 +250,9 @@ export interface DataContextType extends AppData {
 
   strategyPlans: StrategyPlan[];
   addStrategyPlan: (plan: Omit<StrategyPlan, 'id' | 'createdAt'>) => Promise<void>;
+  updateStrategyPlan: (id: string, updates: Partial<Pick<StrategyPlan, 'planData' | 'entityName'>>) => Promise<void>;
   deleteStrategyPlan: (id: string) => Promise<void>;
+  publishStrategyPage: (id: string, html: string) => Promise<string | null>;
 
   addWhatsAppMessage: (msg: Omit<WhatsAppMessage, 'id' | 'sentAt'>) => Promise<void>;
   deleteWhatsAppMessage: (id: string) => Promise<void>;
@@ -658,6 +661,7 @@ const transformStrategyPlanToDB = (plan: StrategyPlan) => ({
   entity_name: plan.entityName,
   plan_data: plan.planData,
   raw_text: plan.rawText || null,
+  public_url: plan.publicUrl || null,
   created_by: plan.createdBy,
   created_by_name: plan.createdByName,
   created_at: plan.createdAt,
@@ -684,6 +688,7 @@ const transformStrategyPlanFromDB = (row: StrategyPlanRow): StrategyPlan => {
     entityName: row.entity_name || '',
     planData,
     rawText: row.raw_text || undefined,
+    publicUrl: row.public_url || undefined,
     createdBy: row.created_by,
     createdByName: row.created_by_name || '',
     createdAt: row.created_at,
@@ -1994,8 +1999,38 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateStrategyPlan = async (id: string, updates: Partial<Pick<StrategyPlan, 'planData' | 'entityName'>>) => {
+    try {
+      const dbUpdates: Record<string, unknown> = {};
+      if (updates.planData !== undefined) dbUpdates.plan_data = updates.planData;
+      if (updates.entityName !== undefined) dbUpdates.entity_name = updates.entityName;
+
+      const { error } = await supabase
+        .from('strategy_plans')
+        .update(dbUpdates)
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setData(prev => ({
+        ...prev,
+        strategyPlans: prev.strategyPlans.map(s => s.id === id ? { ...s, ...updates } : s),
+      }));
+    } catch (err) {
+      showError('שגיאה בעדכון תוכנית אסטרטגית');
+      throw err;
+    }
+  };
+
   const deleteStrategyPlan = async (id: string) => {
     try {
+      // Also remove published HTML from storage if exists
+      const plan = data.strategyPlans.find(s => s.id === id);
+      if (plan?.publicUrl) {
+        const storagePath = `${tenantId || 'default'}/${id}.html`;
+        await supabase.storage.from('strategy-pages').remove([storagePath]);
+      }
+
       const { error } = await supabase
         .from('strategy_plans')
         .delete()
@@ -2010,6 +2045,43 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       showError('שגיאה במחיקת תוכנית אסטרטגית');
       throw err;
+    }
+  };
+
+  const publishStrategyPage = async (id: string, html: string): Promise<string | null> => {
+    try {
+      const storagePath = `${tenantId || 'default'}/${id}.html`;
+      const blob = new Blob([html], { type: 'text/html' });
+      const file = new File([blob], `${id}.html`, { type: 'text/html' });
+
+      const { error: uploadError } = await supabase.storage
+        .from('strategy-pages')
+        .upload(storagePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('strategy-pages')
+        .getPublicUrl(storagePath);
+
+      const publicUrl = publicUrlData?.publicUrl || null;
+
+      if (publicUrl) {
+        await supabase
+          .from('strategy_plans')
+          .update({ public_url: publicUrl })
+          .eq('id', id);
+
+        setData(prev => ({
+          ...prev,
+          strategyPlans: prev.strategyPlans.map(s => s.id === id ? { ...s, publicUrl } : s),
+        }));
+      }
+
+      return publicUrl;
+    } catch (err) {
+      showError('שגיאה בפרסום עמוד אסטרטגיה');
+      return null;
     }
   };
 
@@ -2607,7 +2679,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addLeadNote, deleteLeadNote,
       addCallTranscript, deleteCallTranscript,
       addAIRecommendation, deleteAIRecommendation,
-      addStrategyPlan, deleteStrategyPlan,
+      addStrategyPlan, updateStrategyPlan, deleteStrategyPlan, publishStrategyPage,
       addWhatsAppMessage, deleteWhatsAppMessage,
       uploadRecording,
       addCalendarEvent, updateCalendarEvent, deleteCalendarEvent,

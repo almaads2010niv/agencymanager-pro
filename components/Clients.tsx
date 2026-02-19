@@ -120,20 +120,20 @@ const Clients: React.FC = () => {
       </Card>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-[#151C2C] border border-white/5 rounded-xl p-4">
-          <div className="text-[10px] text-gray-500 uppercase">לקוחות פעילים</div>
+        <div className="bg-surface/80 backdrop-blur-md border border-white/10 rounded-xl p-4 hover:border-white/20 transition-all duration-300">
+          <div className="text-[10px] text-gray-400 uppercase">לקוחות פעילים</div>
           <div className="text-2xl font-bold text-white mt-1">{clients.filter(c => c.status === ClientStatus.Active).length}</div>
         </div>
-        <div className="bg-[#151C2C] border border-white/5 rounded-xl p-4">
-          <div className="text-[10px] text-gray-500 uppercase">הכנסה חודשית</div>
+        <div className="bg-surface/80 backdrop-blur-md border border-white/10 rounded-xl p-4 hover:border-emerald-500/30 transition-all duration-300">
+          <div className="text-[10px] text-gray-400 uppercase">הכנסה חודשית</div>
           <div className="text-2xl font-bold text-emerald-400 font-mono mt-1">{formatCurrency(clients.filter(c => c.status === ClientStatus.Active).reduce((sum, c) => sum + c.monthlyRetainer, 0))}</div>
         </div>
-        <div className="bg-[#151C2C] border border-white/5 rounded-xl p-4">
-          <div className="text-[10px] text-gray-500 uppercase">רווח חודשי</div>
+        <div className="bg-surface/80 backdrop-blur-md border border-white/10 rounded-xl p-4 hover:border-primary/30 transition-all duration-300">
+          <div className="text-[10px] text-gray-400 uppercase">רווח חודשי</div>
           <div className="text-2xl font-bold text-primary font-mono mt-1">{formatCurrency(clients.filter(c => c.status === ClientStatus.Active).reduce((sum, c) => sum + (c.monthlyRetainer - c.supplierCostMonthly), 0))}</div>
         </div>
-        <div className="bg-[#151C2C] border border-white/5 rounded-xl p-4">
-          <div className="text-[10px] text-gray-500 uppercase">סה"כ לקוחות</div>
+        <div className="bg-surface/80 backdrop-blur-md border border-white/10 rounded-xl p-4 hover:border-white/20 transition-all duration-300">
+          <div className="text-[10px] text-gray-400 uppercase">סה"כ לקוחות</div>
           <div className="text-2xl font-bold text-white mt-1">{clients.length}</div>
         </div>
       </div>

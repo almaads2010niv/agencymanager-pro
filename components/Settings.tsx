@@ -148,16 +148,7 @@ const Settings: React.FC = () => {
               </div>
               <div className="flex items-center gap-4">
                 {settings.logoUrl ? (
-                  <div className="relative group">
-                    <img src={settings.logoUrl} alt="Logo" className="h-16 w-auto rounded-lg border border-white/10 bg-white/5 object-contain p-1" />
-                    <button
-                      onClick={async () => { await deleteLogo(); }}
-                      className="absolute -top-2 -left-2 p-1 rounded-full bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="הסר לוגו"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
+                  <img src={settings.logoUrl} alt="Logo" className="h-16 w-auto rounded-lg border border-white/10 bg-white/5 object-contain p-1" />
                 ) : (
                   <div className="h-16 w-24 rounded-lg border-2 border-dashed border-white/10 flex items-center justify-center text-gray-600 text-xs">
                     אין לוגו
@@ -172,6 +163,15 @@ const Settings: React.FC = () => {
                   >
                     {logoUploading ? 'מעלה...' : settings.logoUrl ? 'החלף לוגו' : 'העלה לוגו'}
                   </Button>
+                  {settings.logoUrl && (
+                    <Button
+                      variant="danger"
+                      icon={<Trash2 size={14} />}
+                      onClick={async () => { await deleteLogo(); }}
+                    >
+                      הסר לוגו
+                    </Button>
+                  )}
                   <span className="text-[10px] text-gray-500">PNG, JPG, WebP או SVG · עד 2MB</span>
                 </div>
                 <input

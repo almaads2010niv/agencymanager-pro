@@ -7,10 +7,10 @@ import { LeadStatus, SourceChannel, ClientRating, ClientStatus, EffortLevel, Not
 import type { Lead, StrategyPlan } from '../types';
 import { formatCurrency, formatDate, formatDateTime, formatPhoneForWhatsApp } from '../utils';
 import { MESSAGE_PURPOSES } from '../constants';
-import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink, Upload, Loader2, Zap, Users, Star, AlertTriangle, MessageSquare, ListChecks, Printer } from 'lucide-react';
+import { ArrowRight, Phone, Mail, Calendar, Send, Trash2, MessageCircle, User, Clock, CheckCircle, Tag, Globe, ChevronDown, ChevronUp, Sparkles, Plus, FileText, Mic, Edit3, Target, Brain, Shield, ExternalLink, Upload, Loader2, Zap, Users, Star, AlertTriangle, MessageSquare, ListChecks, Printer, Link2, Copy, Check } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { getBrandConfig, generatePersonalityPdf, generateCustomPdf, generateStrategyPdf } from '../utils/pdfGenerator';
-import { generateAnimatedStrategy } from '../utils/animatedStrategy';
+import { generateAnimatedStrategy, buildAnimatedStrategyHtml } from '../utils/animatedStrategy';
 import { Input, Textarea, Select, Checkbox } from './ui/Form';
 import { Card, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
@@ -96,7 +96,7 @@ const LeadProfile: React.FC = () => {
     aiRecommendations, addAIRecommendation, deleteAIRecommendation,
     whatsappMessages, addWhatsAppMessage, deleteWhatsAppMessage, uploadRecording,
     signalsPersonalities, competitorReports, runCompetitorScout, deleteCompetitorReport,
-    strategyPlans, addStrategyPlan, deleteStrategyPlan,
+    strategyPlans, addStrategyPlan, updateStrategyPlan, deleteStrategyPlan, publishStrategyPage,
   } = useData();
 
   // Notes state
@@ -160,6 +160,10 @@ const LeadProfile: React.FC = () => {
   const [strategyError, setStrategyError] = useState<string | null>(null);
   const [expandedStrategyId, setExpandedStrategyId] = useState<string | null>(null);
   const [confirmDeleteStrategyId, setConfirmDeleteStrategyId] = useState<string | null>(null);
+  const [editingStrategyId, setEditingStrategyId] = useState<string | null>(null);
+  const [editStrategyData, setEditStrategyData] = useState<import('../types').StrategyPlanData | null>(null);
+  const [isPublishingStrategy, setIsPublishingStrategy] = useState<string | null>(null);
+  const [copiedStrategyUrl, setCopiedStrategyUrl] = useState<string | null>(null);
 
   // AI Notebook state
   const [notebookOpen, setNotebookOpen] = useState(false);
@@ -2639,9 +2643,38 @@ ${questionnaireUrl}
                           </div>
                         )}
 
-                        {/* Actions: Export + Delete */}
+                        {/* Public URL display */}
+                        {strategy.publicUrl && (
+                          <div className="flex items-center gap-2 p-2.5 bg-violet-500/5 border border-violet-500/10 rounded-lg mb-3">
+                            <Link2 size={14} className="text-violet-400 flex-shrink-0" />
+                            <a href={strategy.publicUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-violet-400 hover:text-violet-300 truncate flex-1" dir="ltr">{strategy.publicUrl}</a>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(strategy.publicUrl!);
+                                setCopiedStrategyUrl(strategy.id);
+                                setTimeout(() => setCopiedStrategyUrl(null), 2000);
+                              }}
+                              className="flex-shrink-0 p-1 rounded hover:bg-white/5"
+                              title="העתק לינק"
+                            >
+                              {copiedStrategyUrl === strategy.id ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} className="text-gray-400" />}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Actions: Edit + Export + Publish + Delete */}
                         <div className="flex items-center justify-between border-t border-white/5 pt-3 mt-3">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Button
+                              variant="ghost"
+                              icon={<Edit3 size={14} />}
+                              onClick={() => {
+                                setEditingStrategyId(strategy.id);
+                                setEditStrategyData(JSON.parse(JSON.stringify(strategy.planData)));
+                              }}
+                            >
+                              עריכה
+                            </Button>
                             <Button
                               variant="ghost"
                               icon={<Printer size={14} />}
@@ -2672,6 +2705,34 @@ ${questionnaireUrl}
                               }}
                             >
                               מונפש
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              icon={isPublishingStrategy === strategy.id ? <div className="w-3.5 h-3.5 border-2 border-violet-400/30 border-t-violet-400 rounded-full animate-spin" /> : <Link2 size={14} />}
+                              className="text-violet-400 hover:text-violet-300"
+                              disabled={isPublishingStrategy === strategy.id}
+                              onClick={async () => {
+                                setIsPublishingStrategy(strategy.id);
+                                try {
+                                  const brand = getBrandConfig(settings);
+                                  const html = buildAnimatedStrategyHtml({
+                                    entityName: strategy.entityName,
+                                    entityType: 'lead',
+                                    planData: strategy.planData,
+                                    createdAt: strategy.createdAt,
+                                  }, brand);
+                                  const url = await publishStrategyPage(strategy.id, html);
+                                  if (url) {
+                                    navigator.clipboard.writeText(url);
+                                    setCopiedStrategyUrl(strategy.id);
+                                    setTimeout(() => setCopiedStrategyUrl(null), 3000);
+                                  }
+                                } finally {
+                                  setIsPublishingStrategy(null);
+                                }
+                              }}
+                            >
+                              {strategy.publicUrl ? 'עדכן לינק' : 'פרסם לינק'}
                             </Button>
                           </div>
                           {isAdmin && (
@@ -2713,6 +2774,247 @@ ${questionnaireUrl}
                 await deleteStrategyPlan(confirmDeleteStrategyId);
                 setConfirmDeleteStrategyId(null);
               }}>מחק</Button>
+            </div>
+          </Modal>
+        )}
+
+        {/* Edit strategy modal */}
+        {editingStrategyId && editStrategyData && (
+          <Modal
+            isOpen={true}
+            onClose={() => { setEditingStrategyId(null); setEditStrategyData(null); }}
+            title="עריכת תוכנית אסטרטגית"
+            size="xl"
+          >
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar pe-2">
+              {/* Summary */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">תקציר מנהלים</label>
+                <Textarea
+                  value={editStrategyData.summary}
+                  onChange={(e) => setEditStrategyData({ ...editStrategyData, summary: e.target.value })}
+                  rows={3}
+                />
+              </div>
+
+              {/* Situation Analysis */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-white">ניתוח מצב קיים</h4>
+                {(['whatsWorking', 'whatsNotWorking', 'opportunities', 'risks', 'dependencies'] as const).map(key => {
+                  const labels: Record<string, string> = {
+                    whatsWorking: '✅ מה עובד',
+                    whatsNotWorking: '❌ מה לא עובד',
+                    opportunities: '💡 הזדמנויות',
+                    risks: '⚠️ סיכונים',
+                    dependencies: '🔗 תלויות'
+                  };
+                  const items = editStrategyData.situationAnalysis?.[key] || [];
+                  return (
+                    <div key={key}>
+                      <label className="block text-xs text-gray-400 mb-1">{labels[key]}</label>
+                      <Textarea
+                        value={items.join('\n')}
+                        onChange={(e) => {
+                          const newItems = e.target.value.split('\n');
+                          setEditStrategyData({
+                            ...editStrategyData,
+                            situationAnalysis: {
+                              ...editStrategyData.situationAnalysis,
+                              [key]: newItems,
+                            }
+                          });
+                        }}
+                        rows={Math.max(2, items.length)}
+                        placeholder="שורה אחת לכל פריט"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Action Plan Phases */}
+              {editStrategyData.actionPlan?.map((phase, pi) => (
+                <div key={pi} className="p-3 bg-[#0B1121] rounded-xl border border-white/5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-teal-400">{phase.phaseLabel}</h4>
+                    <button
+                      onClick={() => {
+                        const newPlan = [...editStrategyData.actionPlan];
+                        newPlan.splice(pi, 1);
+                        setEditStrategyData({ ...editStrategyData, actionPlan: newPlan });
+                      }}
+                      className="text-red-400/60 hover:text-red-400 text-xs"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                  <Input
+                    value={phase.phaseLabel}
+                    onChange={(e) => {
+                      const newPlan = [...editStrategyData.actionPlan];
+                      newPlan[pi] = { ...newPlan[pi], phaseLabel: e.target.value };
+                      setEditStrategyData({ ...editStrategyData, actionPlan: newPlan });
+                    }}
+                    placeholder="שם שלב"
+                  />
+                  <Textarea
+                    value={phase.phaseSummary}
+                    onChange={(e) => {
+                      const newPlan = [...editStrategyData.actionPlan];
+                      newPlan[pi] = { ...newPlan[pi], phaseSummary: e.target.value };
+                      setEditStrategyData({ ...editStrategyData, actionPlan: newPlan });
+                    }}
+                    rows={2}
+                    placeholder="תיאור שלב"
+                  />
+                  {phase.actions?.map((action, ai) => (
+                    <div key={ai} className="flex gap-2 items-start p-2 bg-white/[0.02] rounded-lg">
+                      <span className="text-teal-400 text-xs font-bold mt-2 flex-shrink-0 w-4">{action.number}</span>
+                      <div className="flex-1 space-y-1.5">
+                        <Input
+                          value={action.title}
+                          onChange={(e) => {
+                            const newPlan = [...editStrategyData.actionPlan];
+                            const newActions = [...newPlan[pi].actions];
+                            newActions[ai] = { ...newActions[ai], title: e.target.value };
+                            newPlan[pi] = { ...newPlan[pi], actions: newActions };
+                            setEditStrategyData({ ...editStrategyData, actionPlan: newPlan });
+                          }}
+                          placeholder="כותרת פעולה"
+                        />
+                        <Textarea
+                          value={action.description}
+                          onChange={(e) => {
+                            const newPlan = [...editStrategyData.actionPlan];
+                            const newActions = [...newPlan[pi].actions];
+                            newActions[ai] = { ...newActions[ai], description: e.target.value };
+                            newPlan[pi] = { ...newPlan[pi], actions: newActions };
+                            setEditStrategyData({ ...editStrategyData, actionPlan: newPlan });
+                          }}
+                          rows={2}
+                          placeholder="תיאור"
+                        />
+                        <div className="flex gap-2">
+                          <Input
+                            value={action.owner}
+                            onChange={(e) => {
+                              const newPlan = [...editStrategyData.actionPlan];
+                              const newActions = [...newPlan[pi].actions];
+                              newActions[ai] = { ...newActions[ai], owner: e.target.value };
+                              newPlan[pi] = { ...newPlan[pi], actions: newActions };
+                              setEditStrategyData({ ...editStrategyData, actionPlan: newPlan });
+                            }}
+                            placeholder="אחראי"
+                          />
+                          <Input
+                            value={action.kpi}
+                            onChange={(e) => {
+                              const newPlan = [...editStrategyData.actionPlan];
+                              const newActions = [...newPlan[pi].actions];
+                              newActions[ai] = { ...newActions[ai], kpi: e.target.value };
+                              newPlan[pi] = { ...newPlan[pi], actions: newActions };
+                              setEditStrategyData({ ...editStrategyData, actionPlan: newPlan });
+                            }}
+                            placeholder="KPI"
+                          />
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const newPlan = [...editStrategyData.actionPlan];
+                          const newActions = [...newPlan[pi].actions];
+                          newActions.splice(ai, 1);
+                          newPlan[pi] = { ...newPlan[pi], actions: newActions };
+                          setEditStrategyData({ ...editStrategyData, actionPlan: newPlan });
+                        }}
+                        className="text-red-400/40 hover:text-red-400 mt-2 flex-shrink-0"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => {
+                      const newPlan = [...editStrategyData.actionPlan];
+                      const actions = newPlan[pi].actions || [];
+                      newPlan[pi] = { ...newPlan[pi], actions: [...actions, { number: actions.length + 1, title: '', description: '', owner: '', kpi: '' }] };
+                      setEditStrategyData({ ...editStrategyData, actionPlan: newPlan });
+                    }}
+                    className="text-teal-400/60 hover:text-teal-400 text-xs flex items-center gap-1"
+                  >
+                    <Plus size={12} /> הוסף פעולה
+                  </button>
+                </div>
+              ))}
+
+              {/* KPIs */}
+              <div>
+                <h4 className="text-sm font-semibold text-white mb-2">מדדי הצלחה (KPIs)</h4>
+                {editStrategyData.kpis?.map((kpi, ki) => (
+                  <div key={ki} className="flex gap-2 items-center mb-2">
+                    <Input
+                      value={kpi.label}
+                      onChange={(e) => {
+                        const newKpis = [...(editStrategyData.kpis || [])];
+                        newKpis[ki] = { ...newKpis[ki], label: e.target.value };
+                        setEditStrategyData({ ...editStrategyData, kpis: newKpis });
+                      }}
+                      placeholder="מדד"
+                    />
+                    <Input
+                      value={kpi.target}
+                      onChange={(e) => {
+                        const newKpis = [...(editStrategyData.kpis || [])];
+                        newKpis[ki] = { ...newKpis[ki], target: e.target.value };
+                        setEditStrategyData({ ...editStrategyData, kpis: newKpis });
+                      }}
+                      placeholder="יעד"
+                    />
+                    <Input
+                      value={kpi.timeframe}
+                      onChange={(e) => {
+                        const newKpis = [...(editStrategyData.kpis || [])];
+                        newKpis[ki] = { ...newKpis[ki], timeframe: e.target.value };
+                        setEditStrategyData({ ...editStrategyData, kpis: newKpis });
+                      }}
+                      placeholder="מסגרת זמן"
+                    />
+                    <button
+                      onClick={() => {
+                        const newKpis = [...(editStrategyData.kpis || [])];
+                        newKpis.splice(ki, 1);
+                        setEditStrategyData({ ...editStrategyData, kpis: newKpis });
+                      }}
+                      className="text-red-400/40 hover:text-red-400 flex-shrink-0"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end mt-4 border-t border-white/5 pt-4">
+              <Button variant="ghost" onClick={() => { setEditingStrategyId(null); setEditStrategyData(null); }}>ביטול</Button>
+              <Button onClick={async () => {
+                if (editingStrategyId && editStrategyData) {
+                  await updateStrategyPlan(editingStrategyId, { planData: editStrategyData });
+                  // If a public URL exists, re-publish with updated content
+                  const strategy = strategyPlans.find(s => s.id === editingStrategyId);
+                  if (strategy?.publicUrl) {
+                    const brand = getBrandConfig(settings);
+                    const html = buildAnimatedStrategyHtml({
+                      entityName: strategy.entityName,
+                      entityType: 'lead',
+                      planData: editStrategyData,
+                      createdAt: strategy.createdAt,
+                    }, brand);
+                    await publishStrategyPage(editingStrategyId, html);
+                  }
+                  setEditingStrategyId(null);
+                  setEditStrategyData(null);
+                }
+              }}>שמור שינויים</Button>
             </div>
           </Modal>
         )}
