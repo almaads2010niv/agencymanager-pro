@@ -1422,13 +1422,19 @@ Deno.serve(async (req) => {
         } else {
           const audioRes = await fetch(fileUrl)
           const audioBuffer = await audioRes.arrayBuffer()
-          const audioBase64 = btoa(
-            new Uint8Array(audioBuffer).reduce((s, b) => s + String.fromCharCode(b), '')
-          )
+          // Guard: reject files > 4MB to avoid memory limit exceeded in Edge Function
+          if (audioBuffer.byteLength > 4 * 1024 * 1024) {
+            responseText = `⚠️ קובץ אודיו גדול מדי (${(audioBuffer.byteLength / (1024 * 1024)).toFixed(1)}MB). הגבלה: 4MB.\nנסה לשלוח הקלטה קצרה יותר.`
+            actionTaken = 'voice_too_large'
+          } else {
+            const audioBase64 = btoa(
+              new Uint8Array(audioBuffer).reduce((s, b) => s + String.fromCharCode(b), '')
+            )
 
-          const result = await transcribeAndExecute(geminiKey, audioBase64, adminClient, tenantId)
-          responseText = result.response
-          actionTaken = result.action
+            const result = await transcribeAndExecute(geminiKey, audioBase64, adminClient, tenantId)
+            responseText = result.response
+            actionTaken = result.action
+          }
         }
       }
 
@@ -1441,6 +1447,11 @@ Deno.serve(async (req) => {
         if (fileUrl) {
           const imgRes = await fetch(fileUrl)
           const imgBuffer = await imgRes.arrayBuffer()
+          // Guard: reject images > 4MB to avoid memory limit exceeded
+          if (imgBuffer.byteLength > 4 * 1024 * 1024) {
+            responseText = `⚠️ התמונה גדולה מדי (${(imgBuffer.byteLength / (1024 * 1024)).toFixed(1)}MB). הגבלה: 4MB.`
+            actionTaken = 'image_too_large'
+          } else {
           const imgBytes = new Uint8Array(imgBuffer)
           const imgBase64 = btoa(
             imgBytes.reduce((s, b) => s + String.fromCharCode(b), '')
@@ -1540,6 +1551,7 @@ Deno.serve(async (req) => {
             ? `<b>📷 ניתוח תמונה:</b>\n${analysis}${uploadResult}`
             : `❌ לא הצלחתי לנתח את התמונה${uploadResult}`
           actionTaken = wantsKnowledge ? 'image_to_knowledge' : wantsReceipt ? 'image_to_receipt' : 'image_analysis'
+          } // close else (size guard)
         }
       }
 
@@ -1562,12 +1574,18 @@ Deno.serve(async (req) => {
           try {
             const audioRes = await fetch(fileUrl)
             const audioBuffer = await audioRes.arrayBuffer()
-            const audioBase64 = btoa(
-              new Uint8Array(audioBuffer).reduce((s, b) => s + String.fromCharCode(b), '')
-            )
-            const result = await transcribeAndExecute(geminiKey, audioBase64, adminClient, tenantId, mimeType)
-            responseText = result.response
-            actionTaken = result.action
+            // Guard: reject audio files > 4MB to avoid memory limit exceeded
+            if (audioBuffer.byteLength > 4 * 1024 * 1024) {
+              responseText = `⚠️ קובץ אודיו גדול מדי (${(audioBuffer.byteLength / (1024 * 1024)).toFixed(1)}MB). הגבלה: 4MB.\nנסה לשלוח קובץ קטן יותר.`
+              actionTaken = 'voice_too_large'
+            } else {
+              const audioBase64 = btoa(
+                new Uint8Array(audioBuffer).reduce((s, b) => s + String.fromCharCode(b), '')
+              )
+              const result = await transcribeAndExecute(geminiKey, audioBase64, adminClient, tenantId, mimeType)
+              responseText = result.response
+              actionTaken = result.action
+            }
           } catch (audioErr) {
             console.error('Audio document transcription error:', audioErr)
             responseText = `❌ שגיאה בתמלול קובץ אודיו: ${audioErr instanceof Error ? audioErr.message : 'שגיאה לא ידועה'}\nגודל הקובץ: ${(doc.file_size || 0) > 1024 * 1024 ? `${((doc.file_size || 0) / (1024 * 1024)).toFixed(1)}MB` : `${((doc.file_size || 0) / 1024).toFixed(0)}KB`}`
@@ -1576,6 +1594,11 @@ Deno.serve(async (req) => {
         } else if (fileUrl) {
           const docRes = await fetch(fileUrl)
           const docBuffer = await docRes.arrayBuffer()
+          // Guard: reject docs > 4MB to avoid memory limit exceeded
+          if (docBuffer.byteLength > 4 * 1024 * 1024) {
+            responseText = `⚠️ המסמך גדול מדי (${(docBuffer.byteLength / (1024 * 1024)).toFixed(1)}MB). הגבלה: 4MB.\nנסה לשלוח קובץ קטן יותר.`
+            actionTaken = 'document_too_large'
+          } else {
           const docBytes = new Uint8Array(docBuffer)
 
           const captionLower = (text || '').toLowerCase()
@@ -1690,6 +1713,7 @@ ${text ? `הקשר מהמשתמש: "${text}"` : ''}
             }
             actionTaken = 'document_to_receipt'
           }
+          } // close else (document size guard)
         }
       }
 
