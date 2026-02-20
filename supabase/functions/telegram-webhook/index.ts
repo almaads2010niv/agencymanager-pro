@@ -10,7 +10,7 @@ const corsHeaders = {
 }
 
 // ── AI Models — fast model for intents, quality model for analysis ─────────
-const GEMINI_FAST = 'gemini-2.0-flash-lite'  // Fast, no thinking — for intent recognition & simple tasks
+const GEMINI_FAST = 'gemini-2.5-flash-lite'  // Fast, no thinking by default — for intent recognition & simple tasks
 const GEMINI_QUALITY = 'gemini-2.5-flash'     // Quality — for image analysis, document summarization
 
 // ── Types ────────────────────────────────────────────────────
@@ -233,7 +233,7 @@ async function recognizeIntent(geminiKey: string, text: string): Promise<CRMInte
 8. add_deal — פרויקט/עסקה חדשה
 9. search — חיפוש (למשל: "מה עם ניב?")
 10. signals_profile — פרופיל Signals OS (למשל: "פרופיל signals של אריה טל", "אישיות של מנשה")
-11. stats — סטטיסטיקות
+11. stats — סטטיסטיקות (למשל: "מה המצב?", "כמה לקוחות?", "כמה לקוחות פעילים יש לי?", "דשבורד", "סטטיסטיקות", "תן סיכום")
 12. reminder — תזכורת
 13. help — עזרה
 14. unknown — לא ברור
@@ -1695,10 +1695,23 @@ ${text ? `הקשר מהמשתמש: "${text}"` : ''}
 
     } else if (text && !text.startsWith('/') && geminiKey) {
       // ── Free text — AI intent recognition + execution ─
-      const intent = await recognizeIntent(geminiKey, text)
-      const result = await executeIntent(intent, adminClient, tenantId, geminiKey)
-      responseText = result.response
-      actionTaken = result.action
+      try {
+        const intent = await recognizeIntent(geminiKey, text)
+        console.log('Intent recognized:', intent.action, intent.entity_name || '')
+        const result = await executeIntent(intent, adminClient, tenantId, geminiKey)
+        responseText = result.response
+        actionTaken = result.action
+      } catch (intentErr) {
+        console.error('Intent processing error:', intentErr)
+        responseText = `⚠️ שגיאה בעיבוד ההודעה. נסה שוב או /help`
+        actionTaken = 'intent_error'
+      }
+    }
+
+    // Fallback: if no handler matched and no response, send a helpful message
+    if (!responseText && text) {
+      responseText = '🤔 לא הצלחתי לעבד את ההודעה. נסה /help לרשימת פקודות.'
+      actionTaken = 'no_handler'
     }
 
     // Send response

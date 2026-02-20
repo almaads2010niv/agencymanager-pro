@@ -179,7 +179,7 @@ ${scrapedData}
 - בעברית`
 
     // 6. Call Gemini API (using 2.0-flash-lite for reliable JSON)
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${settings.gemini_api_key}`
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${settings.gemini_api_key}`
 
     const geminiRes = await fetch(geminiUrl, {
       method: 'POST',

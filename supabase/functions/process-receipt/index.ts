@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
     }
 
     // 4. Call Gemini Vision API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiApiKey}`
 
     const prompt = `אתה מנתח קבלות ומסמכים פיננסיים. נתח את תמונת הקבלה/חשבונית הבאה וחלץ את המידע הבא בפורמט JSON בלבד:
 

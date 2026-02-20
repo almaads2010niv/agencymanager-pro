@@ -156,7 +156,7 @@ ${hasPersonality
 
     // 6. Call Gemini API
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiApiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiApiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -181,7 +181,7 @@ ${hasPersonality
       })
     }
 
-    // 7. Parse response (gemini-2.0-flash-lite: simple text, no thinking parts)
+    // 7. Parse response (gemini-2.5-flash-lite: simple text, no thinking parts)
     const geminiResult = await geminiRes.json()
     const parts = geminiResult.candidates?.[0]?.content?.parts || []
     let rawText = ''

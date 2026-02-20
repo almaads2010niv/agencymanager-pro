@@ -134,8 +134,8 @@ ${textContent ? `תוכן טקסט:\n---\n${textContent.substring(0, 15000)}\n--
       })
     }
 
-    // Use gemini-2.0-flash for file reading (supports PDF), lite for text-only
-    const model = fileData ? 'gemini-2.0-flash' : 'gemini-2.0-flash-lite'
+    // Use gemini-2.5-flash-lite for all summarization (supports PDF and text)
+    const model = 'gemini-2.5-flash-lite'
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.gemini_api_key}`
 
     const geminiRes = await fetch(geminiUrl, {
